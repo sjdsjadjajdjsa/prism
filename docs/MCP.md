@@ -100,7 +100,7 @@ so it can see your project inside the container.
 
 ### 2. Fetch web pages
 
-Lets the AI pull down a URL and read the page as text.
+Lets the AI pull down a URL and read the page as text. Its tool is called `imageFetch`, but it fetches normal web pages too, not just images.
 
 ```json
 "fetch": {
@@ -112,7 +112,9 @@ Lets the AI pull down a URL and read the page as text.
 ### 3. Git
 
 Gives the AI proper git tools (log, diff, commit search) instead of running
-shell commands.
+shell commands. After it connects, run its `git_set_working_dir` tool with
+`/workspace` first (or just ask Prism to set the git folder to `/workspace`),
+otherwise the tools look in the wrong folder.
 
 ```json
 "git": {

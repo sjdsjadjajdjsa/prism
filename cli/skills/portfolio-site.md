@@ -7,23 +7,16 @@ description: Build a personal resume or portfolio page with placeholders and pri
 
 Use this when the user wants a personal site: resume, portfolio, or about-me page.
 
-## Gather content
-- Ask the user for their name, role, and 2 or 3 projects or jobs. If they do not answer, use clearly marked placeholders like `YOUR NAME` and `PROJECT TITLE HERE` so they are easy to find and replace.
-- Keep it one page. A portfolio is a summary, not a blog.
+## Content and layout
+- Ask for user info (name, role, projects) or use clear placeholders like `YOUR NAME` and `PROJECT TITLE HERE`.
+- Separate files: `index.html` and `style.css`. Minimal JS is fine for small extras.
+- Semantic structure: header, main sections (about, experience, projects, skills, contact), small footer.
+- Add `<meta name="description">` bio and contact section with a `mailto:` link placeholder.
 
-## Build the HTML
-- Separate files: `index.html` and `style.css`.
-- Semantic structure: header with name and role, main with sections (about, experience, projects, skills, contact), small footer.
-- Every project gets a title, one-line description, and a link placeholder.
-- Add `<meta name="description">` with a one-line bio.
-- Add a contact section with `mailto:` link placeholder.
-
-## Build the CSS
-- Clean single-column layout, `max-width: 70ch`, generous spacing. This is a resume; readable beats flashy.
-- Use CSS custom properties in `:root` for the accent color and fonts so restyling is one-line edits.
-- System font stack only. No external fonts, no CDNs, no JS needed.
-- Add print styles so the page doubles as a PDF resume:
-
+## CSS and styles
+- Single-column layout, `max-width: 70ch`, system fonts, CSS variables in `:root` for accent colors.
+- HTML class names must match CSS selectors.
+- Print styles for PDF export:
   ```css
   @media print {
     nav, .no-print { display: none; }
@@ -33,9 +26,19 @@ Use this when the user wants a personal site: resume, portfolio, or about-me pag
   }
   ```
 
-- Test the print layout idea mentally: no dark backgrounds, links show their URLs.
-
 ## Verify before you finish
-- Run the same python HTML check as the website skill: parse `index.html` and confirm `style.css` exists.
-- Check every placeholder is marked: `grep -n "YOUR\|HERE" index.html` should list them all for the user.
-- Tell the user which placeholders to edit and that they can print to PDF from the browser (Ctrl+P).
+- Check placeholders: `grep -n "YOUR\|HERE" index.html`.
+- Run a python check that every class in `style.css` exists in `index.html` and vice versa:
+  ```python
+  import re, html.parser
+  class P(html.parser.HTMLParser):
+      def __init__(self): super().__init__(); self.classes = set()
+      def handle_starttag(self, tag, attrs):
+          for k, v in attrs:
+              if k == 'class': self.classes.update(v.split())
+  p = P(); p.feed(open('index.html').read())
+  css_cls = set(re.findall(r'\.([a-zA-Z0-9_-]+)', re.sub(r'/\*.*?\*/', '', open('style.css').read(), flags=re.S))) - {'no-print'}
+  assert not (css_cls - p.classes), f"CSS classes missing in HTML: {css_cls - p.classes}"
+  assert not (p.classes - css_cls), f"HTML classes missing in CSS: {p.classes - css_cls}"
+  ```
+- Tell the user which placeholders to edit and how to print to PDF (Ctrl+P).

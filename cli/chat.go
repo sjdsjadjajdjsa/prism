@@ -75,6 +75,7 @@ func modelName(route string) string {
 		return "auto"
 	}
 	name := route[strings.LastIndex(route, "/")+1:]
+	name = strings.TrimSuffix(name, ":free")
 	if strings.Contains(name, "glm-5.3-flash") {
 		name += " (Ox Alpha)"
 	}
@@ -494,37 +495,121 @@ func drawInput(cv *canvas, t theme, m model, x, y, w, h int, n, enter float64) {
 
 func drawStatus(cv *canvas, t theme, m model, x, y, w int, enter float64) {
 	muted := mix(t.bg, t.muted, enter)
-	fx := cv.grad(x+1, y, "◆ ", t, 0.1, 8, false)
-	fx = cv.text(fx, y, clip(modelName(m.route), w/2-24), mix(t.bg, t.fg, enter), false)
+	gap := 2
+
+	var left []seg
+	left = append(left, seg{text: "◆ ", grad: true, phase: 0.1})
+	left = append(left, seg{text: modelName(m.route), fg: mix(t.bg, t.fg, enter)})
+	queued := ""
 	if m.route != "" && m.waited > 1500*time.Millisecond {
-		fx = cv.text(fx, y, fmt.Sprintf(" · queued %.0fs", m.waited.Seconds()), mix(t.bg, t.muted, enter*0.8), false)
+		queued = fmt.Sprintf(" · queued %.0fs", m.waited.Seconds())
+		left = append(left, seg{text: queued, fg: mix(t.bg, t.muted, enter*0.8)})
 	}
-	fx = cv.text(fx, y, "  ·  ", mix(t.bg, t.faint, 1.5*enter), false)
-	fx = cv.text(fx, y, "free", mix(t.bg, t.green, enter), false)
+	left = append(left,
+		seg{text: "  ·  ", fg: mix(t.bg, t.faint, 1.5*enter)},
+		seg{text: "free", fg: mix(t.bg, t.green, enter)},
+	)
 
 	used := float64(m.tokens) / float64(max(1, m.window))
-	meter := 12
-	mx := max(x+w/2-2, fx+3)
-	for i := 0; i < meter; i++ {
-		col, ch := mix(t.bg, t.faint, enter*1.6), '▱'
-		if float64(i)/float64(meter) < used {
-			col, ch = mix(t.bg, t.at(float64(i)/float64(meter)*0.5), enter), '▰'
-		}
-		cv.set(mx+i, y, ch, col, false)
-	}
-	cv.text(mx+meter+1, y, fmt.Sprintf("%d%%", int(math.Round(used*100))), muted, false)
+	meterW := 12
+	pct := fmt.Sprintf("%d%%", int(math.Round(used*100)))
+	meterShown := true
 
 	keys := []seg{{text: "ctrl+t", fg: t.fg}, {text: " theme   ", fg: t.muted}, {text: "ctrl+c", fg: t.fg}, {text: " quit", fg: t.muted}}
 	if m.busy {
 		keys[0].text, keys[1].text = "esc", " stop   "
 	}
-	total := 0
-	for _, k := range keys {
-		total += len(k.text)
+	keysShown := true
+
+	widthOf := func(ss []seg) int {
+		n := 0
+		for _, s := range ss {
+			n += len([]rune(s.text))
+		}
+		return n
 	}
-	kx := x + w - total - 1
-	for _, k := range keys {
-		kx = cv.text(kx, y, k.text, mix(t.bg, k.fg, enter), false)
+	// The name may be shortened, but never below this, so a long model name
+	// gives up the queued note, meter and keys hint before it disappears.
+	const minName = 16
+	nameWidth := func() int {
+		return min(len([]rune(left[1].text)), minName)
+	}
+	// Lay out from both ends. When the row runs out of room, drop pieces in
+	// this order: the queued note, the context meter, then the keys hint.
+	// Segments that stay never touch — at least two columns stay between them.
+	for {
+		lw := widthOf(left) - len([]rune(left[1].text)) + nameWidth()
+		rw := 0
+		if keysShown {
+			rw = widthOf(keys)
+		}
+		need := lw
+		if meterShown {
+			need += gap + meterW + 1 + len([]rune(pct))
+		}
+		if rw > 0 {
+			need += gap + rw
+		}
+		if need <= w {
+			break
+		}
+		switch {
+		case queued != "":
+			left = append(left[:1], left[2:]...)
+			queued = ""
+		case meterShown:
+			meterShown = false
+		case keysShown:
+			keysShown = false
+		default:
+			break
+		}
+		if queued == "" && !meterShown && !keysShown {
+			break
+		}
+	}
+
+	// Whatever room is left goes to the model name, clipped with an ellipsis.
+	rightW := 0
+	if meterShown {
+		rightW += gap + meterW + 1 + len([]rune(pct))
+	}
+	if keysShown {
+		rightW += gap + widthOf(keys)
+	}
+	room := w - rightW - (widthOf(left) - len([]rune(left[1].text)))
+	left[1].text = clip(left[1].text, room)
+
+	fx := x
+	for _, s := range left {
+		if s.grad {
+			fx = cv.grad(fx, y, s.text, t, s.phase, 8, false)
+			continue
+		}
+		fx = cv.text(fx, y, s.text, s.fg, false)
+	}
+	if meterShown {
+		mx := x + w - 1 - len([]rune(pct)) - meterW
+		if keysShown {
+			mx -= gap + widthOf(keys)
+		}
+		if mx < fx+gap {
+			mx = fx + gap
+		}
+		for i := 0; i < meterW; i++ {
+			col, ch := mix(t.bg, t.faint, enter*1.6), '▱'
+			if float64(i)/float64(meterW) < used {
+				col, ch = mix(t.bg, t.at(float64(i)/float64(meterW)*0.5), enter), '▰'
+			}
+			cv.set(mx+i, y, ch, col, false)
+		}
+		cv.text(mx+meterW+1, y, pct, muted, false)
+	}
+	if keysShown {
+		kx := x + w - widthOf(keys)
+		for _, k := range keys {
+			kx = cv.text(kx, y, k.text, mix(t.bg, k.fg, enter), false)
+		}
 	}
 }
 

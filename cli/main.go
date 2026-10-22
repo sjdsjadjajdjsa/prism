@@ -520,6 +520,7 @@ func main() {
 	agent.mcp = startMCP(dir)
 	defer agent.mcp.close()
 	agent.system = *system
+	anyPath = *system
 	agent.messages[0].Content = agent.systemPrompt()
 	if *resume {
 		if list := agent.store.sessions(); len(list) > 0 {

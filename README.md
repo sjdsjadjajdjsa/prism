@@ -19,6 +19,8 @@ You only need **Docker** (free). Then one command. It runs [install.sh](install.
 curl -fsSL https://raw.githubusercontent.com/sjdsjadjajdjsa/prism/main/install.sh | bash
 ```
 
+Windows: open the Ubuntu app first (see the Windows steps in [docs/SETUP.md](docs/SETUP.md)) and paste the command there. Mac or Linux: paste it into Terminal.
+
 It checks Docker, downloads Prism to `~/.prism` and adds the `prism` command. Then open a new terminal:
 
 ```bash
@@ -53,6 +55,8 @@ Prism works with **no keys at all**. Out of the box it uses free models from Kil
 
 Want it faster and smarter? `prism setup` walks you through free keys, about a minute each. None of them ask for a card.
 
+A **router** is a small helper that picks a free AI for each step, and a **key** is a secret code you get free from an AI company's website, pasted in with `prism setup`; you don't need a key to start.
+
 | Provider | What you get | Key |
 | --- | --- | --- |
 | Kilo Gateway | MiniMax M3.1 Flash, Nemotron Ultra, Laguna | none |
@@ -79,11 +83,11 @@ A small router picks the model for every step:
 
 Each row is one run of the same tasks on the same computer. A task only counts if a script confirms the result works.
 
-<p align="center"><img src="docs/bench-coding.svg" alt="Coding benchmark: 465s at first, 96s at best, 165s now with skills, 168s with no keys" width="820"></p>
+<p align="center"><img src="docs/bench-coding.svg" alt="Coding benchmark: 465s at first, 115s now with a free NVIDIA key, 168s with no keys" width="820"></p>
 <p align="center"><img src="docs/bench-chat.svg" alt="Simple questions: 10.7s to 0.4s" width="820"></p>
 <p align="center"><img src="docs/bench-website.svg" alt="One website task: 1171s to 24s" width="820"></p>
 
-Free models are shared, so the same run can be 30% faster or slower on another day. The latest row is slower than the best one on purpose: with skills, Prism checks its website work more carefully before saying it is done. Compare rows loosely. The raw numbers are in [bench/history.json](bench/history.json), `python3 bench/chart.py` redraws the charts, and `bench/run.sh` and `bench/chat.sh` measure your own setup.
+Free models are shared, so the same run can be 30% faster or slower on another day. Compare rows loosely. The raw numbers are in [bench/history.json](bench/history.json), `python3 bench/chart.py` redraws the charts, and `bench/run.sh` and `bench/chat.sh` measure your own setup.
 
 ## Meet Shard
 
@@ -181,7 +185,7 @@ The same Prism, Shard and beam included, at http://127.0.0.1:4849. It only liste
 | `enter` / `shift+enter` | send / new line |
 | `esc` | stop the AI |
 | `ctrl+c` or `/quit` | close Prism |
-| `ctrl+t` or `/theme` | switch theme (prism, tokyo-night, catppuccin, rose-pine, matte-black) |
+| `ctrl+t` or `/theme` | switch theme (prism, tokyo-night, catppuccin, rose-pine, matte-black, gruvbox, nord, everforest) |
 | `pgup` `pgdown`, mouse wheel | scroll (smooth, with a scrollbar) |
 | click a `▸ N steps` line | open folded steps from an earlier turn (`ctrl+o` opens all of them) |
 | `/` | list every command, `tab` completes |

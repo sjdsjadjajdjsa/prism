@@ -1,6 +1,6 @@
 ---
 name: learn-mode
-description: Teach a beginner by building in small steps, explaining each one, and letting them try tiny changes.
+description: Use only when the user wants to learn by doing: teach in small steps and let them try tiny changes.
 ---
 
 # Skill: learn mode

@@ -17,7 +17,7 @@ Explain these steps plainly so the user can follow them:
 6. Open the generated URL in a browser and invite the bot to a test server.
 
 ## Set up the project
-- Create a project folder, then a venv: `python3 -m venv .venv`.
+- Create a project folder, then a venv: `python3 -m venv .venv` (or fallback `python3 -m virtualenv .venv`).
 - Write `requirements.txt` with `discord.py` and `python-dotenv`.
 - Install: `.venv/bin/pip install -r requirements.txt`.
 - Write `.env` with one line `DISCORD_TOKEN=paste-token-here`. Never put the token in code.
@@ -28,11 +28,12 @@ Explain these steps plainly so the user can follow them:
 - Use `discord.ext.commands.Bot` with `command_prefix="!"` and `intents.message_content = True`.
 - Add a `!ping` command that replies with "pong" and the latency in ms. For a slash command, use `@bot.tree.command(name="ping")` and call `await bot.tree.sync()` in `setup_hook`.
 - Add an `on_ready` handler that prints the bot's name so the user knows it connected.
+- Guard the runner: require `if __name__ == "__main__": bot.run(TOKEN)`.
 - Keep comments short. Add comments only where Discord's API is surprising.
 
 ## Verify before you finish
 - Run `.venv/bin/python -m py_compile bot.py` to catch syntax errors.
 - Run `grep -n "DISCORD_TOKEN" bot.py` to confirm the token is read from the environment, never hardcoded.
 - Confirm `.env` is listed in `.gitignore`.
-- Do NOT run the bot. It needs the user's real token and stays online as a long-running process.
-- Tell the user how to start it: `.venv/bin/python bot.py`, and how to test: type the ping command in a channel.
+- Never run the bot. It needs the user's real token and stays online as a long-running process.
+- The final message must tell the user to enable Message Content Intent and invite the bot with the OAuth2 URL generator, and to run `.venv/bin/python bot.py`.

@@ -1,6 +1,6 @@
 ---
 name: explain-code
-description: Read the code first, then explain it in plain beginner words with a file-by-file tour. No changes.
+description: Use when the user asks how code works or wants it explained, even for beginners. Read-only tour.
 ---
 
 # Skill: explain code
@@ -9,6 +9,7 @@ Use this when the user asks "what does this do", "explain this project", or "wal
 
 ## Golden rule
 - Explain only. Do not edit, rename, reformat, or "improve" anything. Read tools only: `list`, `grep`, `read`.
+- Only state what you read in the files; quote file:line; never invent config or fields; define each technical word in plain words; end with how to run it.
 
 ## Step 1: Map the project
 - Use `list` on the project root to see the shape: folders, entry files, config.

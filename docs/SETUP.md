@@ -18,7 +18,7 @@ To paste into a terminal, use `Ctrl + Shift + V` on Linux, `Cmd + V` on Mac, or 
 
 ## Linux (Ubuntu, Linux Mint, Debian, Pop!_OS)
 
-**1. Install Docker.** It asks for your password. While you type it, nothing shows on screen. That's normal.
+**1. Install Docker.** It asks for your computer's login password (the one you type when you sign in to your computer). While you type it, nothing shows on screen. That's normal.
 
 ```bash
 sudo apt update
@@ -91,7 +91,7 @@ Docker Desktop has to be running whenever you use Prism.
 
 Prism runs inside **WSL**, which is Linux built into Windows and made by Microsoft. It needs Windows 10 (version 2004 or newer) or Windows 11.
 
-**1. Install WSL.** Right-click the Start button → **Terminal (Admin)** or **PowerShell (Admin)**, then run:
+**1. Install WSL.** Right-click the Start button and pick **Terminal (Admin)** or **PowerShell (Admin)**. Windows shows a permission prompt asking if the app can make changes to your device; click **Yes**. Then run:
 
 ```powershell
 wsl --install
@@ -99,11 +99,13 @@ wsl --install
 
 **2. Restart your computer.** After it restarts, an **Ubuntu** window opens and asks you to pick a username and password. These are only for Ubuntu, so pick anything you'll remember.
 
-If no Ubuntu window opens, open the **Ubuntu** app from the Start menu yourself. If step 1 only printed a list of options instead of installing, run `wsl --install -d Ubuntu` and restart again.
+You can recognise the Ubuntu window: it is dark (a black background) and, once it is ready, shows a line ending in `$`, like `sam@PC:~$`. That line is where you type commands.
+
+If no Ubuntu window opens, open the **Ubuntu** app from the Start menu yourself. If step 1 prints a list of names like Ubuntu and Debian and stops, type `wsl --install -d Ubuntu` and restart again.
 
 **3. Install Docker Desktop.** It's free for personal use. Go to [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/), download the Windows version and install it with the default options. Open Docker Desktop and wait until it says it's running.
 
-**4. Connect Docker to Ubuntu.** In Docker Desktop, go to **Settings** (the gear icon) → **Resources** → **WSL integration**. Turn on **Ubuntu**, then click **Apply & restart**. If Ubuntu isn't listed, first go to **Settings → General** and tick **Use the WSL 2 based engine**.
+**4. Connect Docker to Ubuntu.** In Docker Desktop, go to **Settings** (the gear icon) → **Resources** → **WSL integration**. Put a check in the box next to **Ubuntu**, then click **Apply & restart**. If Ubuntu isn't listed, first go to **Settings → General** and put a check in the box next to **Use the WSL 2 based engine**.
 
 **5. Open the Ubuntu app** from the Start menu and check Docker works:
 
@@ -130,7 +132,7 @@ Always use Prism from the **Ubuntu** app, not PowerShell, and keep Docker Deskto
 
 ## Your first run
 
-**1. Close the terminal window and open a new one**, so the `prism` command is found.
+**1. Close the terminal window and open a new one**, so the `prism` command is found. On Linux, search your apps for "Terminal" again. On Mac, press `Cmd + Space`, type "Terminal", press Enter. On Windows, open the **Ubuntu** app from the Start menu.
 
 **2. Make a practice folder and go into it:**
 
@@ -138,6 +140,8 @@ Always use Prism from the **Ubuntu** app, not PowerShell, and keep Docker Deskto
 mkdir ~/prism-test
 cd ~/prism-test
 ```
+
+Here `~` means your home folder (the folder with your name on it), so this makes a folder called `prism-test` inside it.
 
 **3. Start Prism:**
 
@@ -163,12 +167,14 @@ That's it. Prism works with **no keys and no accounts**.
 
 ## If something goes wrong
 
+If you see a red message, find the closest match below.
+
 | What you see | What to do |
 | --- | --- |
-| `permission denied ... docker.sock` | Linux: run `sudo usermod -aG docker $USER`, then log out and back in. |
-| `Cannot connect to the Docker daemon` | Mac/Windows: open Docker Desktop and wait until it's running. Linux: `sudo systemctl enable --now docker`. |
-| `prism: command not found` | Open a new terminal. Still missing? Run `~/.prism/prism install` (or `./prism install` from the folder you downloaded Prism into). |
-| `docker: command not found` (Windows) | In Docker Desktop, turn on WSL integration for Ubuntu (Windows step 4). |
+| Docker says "permission denied" about docker.sock | Linux: run `sudo usermod -aG docker $USER`, then log out and back in. |
+| Docker is not running yet ("Cannot connect to the Docker daemon") | Mac/Windows: open Docker Desktop and wait until it's running. Linux: `sudo systemctl enable --now docker`. |
+| "prism: command not found" | Open a new terminal. Still missing? Run `~/.prism/prism install` (or `./prism install` from the folder you downloaded Prism into). |
+| "docker: command not found" on Windows | In Docker Desktop, put a check in the box for WSL integration for Ubuntu (Windows step 4). |
 | The first start is very slow | That's normal the first time: Docker downloads and builds everything once. |
 | "no free models ready" or "every free AI model is busy" | Check your internet, wait a minute and try again. `prism status` shows each model. Adding a free key with `prism setup` helps a lot. |
 | "Prism won't start in your home folder" | Prism won't run in your home folder or `/`. Use `cd` to go into a project folder first. |

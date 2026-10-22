@@ -146,6 +146,8 @@ func describe(raw string) string {
 	return ""
 }
 
+var anyPath bool
+
 func resolve(dir, path string) string {
 	if path == "" {
 		return dir
@@ -156,9 +158,19 @@ func resolve(dir, path string) string {
 	return filepath.Join(dir, path)
 }
 
+func outside(dir, path string) bool {
+	if anyPath {
+		return false
+	}
+	rel, err := filepath.Rel(dir, path)
+	return err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+const outsideMsg = "that path is outside the project folder. Prism can only use files inside it"
+
 func relative(dir, path string) string {
 	rel, err := filepath.Rel(dir, path)
-	if err != nil || strings.HasPrefix(rel, "..") {
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return path
 	}
 	return rel
@@ -183,9 +195,19 @@ var skipDirs = map[string]bool{".git": true, "node_modules": true, ".venv": true
 
 func listTool(dir string, args map[string]any) toolResult {
 	root := resolve(dir, sarg(args, "path"))
+	if outside(dir, root) {
+		return fail(outsideMsg)
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		return fail(plainError(dir, err))
+	}
+	if !info.IsDir() {
+		return toolResult{ok: true, output: relative(dir, root), summary: "1 file"}
+	}
 	var out []string
 	more := 0
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || path == root {
 			return nil
 		}
@@ -226,6 +248,9 @@ func grepTool(ctx context.Context, dir string, args map[string]any) toolResult {
 		return fail("pattern is empty")
 	}
 	target := resolve(dir, sarg(args, "path"))
+	if outside(dir, target) {
+		return fail(outsideMsg)
+	}
 	var cmd *exec.Cmd
 	if _, err := exec.LookPath("rg"); err == nil {
 		cmd = exec.CommandContext(ctx, "rg", "--line-number", "--no-heading", "--color=never", "--max-count=50", "--max-columns=300", "--", pattern, target)
@@ -239,7 +264,11 @@ func grepTool(ctx context.Context, dir string, args map[string]any) toolResult {
 		return toolResult{ok: true, output: "No matches.", summary: "no matches"}
 	}
 	if err != nil {
-		return fail("search failed: " + strings.TrimSpace(string(exitErr.Stderr)))
+		msg := err.Error()
+		if exitErr != nil && len(exitErr.Stderr) > 0 {
+			msg = strings.TrimSpace(string(exitErr.Stderr))
+		}
+		return fail("search failed: " + msg)
 	}
 	lines := splitLines(strings.ReplaceAll(string(out), dir+"/", ""))
 	total := len(lines)
@@ -251,6 +280,21 @@ func grepTool(ctx context.Context, dir string, args map[string]any) toolResult {
 
 func readTool(dir string, args map[string]any) toolResult {
 	path := resolve(dir, sarg(args, "path"))
+	if outside(dir, path) {
+		return fail(outsideMsg)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fail(plainError(dir, err))
+	}
+	switch {
+	case info.IsDir():
+		return fail(relative(dir, path) + " is a folder. Use list to see what's inside")
+	case !info.Mode().IsRegular():
+		return fail(relative(dir, path) + " is not a normal file")
+	case info.Size() > 8<<20:
+		return fail(fmt.Sprintf("%s is too big to read (%d MB). Use grep or bash with head/tail instead", relative(dir, path), info.Size()>>20))
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fail(plainError(dir, err))
@@ -262,7 +306,10 @@ func readTool(dir string, args map[string]any) toolResult {
 	if len(lines) == 0 {
 		return toolResult{ok: true, output: "The file is empty.", summary: "empty"}
 	}
-	start := min(iarg(args, "offset", 1)-1, len(lines)-1)
+	start := iarg(args, "offset", 1) - 1
+	if start >= len(lines) {
+		return fail(fmt.Sprintf("offset %d is past the end: the file has %d lines", start+1, len(lines)))
+	}
 	end := min(len(lines), start+iarg(args, "limit", 2000))
 	var b strings.Builder
 	for i := start; i < end; i++ {
@@ -280,6 +327,9 @@ func readTool(dir string, args map[string]any) toolResult {
 
 func writeTool(dir string, args map[string]any) toolResult {
 	path := resolve(dir, sarg(args, "path"))
+	if outside(dir, path) {
+		return fail(outsideMsg)
+	}
 	content := sarg(args, "content")
 	old, readErr := os.ReadFile(path)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -298,6 +348,9 @@ func writeTool(dir string, args map[string]any) toolResult {
 
 func editTool(dir string, args map[string]any) toolResult {
 	path := resolve(dir, sarg(args, "path"))
+	if outside(dir, path) {
+		return fail(outsideMsg)
+	}
 	oldText, newText := sarg(args, "old_string"), sarg(args, "new_string")
 	if oldText == "" {
 		return fail("old_string is empty. Use write to create a file.")
@@ -308,6 +361,12 @@ func editTool(dir string, args map[string]any) toolResult {
 	}
 	text := string(data)
 	count := strings.Count(text, oldText)
+	if count == 0 && strings.Contains(text, "\r\n") && !strings.Contains(oldText, "\r\n") {
+		crlf := func(s string) string { return strings.ReplaceAll(s, "\n", "\r\n") }
+		if c := strings.Count(text, crlf(oldText)); c > 0 {
+			oldText, newText, count = crlf(oldText), crlf(newText), c
+		}
+	}
 	replaceAll, _ := args["replace_all"].(bool)
 	switch {
 	case count == 0:
@@ -350,6 +409,11 @@ func changed(before, after string) toolResult {
 	}
 	if j := len(b) - suf; suf > 0 {
 		diff = append(diff, diffLine{' ', j + 1, b[j]})
+	}
+	if before != after && len(a)-suf-pre == 0 && len(b)-suf-pre == 0 && len(b) > 0 {
+		last := len(b) - 1
+		diff = append(diff[:0], diffLine{'-', last + 1, a[min(last, len(a)-1)]}, diffLine{'+', last + 1, b[last]})
+		return toolResult{ok: true, added: 1, removed: 1, diff: diff, summary: "+1 -1"}
 	}
 	added, removed := len(b)-suf-pre, len(a)-suf-pre
 	return toolResult{ok: true, added: added, removed: removed, diff: diff, summary: fmt.Sprintf("+%d -%d", added, removed)}

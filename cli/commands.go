@@ -76,13 +76,20 @@ func (m *model) command(text string) tea.Cmd {
 				others = append(others, s)
 			}
 		}
+		// Only the numbers that /resume shows (at most resumeShown) are valid.
+		others = others[:min(len(others), resumeShown)]
 		if len(fields) > 1 {
 			k, err := strconv.Atoi(fields[1])
 			if err != nil || k < 1 || k > len(others) {
 				m.entries = append(m.entries, &entry{kind: "note", text: "no chat with that number · try /resume"})
 				return nil
 			}
-			m.agent.resume(others[k-1])
+			sess, err := m.agent.store.loadSession(others[k-1].ID)
+			if err != nil {
+				m.entries = append(m.entries, &entry{kind: "error", text: "couldn't reopen that chat: " + err.Error()})
+				return nil
+			}
+			m.agent.resume(sess)
 			m.entries = append(entriesFrom(m.agent.messages), &entry{kind: "note", text: "chat reopened · keep going"})
 			m.tokens, m.scroll = m.agent.tokens, 0
 			return nil
@@ -92,14 +99,21 @@ func (m *model) command(text string) tea.Cmd {
 			return nil
 		}
 		var lines []string
-		for k, s := range others[:min(len(others), 9)] {
+		for k, s := range others {
 			lines = append(lines, fmt.Sprintf("%d  %-11s %s", k+1, ago(s.Updated), s.Title))
 		}
 		lines = append(lines, "", "type /resume <number> to reopen one")
 		m.entries = append(m.entries, &entry{kind: "info", text: "earlier chats", lines: lines})
 	case "/init":
+		if m.busy {
+			m.input = nil
+			m.entries = append(m.entries, &entry{kind: "note", text: "wait until prism finishes, then run /init"})
+			return nil
+		}
 		m.input = []rune(initPrompt)
-		return m.submit()
+		cmd := m.submit()
+		m.input = nil // never leave the long prompt sitting in the box
+		return cmd
 	case "/memory", "/forget":
 		if name == "/forget" || (len(fields) > 1 && fields[1] == "forget") {
 			if err := m.agent.store.forget(); err != nil {
@@ -259,6 +273,9 @@ func provider(route string) string {
 	name, _, _ := strings.Cut(route, "/")
 	return name
 }
+
+// resumeShown is how many earlier chats /resume lists; only those numbers can be reopened.
+const resumeShown = 9
 
 const initPrompt = `Look around this project (list, read the key files, check how it is run and tested). Then write PRISM.md in the project root: a short guide for an AI coding assistant with what the project is, how the folders are laid out, the exact commands to run, build and test it, and the code conventions you can see. Keep it under 60 lines. Do not change any other file.`
 

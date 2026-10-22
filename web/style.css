@@ -25,6 +25,21 @@
   --red: #d96c6c; --green: #93c47d;
   --s0: #f5a524; --s1: #f2f2f2; --s2: #9a9a9a; --s3: #f5a524; --s4: #f2f2f2; --s5: #9a9a9a; --s6: #f5a524;
 }
+[data-theme="gruvbox"] {
+  --bg: #282828; --panel: #32302f; --fg: #ebdbb2; --muted: #928374; --faint: #3c3836;
+  --red: #fb4934; --green: #b8bb26;
+  --s0: #fb4934; --s1: #fe8019; --s2: #fabd2f; --s3: #b8bb26; --s4: #8ec07c; --s5: #83a598; --s6: #d3869b;
+}
+[data-theme="nord"] {
+  --bg: #2e3440; --panel: #3b4252; --fg: #d8dee9; --muted: #7b88a1; --faint: #434c5e;
+  --red: #bf616a; --green: #a3be8c;
+  --s0: #bf616a; --s1: #d08770; --s2: #ebcb8b; --s3: #a3be8c; --s4: #88c0d0; --s5: #81a1c1; --s6: #b48ead;
+}
+[data-theme="everforest"] {
+  --bg: #2d353b; --panel: #343f44; --fg: #d3c6aa; --muted: #859289; --faint: #3d484d;
+  --red: #e67e80; --green: #a7c080;
+  --s0: #e67e80; --s1: #e69875; --s2: #dbbc7f; --s3: #a7c080; --s4: #83c092; --s5: #7fbbb3; --s6: #d699b6;
+}
 
 :root {
   --mono: ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;

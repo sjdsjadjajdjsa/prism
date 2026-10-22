@@ -75,7 +75,7 @@ func skillIndex(skills []skill) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\n\nSkills: tested playbooks. If the request matches one of these, your FIRST action must be calling the skill tool with that name; then follow its steps. Example: a request for a browser game loads browser-game before writing any file.\n")
+	b.WriteString("\n\nSkills: tested playbooks. If the request matches one of these, your FIRST action must be calling the skill tool with that name; then follow its steps. Pick by the language and kind of task in the request. Example: a request for a browser game loads browser-game before writing any file.\n")
 	for _, s := range skills {
 		b.WriteString("- " + s.name + ": " + s.description + "\n")
 	}

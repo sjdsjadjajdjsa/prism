@@ -4,7 +4,7 @@ const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const DEMO = params.has('demo');
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const THEMES = ['prism', 'tokyo-night', 'catppuccin', 'rose-pine', 'matte-black'];
+const THEMES = ['prism', 'tokyo-night', 'catppuccin', 'rose-pine', 'matte-black', 'gruvbox', 'nord', 'everforest'];
 
 // ---------- theme ----------
 function cssVar(name) {

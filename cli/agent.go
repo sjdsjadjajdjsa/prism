@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -126,7 +127,17 @@ func (a *Agent) tools() []any {
 func (a *Agent) reset() {
 	a.messages = []Message{{Role: "system", Content: a.systemPrompt()}}
 	a.tokens, a.memMark = 0, 0
-	a.session = time.Now().Format("20060102-150405")
+	a.session = time.Now().Format("20060102-150405") + "-" + randomSuffix()
+}
+
+// randomSuffix returns 4 hex characters so that sessions started within the
+// same second get distinct ids.
+func randomSuffix() string {
+	var b [2]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("%04x", time.Now().UnixNano()&0xffff)
+	}
+	return fmt.Sprintf("%x", b[:])
 }
 
 func (a *Agent) systemPrompt() string {
@@ -167,8 +178,43 @@ Work like a careful senior engineer:
 func (a *Agent) Run(ctx context.Context, prompt string, emit func(any)) {
 	a.messages = append(a.messages, Message{Role: "user", Content: prompt})
 	err := a.loop(ctx, emit)
+	if errors.Is(err, context.Canceled) {
+		a.stopped()
+	}
 	a.saveSession()
 	emit(evDone{err: err})
+}
+
+// stopped closes the history after the user cancelled a run so the next
+// message is not read as a request to resume the old task: every pending
+// tool call gets its tool message and a final assistant note is added unless
+// the history already ends with a plain assistant reply.
+func (a *Agent) stopped() {
+	for i := len(a.messages) - 1; i >= 0; i-- {
+		m := a.messages[i]
+		if m.Role != "assistant" {
+			continue
+		}
+		if len(m.ToolCalls) == 0 {
+			if i == len(a.messages)-1 {
+				return
+			}
+			break
+		}
+		answered := map[string]bool{}
+		for _, t := range a.messages[i+1:] {
+			if t.Role == "tool" {
+				answered[t.ToolCallID] = true
+			}
+		}
+		for _, call := range m.ToolCalls {
+			if !answered[call.ID] {
+				a.messages = append(a.messages, Message{Role: "tool", ToolCallID: call.ID, Content: "Cancelled by the user."})
+			}
+		}
+		break
+	}
+	a.messages = append(a.messages, Message{Role: "assistant", Content: "Stopped by the user before finishing. Wait for the next instruction."})
 }
 
 func (a *Agent) loop(ctx context.Context, emit func(any)) error {

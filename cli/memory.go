@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode/utf8"
 )
@@ -21,6 +22,7 @@ const (
 	pruneKeepLines = 6
 	rulesLimit     = 8000
 	memoryLimit    = 4000
+	keepSessions   = 50
 )
 
 const memoryPrompt = `You keep a short memory file for a coding assistant that works on one project. Below is the current memory and a log of the latest work.
@@ -31,6 +33,7 @@ If nothing worth keeping changed, reply with exactly: UNCHANGED`
 type store struct {
 	dir string
 	mu  sync.Mutex
+	gen uint64 // bumped by forget(); a memory job started before the bump must not write
 }
 
 type session struct {
@@ -38,6 +41,13 @@ type session struct {
 	Title    string    `json:"title"`
 	Updated  time.Time `json:"updated"`
 	Messages []Message `json:"messages"`
+}
+
+// sessionInfo is the listing view of a session file: no messages are decoded.
+type sessionInfo struct {
+	ID      string    `json:"id"`
+	Title   string    `json:"title"`
+	Updated time.Time `json:"updated"`
 }
 
 type usageDay struct {
@@ -87,9 +97,27 @@ func (s *store) setMemory(text string) error {
 	return writeAtomic(s.path("memory.md"), []byte(strings.TrimSpace(text)+"\n"))
 }
 
+// setMemoryIf writes the memory only if no forget() happened since generation gen.
+// It reports whether the write was made.
+func (s *store) setMemoryIf(text string, gen uint64) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.gen != gen {
+		return false, nil
+	}
+	return true, writeAtomic(s.path("memory.md"), []byte(strings.TrimSpace(text)+"\n"))
+}
+
+func (s *store) generation() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.gen
+}
+
 func (s *store) forget() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.gen++
 	if err := os.Remove(s.path("memory.md")); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -103,11 +131,15 @@ func writeAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
+	tmp := fmt.Sprintf("%s.%d.tmp", path, os.Getpid())
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 func (s *store) saveSession(sess session) error {
@@ -115,9 +147,40 @@ func (s *store) saveSession(sess session) error {
 	if err != nil {
 		return err
 	}
-	return writeAtomic(s.path("sessions", sess.ID+".json"), data)
+	if err := writeAtomic(s.path("sessions", sess.ID+".json"), data); err != nil {
+		return err
+	}
+	s.pruneSessions(keepSessions)
+	return nil
 }
 
+// pruneSessions keeps only the newest keep session files by modification time.
+func (s *store) pruneSessions(keep int) {
+	if s.dir == "" {
+		return
+	}
+	files, _ := filepath.Glob(s.path("sessions", "*.json"))
+	if len(files) <= keep {
+		return
+	}
+	type stamped struct {
+		path string
+		mod  time.Time
+	}
+	var all []stamped
+	for _, f := range files {
+		if info, err := os.Stat(f); err == nil {
+			all = append(all, stamped{f, info.ModTime()})
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].mod.After(all[j].mod) })
+	for _, old := range all[min(keep, len(all)):] {
+		os.Remove(old.path)
+	}
+}
+
+// sessions lists saved chats, newest first, decoding only the header fields.
+// The returned sessions carry no Messages; resume loads the full file on demand.
 func (s *store) sessions() []session {
 	files, _ := filepath.Glob(s.path("sessions", "*.json"))
 	var out []session
@@ -126,13 +189,32 @@ func (s *store) sessions() []session {
 		if err != nil {
 			continue
 		}
-		var sess session
-		if json.Unmarshal(data, &sess) == nil && len(sess.Messages) > 1 {
-			out = append(out, sess)
+		var info sessionInfo
+		if json.Unmarshal(data, &info) == nil && info.ID != "" {
+			out = append(out, session{ID: info.ID, Title: info.Title, Updated: info.Updated})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Updated.After(out[j].Updated) })
 	return out
+}
+
+// loadSession reads one full session file, messages included.
+func (s *store) loadSession(id string) (session, error) {
+	var sess session
+	if s.dir == "" || id == "" {
+		return sess, os.ErrNotExist
+	}
+	data, err := os.ReadFile(s.path("sessions", filepath.Base(id)+".json"))
+	if err != nil {
+		return sess, err
+	}
+	if err := json.Unmarshal(data, &sess); err != nil {
+		return sess, err
+	}
+	if len(sess.Messages) < 2 {
+		return sess, fmt.Errorf("session %s has no messages", id)
+	}
+	return sess, nil
 }
 
 func usagePath() string {
@@ -152,9 +234,35 @@ func todayUsage() usageDay {
 	return u
 }
 
+// lockFile takes an exclusive advisory lock on path; the returned func releases it.
+// Lock failures are ignored: the caller proceeds unlocked rather than losing the update.
+func lockFile(path string) func() {
+	if path == "" {
+		return func() {}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return func() {}
+	}
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		return func() {}
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return func() {}
+	}
+	return func() {
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}
+}
+
 func addUsage(tokens int) {
 	usageMu.Lock()
 	defer usageMu.Unlock()
+	if p := usagePath(); p != "" {
+		defer lockFile(p + ".lock")()
+	}
 	u := todayUsage()
 	u.Requests++
 	u.Tokens += tokens
@@ -229,7 +337,19 @@ func (a *Agent) saveSession() {
 	a.store.saveSession(session{ID: a.session, Title: title, Updated: time.Now(), Messages: a.messages})
 }
 
+// resume switches to an earlier chat. A header-only session (from sessions())
+// is loaded from disk first; if that fails the current chat is left untouched.
 func (a *Agent) resume(sess session) {
+	if len(sess.Messages) == 0 && a.store != nil {
+		full, err := a.store.loadSession(sess.ID)
+		if err != nil {
+			return
+		}
+		sess = full
+	}
+	if len(sess.Messages) == 0 {
+		return
+	}
 	a.messages = append([]Message{{Role: "system", Content: a.systemPrompt()}}, sess.Messages[1:]...)
 	a.session = sess.ID
 	a.memMark = len(a.messages)
@@ -284,13 +404,14 @@ func clipText(s string, n int) string {
 type memoryJob struct {
 	api, journal, current string
 	store                 *store
+	gen                   uint64 // store generation when the job was created
 }
 
 func (a *Agent) memoryJob() *memoryJob {
 	if a.store == nil || a.store.dir == "" || os.Getenv("PRISM_MEMORY") == "off" || !a.worthRemembering() {
 		return nil
 	}
-	job := &memoryJob{api: a.api, journal: a.journal(), current: a.store.memory(), store: a.store}
+	job := &memoryJob{api: a.api, journal: a.journal(), current: a.store.memory(), store: a.store, gen: a.store.generation()}
 	a.memMark = len(a.messages)
 	return job
 }
@@ -326,5 +447,6 @@ func (j *memoryJob) run(ctx context.Context) (bool, error) {
 	if len(kept) > 25 {
 		kept = kept[:25]
 	}
-	return true, j.store.setMemory(strings.Join(kept, "\n"))
+	// A /memory forget since this job started wins: don't resurrect the old facts.
+	return j.store.setMemoryIf(strings.Join(kept, "\n"), j.gen)
 }

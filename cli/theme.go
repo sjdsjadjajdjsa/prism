@@ -68,4 +68,19 @@ var themes = []theme{
 		faint: hex("#222222"), red: hex("#d96c6c"), green: hex("#93c47d"),
 		spectrum: hexes("#f5a524", "#f2f2f2", "#9a9a9a", "#f5a524"),
 	},
+	{
+		name: "gruvbox", bg: hex("#282828"), panel: hex("#32302f"), fg: hex("#ebdbb2"), muted: hex("#928374"),
+		faint: hex("#3c3836"), red: hex("#fb4934"), green: hex("#b8bb26"),
+		spectrum: hexes("#fb4934", "#fe8019", "#fabd2f", "#b8bb26", "#8ec07c", "#83a598", "#d3869b"),
+	},
+	{
+		name: "nord", bg: hex("#2e3440"), panel: hex("#3b4252"), fg: hex("#d8dee9"), muted: hex("#7b88a1"),
+		faint: hex("#434c5e"), red: hex("#bf616a"), green: hex("#a3be8c"),
+		spectrum: hexes("#bf616a", "#d08770", "#ebcb8b", "#a3be8c", "#88c0d0", "#81a1c1", "#b48ead"),
+	},
+	{
+		name: "everforest", bg: hex("#2d353b"), panel: hex("#343f44"), fg: hex("#d3c6aa"), muted: hex("#859289"),
+		faint: hex("#3d484d"), red: hex("#e67e80"), green: hex("#a7c080"),
+		spectrum: hexes("#e67e80", "#e69875", "#dbbc7f", "#a7c080", "#83c092", "#7fbbb3", "#d699b6"),
+	},
 }

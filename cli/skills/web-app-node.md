@@ -1,6 +1,6 @@
 ---
 name: web-app-node
-description: Set up a small Node.js app with package.json, npm scripts, and script-based checks instead of a server.
+description: Use for Node.js, JavaScript, npm or package.json projects. Build small apps with npm scripts and tests.
 ---
 
 # Skill: small Node.js app
@@ -8,6 +8,7 @@ description: Set up a small Node.js app with package.json, npm scripts, and scri
 Use this when the user wants a Node tool, script, or small app.
 
 ## Setup
+- Create in the project root unless the user names a folder.
 - Create `package.json` by hand or with `npm init -y`, then fix the fields: name, version, description, `"main": "index.js"`.
 - Add npm scripts so the user has simple commands:
   - `"start": "node index.js"`

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- 3 new themes: gruvbox, nord, everforest.
+- Fixes: stopping a task no longer makes the next message resume it, tools stay inside the project folder, two Prism windows no longer clash, old chats are trimmed to the newest 50.
+- Tests for the tools, the AI loop, MCP and the router run on every push.
+
 - MCP support: connect MCP servers for extra tools like file access, web pages, git, a browser or GitHub. `/mcp` shows what is connected; see docs/MCP.md.
 - `prism web`: Prism in your browser, with the same look, Shard and the beam.
 - `prism fix`: computer help mode. Runs on your computer and asks before every command or file change.
@@ -10,7 +14,7 @@
 - Steps from earlier turns fold into one line; click to open, or `ctrl+o` for all.
 - Smooth scrolling with a scrollbar.
 - Commands that leave something running in the background no longer hang.
-- Benchmark charts in the README. Five coding tasks: 96 s at best, about 165 s with skills (more checking), 168 s with no keys.
+- Benchmark charts in the README. Five coding tasks: 115 s with a free NVIDIA key (465 s at first), 168 s with no keys.
 
 ## 0.1.0
 
