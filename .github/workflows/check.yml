@@ -23,4 +23,4 @@ jobs:
       - name: Scripts
         run: bash -n prism bench/run.sh bench/chat.sh
       - name: Images
-        run: docker compose build router agent
+        run: docker build -q router && docker build -q -f agent/Dockerfile .
