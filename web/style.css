@@ -232,7 +232,7 @@ body.busy .inputbox::before { animation-duration: 1.6s; opacity: 1; }
   line-height: 22px; max-height: 180px; color: var(--fg); min-width: 0;
 }
 .inputbox textarea::placeholder { color: var(--muted); }
-.inputbox textarea:focus-visible { outline: 2px solid var(--s4); outline-offset: 2px; }
+.inputbox:focus-within { filter: brightness(1.15); }
 .busyhint { position: absolute; right: 14px; top: 10px; font-size: 12px; line-height: 22px; }
 
 .status {

@@ -221,6 +221,7 @@ func (m model) transcript(t theme, width int) []line {
 					out = append(out, line{indent: 4, segs: []seg{{text: row, fg: t.muted}}})
 				}
 			}
+			out = append(out, line{indent: 4, segs: []seg{{text: "keeps happening? report it: " + issuesURL, fg: mix(t.bg, t.muted, 0.7)}}})
 		case "help":
 			gap()
 			if e.text != "" {
@@ -229,6 +230,7 @@ func (m model) transcript(t theme, width int) []line {
 			for k, cmd := range commands {
 				out = append(out, line{indent: 2, segs: []seg{{text: pad(cmd.name, 10), fg: t.at(0.5 + float64(k)*0.08), bold: true}, {text: cmd.help, fg: t.muted}}})
 			}
+			out = append(out, line{}, line{indent: 2, segs: []seg{{text: "something broken? tell us: ", fg: t.muted}, {text: issuesURL, fg: t.at(0.6)}}})
 		case "info":
 			gap()
 			out = append(out, line{indent: 2, segs: []seg{{text: e.text, fg: t.fg, bold: true}}})
@@ -769,3 +771,5 @@ func tinted(segs []seg, toward rgb, amount float64) []seg {
 	}
 	return segs
 }
+
+const issuesURL = "github.com/sjdsjadjajdjsa/prism/issues"

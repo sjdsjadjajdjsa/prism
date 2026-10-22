@@ -9,6 +9,13 @@ Prism is a coding assistant for your terminal that runs entirely on **free AI**.
 
 It runs inside Docker, so it can only touch the one folder you give it.
 
+> **Try it in 2 minutes**
+> 1. Install Docker ([guide](docs/SETUP.md)), then run the install command below.
+> 2. Open a new terminal, `cd` into any folder, and type `prism`.
+> 3. Press any key and type: `make a snake game I can play in the browser`
+>
+> Something broken? [Tell us here](https://github.com/sjdsjadjajdjsa/prism/issues/new/choose).
+
 ## Quick start
 
 > **New to Docker?** Follow the [step-by-step setup guide](docs/SETUP.md) for Linux, Mac or Windows. It takes about 10 minutes on Linux, a bit longer on Mac or Windows, and each step shows what you should see.
