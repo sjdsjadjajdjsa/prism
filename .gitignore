@@ -5,3 +5,4 @@ bench/*.txt
 .empryo/
 .network
 .bin/
+PLAN.md

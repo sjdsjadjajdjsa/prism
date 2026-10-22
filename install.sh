@@ -15,6 +15,7 @@ if ! command -v docker >/dev/null 2>&1; then
     Darwin) echo "  Docker Desktop: https://www.docker.com/products/docker-desktop/" ;;
     Linux)
       echo "  Ubuntu, Mint, Debian:"
+      echo "    sudo apt update"
       echo "    sudo apt install docker.io docker-compose-v2"
       echo "    sudo usermod -aG docker \$USER    (then log out and back in)"
       ;;

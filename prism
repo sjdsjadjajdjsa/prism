@@ -32,7 +32,7 @@ compose() {
 
 usage() {
   cat <<'EOF'
-Prism: free AI that codes, running safely inside Docker.
+Prism: free AI that codes, beautifully. Runs inside Docker.
 
   prism                 code in the current folder
   prism <folder>        code in that folder
@@ -45,7 +45,7 @@ Prism: free AI that codes, running safely inside Docker.
   prism stop            stop the background AI router
   prism install         add the prism command to your terminal
 
-Prism can only see the folder you give it. Nothing else on your computer.
+Except for "prism fix", Prism can only see the folder you give it.
 EOF
 }
 
@@ -53,7 +53,7 @@ pick_folder() {
   local folder
   folder="$(cd "${1:-$PWD}" 2>/dev/null && pwd)" || { echo "Folder not found: ${1:-$PWD}" >&2; exit 1; }
   if [[ "$folder" == "/" || "$folder" == "$HOME" ]]; then
-    echo "That folder is too big to share safely ($folder). Pick a project folder instead." >&2
+    echo "Prism won't start in your home folder or /. Use cd to go into a project folder first." >&2
     exit 1
   fi
   echo "$folder"
@@ -148,13 +148,13 @@ setup() {
   [[ -f "$KEYS" ]] || cp "$HERE/keys.example.conf" "$KEYS"
   chmod 600 "$KEYS"
   echo "Prism already works without keys. Each key below adds more free models, so you wait less."
-  echo "Every one is free with no card. Press Enter to skip any of them."
+  echo "None of them ask for a card. Press Enter to skip any of them."
   echo "Note: free AI services may keep what you send them. Don't send passwords or private data."
-  ask_key NVIDIA_API_KEY "NVIDIA: fast Nemotron models, plus GLM-5.3 and GLM-5.3 Flash (Ox Alpha)" "https://build.nvidia.com"
+  ask_key NVIDIA_API_KEY "NVIDIA: fast Nemotron models, plus GLM-5.3 and GLM-5.3 Flash" "https://build.nvidia.com"
   ask_key GROQ_API_KEY "Groq: very fast GPT-OSS 120B" "https://console.groq.com/keys"
   ask_key GEMINI_API_KEY "Google: Gemini Flash" "https://aistudio.google.com/apikey"
   ask_key MISTRAL_API_KEY "Mistral: Codestral, made for code" "https://console.mistral.ai/api-keys"
-  ask_key OPENROUTER_API_KEY "OpenRouter: free MiniMax and other free models (50 a day)" "https://openrouter.ai/keys"
+  ask_key OPENROUTER_API_KEY "OpenRouter: free MiniMax and other free models (50 requests a day)" "https://openrouter.ai/keys"
   ask_key ZAI_API_KEY "Z.ai: GLM-4.7 Flash" "https://z.ai/manage-apikey/apikey-list"
   compose up -d --force-recreate router >/dev/null 2>&1
   echo

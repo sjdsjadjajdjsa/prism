@@ -8,9 +8,11 @@ You'll copy commands into a **terminal**: the window where you type commands.
 - **Mac:** press `Cmd + Space`, type "Terminal", press Enter.
 - **Windows:** you'll use the "Ubuntu" app, which step 1 installs.
 
+**You'll need your computer's admin password** to install Docker, and about 3 GB of free disk space. On a school or work computer where you don't have the password, this won't work.
+
 To paste into a terminal, use `Ctrl + Shift + V` on Linux, `Cmd + V` on Mac, or right-click on Windows.
 
-**Why Docker?** Prism runs inside Docker, which works like a sealed box on your computer. Prism can only see the one project folder you give it, and nothing else. If anything goes wrong, the box gets deleted and your computer stays exactly as it was.
+**Why Docker?** Prism runs inside Docker, which works like a sealed box on your computer. Prism can only see and change the one project folder you give it. The rest of your computer stays untouched.
 
 ---
 
@@ -59,7 +61,7 @@ Now jump to [Your first run](#your-first-run).
 - **Apple chip** (M1, M2, M3, M4 and newer): most Macs from 2021 on
 - **Intel chip:** older Macs
 
-Not sure which you have? Click the Apple menu  → **About This Mac** and look at "Chip" or "Processor".
+Not sure which you have? Click the Apple menu (top-left corner of the screen) → **About This Mac** and look at "Chip" or "Processor".
 
 **2. Open Docker Desktop** from your Applications folder and accept the terms. You can skip signing in. Wait until the whale icon in the top menu bar stops moving.
 
@@ -71,7 +73,7 @@ docker run hello-world
 
 ✅ You should see **"Hello from Docker!"**
 
-**4. Install Prism.** If your Mac asks to install "command line developer tools", click **Install**, wait for it to finish (it can take 10 minutes or more), then run the same command again.
+**4. Install Prism** with the command below. If your Mac asks to install "command line developer tools", click **Install**, wait for it to finish (it can take 10 minutes or more), then run the command below again.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sjdsjadjajdjsa/prism/main/install.sh | bash
@@ -143,7 +145,7 @@ cd ~/prism-test
 prism
 ```
 
-The first time takes a few minutes while Docker builds Prism. Later starts are quick. When the rainbow PRISM logo appears, press any key.
+The first time takes a few minutes while Docker builds Prism. Later starts are quick. When the rainbow PRISM logo appears, press any key and a chat box opens at the bottom of the screen.
 
 **4. Ask for something.** Type this **inside Prism**, in the box at the bottom, not in a normal terminal:
 
@@ -151,7 +153,7 @@ The first time takes a few minutes while Docker builds Prism. Later starts are q
 make a python file that asks my name and says hi, then run it
 ```
 
-**5. Done?** Press `Ctrl + C` to close Prism.
+**5. Done?** Type `/quit` or press `Ctrl + C` to close Prism.
 
 That's it. Prism works with **no keys and no accounts**.
 
@@ -169,8 +171,8 @@ That's it. Prism works with **no keys and no accounts**.
 | `docker: command not found` (Windows) | In Docker Desktop, turn on WSL integration for Ubuntu (Windows step 4). |
 | The first start is very slow | That's normal the first time: Docker downloads and builds everything once. |
 | "no free models ready" or "every free AI model is busy" | Check your internet, wait a minute and try again. `prism status` shows each model. Adding a free key with `prism setup` helps a lot. |
-| "That folder is too big to share safely" | Prism won't run in your home folder or `/`. Use `cd` to go into a project folder first. |
+| "Prism won't start in your home folder" | Prism won't run in your home folder or `/`. Use `cd` to go into a project folder first. |
 
-**Uninstall:** run `prism stop`, then `rm -rf ~/.prism ~/.local/bin/prism`. To also delete Prism's saved chats and memory: `docker volume rm prism_prism-config prism_router-data`.
+**Uninstall:** run `prism stop`, then `rm -rf ~/.prism ~/.local/bin/prism`. To also delete Prism's saved chats and memory: `docker volume rm prism_prism-config prism_router-data`. To free the disk space Docker used for Prism: `docker rmi prism-agent prism-router`. The installer also added one `export PATH=...` line to `~/.bashrc` (or `~/.zshrc` on Mac); you can delete it.
 
 Still stuck? [Open an issue](https://github.com/sjdsjadjajdjsa/prism/issues) and paste what the terminal showed. Remove any keys first.

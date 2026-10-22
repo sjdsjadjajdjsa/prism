@@ -1,19 +1,19 @@
 <p align="center"><img src="docs/splash.png" alt="Prism start screen" width="820"></p>
 
 <h3 align="center">Free AI that codes, beautifully.</h3>
-<p align="center">No subscription. No credit card. No account needed.<br>Inspired by the best, built to be the best.</p>
+<p align="center">No subscription. No credit card. No account needed.</p>
 
 <p align="center"><img src="docs/demo.gif" alt="Prism fixing a bug with free AI" width="820"></p>
 
-Prism is a coding assistant for your terminal that runs entirely on **free AI**. It reads your code, edits files, runs commands and checks its own work, like the paid tools do, without costing anything.
+Prism is a coding assistant for your terminal that runs entirely on **free AI**. It reads your code, edits files, runs commands and checks its own work, without costing anything.
 
 It runs inside Docker, so it can only touch the one folder you give it.
 
 ## Quick start
 
-> **New to Docker?** Follow the [step-by-step setup guide](docs/SETUP.md) for Linux, Mac or Windows. It takes about 10 minutes, and each step shows what you should see.
+> **New to Docker?** Follow the [step-by-step setup guide](docs/SETUP.md) for Linux, Mac or Windows. It takes about 10 minutes on Linux, a bit longer on Mac or Windows, and each step shows what you should see.
 
-You only need **Docker** (free). Then one command:
+You only need **Docker** (free). Then one command. It runs [install.sh](install.sh), a short script you can read first:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sjdsjadjajdjsa/prism/main/install.sh | bash
@@ -49,9 +49,9 @@ Then just type what you want: `fix the bug in app.py`, `make me a to-do list web
 
 ## Free AI, no setup
 
-Prism works with **no keys at all**. Out of the box it uses free models from Kilo Gateway, BlockRun and LLM7.
+Prism works with **no keys at all**. Out of the box it uses free models from Kilo Gateway, BlockRun and LLM7. Free models are shared with everyone, so they can be slow or busy at times; the router below hides most of that.
 
-Want it faster and smarter? `prism setup` walks you through free keys, about a minute each. **None of them ever ask for a card.**
+Want it faster and smarter? `prism setup` walks you through free keys, about a minute each. None of them ask for a card.
 
 | Provider | What you get | Key |
 | --- | --- | --- |
@@ -62,7 +62,7 @@ Want it faster and smarter? `prism setup` walks you through free keys, about a m
 | Groq | GPT-OSS 120B, very fast | free |
 | Google | Gemini Flash | free |
 | Mistral | Codestral | free |
-| OpenRouter | free MiniMax and others (50 a day) | free |
+| OpenRouter | free MiniMax and others (50 requests a day) | free |
 | Z.ai | GLM-4.7 Flash | free |
 | Ollama | any model on your own computer | none |
 
@@ -73,29 +73,27 @@ A small router picks the model for every step:
 - **Races free models.** If the first one hasn't started answering in a few seconds, the next joins the race, and the first to answer wins.
 - **Learns which models are quick** and remembers it between runs.
 - **Skips models that are busy or down**, and tries them again later.
-- **Fast lane:** short questions skip the model's slow thinking step.
+- **Fast lane:** on NVIDIA's Nemotron models, short questions skip the slow thinking step.
 
 ### Benchmarks
 
-Every number below comes from real runs against free models, with each result checked automatically.
+Each row is one run of the same tasks on the same computer. A task only counts if a script confirms the result works.
 
-<p align="center"><img src="docs/bench-coding.svg" alt="Coding benchmark: 465s to 96s" width="820"></p>
+<p align="center"><img src="docs/bench-coding.svg" alt="Coding benchmark: 465s down to 96s with a free NVIDIA key, 168s with no keys" width="820"></p>
 <p align="center"><img src="docs/bench-chat.svg" alt="Simple questions: 10.7s to 0.4s" width="820"></p>
 <p align="center"><img src="docs/bench-website.svg" alt="One website task: 1171s to 24s" width="820"></p>
 
-Times move a bit from run to run because free models are shared with everyone, so the memory row being slower than the one before it is mostly noise. Raw numbers live in [bench/history.json](bench/history.json); `python3 bench/chart.py` redraws the charts.
-
-Run `bench/run.sh` and `bench/chat.sh` to measure on your machine.
+Free models are shared, so the same run can be 30% faster or slower on another day. Compare rows loosely. The raw numbers are in [bench/history.json](bench/history.json), `python3 bench/chart.py` redraws the charts, and `bench/run.sh` and `bench/chat.sh` measure your own setup.
 
 ## Meet Shard
 
 <p align="center"><img src="docs/shard.png" alt="Shard's moods" width="820"></p>
 
-Shard is Prism's little crystal. He waves hello, charges up while the AI works, gets sleepy when every free model is busy, and when a task is done he fires the **Last Prism beam**:
+Shard is Prism's mascot. He reacts to what the AI is doing: thinking, working, done, or waiting because every free model is busy. When a task with real steps finishes, he fires the Last Prism beam:
 
 <p align="center"><img src="docs/beam.png" alt="The Last Prism beam" width="820"></p>
 
-`/beam` turns the beam off, `/quiet` keeps Shard from talking.
+`/beam` turns the beam on or off, and `/quiet` does the same for Shard's lines.
 
 ## Skills
 
@@ -110,7 +108,7 @@ Skills are short playbooks Prism follows for common jobs. It picks the right one
 | `explain-code` | a plain-words tour of a codebase, no changes |
 | `git-basics` | safe git: .gitignore, small commits, no secrets |
 | `refactor` | restructure without changing behaviour |
-| `computer-help` | troubleshooting a Linux computer |
+| `computer-help` | troubleshooting a Linux computer, asking before changes |
 
 `/skills` lists them. Add your own as `.prism/skills/<name>.md` in a project or `~/.config/prism/skills/<name>.md`. See [cli/skills/README.md](cli/skills/README.md) for the format.
 
@@ -120,7 +118,7 @@ Skills are short playbooks Prism follows for common jobs. It picks the right one
 prism fix
 ```
 
-Prism normally lives in a Docker box and can't see your computer. `prism fix` runs it on your computer instead, so it can find out why the Wi-Fi drops, the disk is full or an app won't start. It looks around with read-only commands, explains what it finds in plain words, and **asks you before every command or file change** (`y` allow, `n` no). Linux and Mac.
+Prism normally lives in a Docker box and can't see your computer. `prism fix` runs it on your computer instead, so it can find out why the Wi-Fi drops, the disk is full or an app won't start. It looks around with read-only commands, explains what it finds in plain words, and **asks you before every command or file change** (`y` allow, `n` no). Tested on Linux; Mac should work but hasn't been tried yet.
 
 <p align="center"><img src="docs/fix.png" alt="Prism asking before running a command" width="820"></p>
 
@@ -148,7 +146,7 @@ The same Prism, Shard and beam included, at http://127.0.0.1:4849. It only liste
 | `prism` | start in the current folder |
 | `prism <folder>` | start in that folder |
 | `prism continue` | reopen the last chat here |
-| `prism web` | open Prism in your browser |
+| `prism web [folder]` | open Prism in your browser |
 | `prism fix` | computer help mode, asks before every change |
 | `prism setup` | add free keys (optional) |
 | `prism status` | which free models are ready |
@@ -160,18 +158,19 @@ The same Prism, Shard and beam included, at http://127.0.0.1:4849. It only liste
 | --- | --- |
 | `enter` / `shift+enter` | send / new line |
 | `esc` | stop the AI |
+| `ctrl+c` or `/quit` | close Prism |
 | `ctrl+t` or `/theme` | switch theme (prism, tokyo-night, catppuccin, rose-pine, matte-black) |
 | `pgup` `pgdown`, mouse wheel | scroll (smooth, with a scrollbar) |
-| click a `▸ N steps` line, or `ctrl+o` | open folded steps from earlier turns |
+| click a `▸ N steps` line | open folded steps from an earlier turn (`ctrl+o` opens all of them) |
 | `/` | list every command, `tab` completes |
-| `/models` `/new` `/resume` `/init` `/skills` `/memory` `/usage` `/beam` `/quiet` `/help` | |
+| `/models` `/new` `/resume` `/init` `/skills` `/memory` `/usage` `/beam` `/quiet` `/help` `/quit` | |
 
 ## Safety and privacy
 
-- Prism only sees the folder you start it in. The one exception is `prism fix`, which you start on purpose and which asks before every change. It refuses to run in your home folder or `/`.
+- Prism only sees the folder you start it in, and won't start in your home folder or `/`. The one exception is `prism fix`, which you start on purpose: it runs on your computer and asks before every change.
 - Commands run inside the Docker box, not on your computer. Files it creates belong to you.
 - Keys live in `keys.conf`, readable only by you and ignored by git.
-- The router is never exposed outside Docker (or only on `127.0.0.1` in host mode, below).
+- The router only listens on `127.0.0.1`, so other devices on your network can't use it.
 - **Free AI services may keep what you send them.** Don't paste passwords or private data.
 
 ## How it's built
@@ -186,14 +185,12 @@ The same Prism, Shard and beam included, at http://127.0.0.1:4849. It only liste
 | `agent/` | the Docker image Prism runs in |
 | `bench/` | the speed and correctness tests |
 
-`prism run "message"` inside the container runs without the screen, for scripts and tests.
-
 **Networking:** on first run Prism checks whether Docker's normal network can reach the internet. Some Linux firewalls block it; then Prism shares the computer's network instead (`docker-compose.host.yml`). The choice is saved in `.network`; delete it to check again.
 
 ## Thanks
 
-Prism takes ideas from the tools that showed the way: OpenCode, Crush, jcode, Claude Code and Codex. Its look is built on [Charm](https://charm.land)'s open-source libraries and inspired by [Omarchy](https://omarchy.org). The beam is a nod to a certain rainbow weapon from Terraria; all art and lines are original.
+Prism borrows ideas from OpenCode, Crush, jcode, Claude Code and Codex. Its look is built on [Charm](https://charm.land)'s open-source libraries and inspired by [Omarchy](https://omarchy.org). The beam is named after the Last Prism from Terraria; the art and lines are original.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). What changed in each version: [CHANGELOG.md](CHANGELOG.md).
