@@ -15,6 +15,9 @@
 - Smooth scrolling with a scrollbar.
 - Commands that leave something running in the background no longer hang.
 - Benchmark charts in the README. Five coding tasks: 115 s with a free NVIDIA key (465 s at first), 168 s with no keys.
+- /web: move a chat to the browser and back
+- browser version has the same slash commands
+- Shard and the beam reworked: no stray pixels, terminal and browser match
 
 ## 0.1.0
 

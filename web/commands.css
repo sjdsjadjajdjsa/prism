@@ -1,0 +1,57 @@
+/* slash-command suggestion box — mirrors drawSuggestions in cli/chat.go */
+.cmd-suggest {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: 6px;
+  background: var(--panel, #14141c);
+  border: 1px solid var(--faint, #1d1c29);
+  border-radius: 4px;
+  overflow: hidden;
+  font: 14px/1.5 ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  z-index: 8;
+}
+.cmd-suggest[hidden] { display: none; }
+
+.cmd-row {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 3px 12px;
+  background: var(--panel, #14141c);
+  color: var(--fg, #e8e6f0);
+  white-space: nowrap;
+}
+.cmd-row:first-child { padding-top: 6px; }
+.cmd-row:last-child { padding-bottom: 6px; }
+
+.cmd-name {
+  flex: none;
+  width: 9ch;
+  font-weight: 700;
+  color: var(--s4, #6fd3ff);
+}
+.cmd-row:nth-child(7n+1) .cmd-name { color: var(--s3, #7ee2a8); }
+.cmd-row:nth-child(7n+2) .cmd-name { color: var(--s4, #6fd3ff); }
+.cmd-row:nth-child(7n+3) .cmd-name { color: var(--s5, #8a9bff); }
+.cmd-row:nth-child(7n+4) .cmd-name { color: var(--s6, #c69bff); }
+.cmd-row:nth-child(7n+5) .cmd-name { color: var(--s0, #ff5f6d); }
+.cmd-row:nth-child(7n+6) .cmd-name { color: var(--s1, #ffa25f); }
+.cmd-row:nth-child(7n+7) .cmd-name { color: var(--s2, #f9e27d); }
+
+.cmd-help {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted, #6e6a86);
+  font-weight: 400;
+}
+.cmd-hint {
+  flex: none;
+  margin-left: auto;
+  color: var(--muted, #6e6a86);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}

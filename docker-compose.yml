@@ -26,7 +26,9 @@ services:
     working_dir: /workspace
     environment:
       PRISM_API: http://router:4848/v1
-      PRISM_LISTEN: 0.0.0.0:4849
+      PRISM_LISTEN: ${PRISM_LISTEN:-0.0.0.0:4849}
+      PRISM_WEB_LISTEN: ${PRISM_WEB_LISTEN:-}
+      PRISM_PUBLIC_PORT: ${PRISM_PUBLIC_PORT:-}
       PRISM_PROJECT: ${PRISM_PROJECT:-}
       TERM: ${TERM:-xterm-256color}
       COLORTERM: ${COLORTERM:-truecolor}

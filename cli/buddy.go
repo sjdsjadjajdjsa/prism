@@ -101,9 +101,9 @@ func drawBuddy(cv *canvas, t theme, m model, cx, colW, boxY int) {
 	n := ms(m.now)
 	wide := m.buddyWide(cv.w)
 	sx, sy := cx+colW+2, boxY-1
-	bx, by := cx+colW, boxY-1
+	bx, by := cx+colW-1, boxY+1
 	if wide {
-		bx, by = sx, sy+2
+		bx, by = sx-1, sy+2
 	}
 	beaming := m.beamOn && m.beamAt > 0 && m.now-m.beamAt < beamFor
 	if beaming {
@@ -129,7 +129,7 @@ func drawSpeech(cv *canvas, t theme, m model, cx, colW, sx, sy int) {
 		return
 	}
 	w := len([]rune(text)) + 4
-	x := min(sx+4, cv.w-w)
+	x := min(sx+4, cv.w-w-2)
 	if x < cx+colW-2 {
 		return
 	}

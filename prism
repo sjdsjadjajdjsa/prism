@@ -9,6 +9,14 @@ while [[ -L "$src" ]]; do
 done
 HERE="$(cd -P "$(dirname "$src")" && pwd)"
 KEYS="$HERE/keys.conf"
+port=""
+watcher=""
+cleanup() {
+  [[ -n "$watcher" ]] && kill "$watcher" 2>/dev/null
+  [[ -n "$port" ]] && rmdir "$HERE/.ports/$port" 2>/dev/null
+  return 0
+}
+trap cleanup EXIT
 ROUTER="http://127.0.0.1:4848"
 
 network_mode() {
@@ -80,17 +88,69 @@ start_router() {
   exit 1
 }
 
+free_port() {
+  local port
+  mkdir -p "$HERE/.ports"
+  for port in $(seq 4849 4899); do
+    (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null && continue
+    if mkdir "$HERE/.ports/$port" 2>/dev/null; then
+      echo "$port"
+      return
+    fi
+    find "$HERE/.ports/$port" -maxdepth 0 -mmin +720 -exec rmdir {} \; 2>/dev/null || true
+  done
+  echo "No free port between 4849 and 4899. Close another prism and try again." >&2
+  exit 1
+}
+
+open_browser() {
+  if grep -qi microsoft /proc/version 2>/dev/null && command -v wslview >/dev/null 2>&1; then wslview "$1"
+  elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$1"
+  elif command -v open >/dev/null 2>&1; then open "$1"
+  fi
+}
+
+open_when_ready() {
+  local url="http://127.0.0.1:$1" parent="$2" open=0
+  command -v curl >/dev/null 2>&1 || return 0
+  while sleep 2 && kill -0 "$parent" 2>/dev/null; do
+    if curl -fs -m 1 -o /dev/null "$url/api/info"; then
+      [[ $open == 0 ]] && open_browser "$url" >/dev/null 2>&1
+      open=1
+    else
+      open=0
+    fi
+  done
+}
+
 run_agent() {
-  local folder="$1"; shift
+  local folder="$1" publish=() listen; shift
   start_router
-  PRISM_PROJECT="${folder/#$HOME/\~}" PROJECT_DIR="$folder" HOST_UID="$(id -u)" HOST_GID="$(id -g)" compose run --rm agent "$@"
+  port="$(free_port)"
+  if [[ "$(network_mode)" == host ]]; then
+    listen="127.0.0.1:$port"
+  else
+    listen="0.0.0.0:$port"
+    publish=(-p "127.0.0.1:$port:$port")
+  fi
+  open_when_ready "$port" $$ &
+  watcher=$!
+  PRISM_WEB_LISTEN="$listen" PRISM_PUBLIC_PORT="$port" PRISM_PROJECT="${folder/#$HOME/\~}" PROJECT_DIR="$folder" HOST_UID="$(id -u)" HOST_GID="$(id -g)" compose run --rm ${publish[@]+"${publish[@]}"} agent "$@"
 }
 
 web() {
-  local folder="$1"
+  local folder="$1" publish=() listen
   start_router
-  ( sleep 4; command -v xdg-open >/dev/null && xdg-open http://127.0.0.1:4849 >/dev/null 2>&1 || command -v open >/dev/null && open http://127.0.0.1:4849 ) >/dev/null 2>&1 &
-  PRISM_PROJECT="${folder/#$HOME/\~}" PROJECT_DIR="$folder" HOST_UID="$(id -u)" HOST_GID="$(id -g)" compose run --rm -p 127.0.0.1:4849:4849 agent serve
+  port="$(free_port)"
+  if [[ "$(network_mode)" == host ]]; then
+    listen="127.0.0.1:$port"
+  else
+    listen="0.0.0.0:$port"
+    publish=(-p "127.0.0.1:$port:$port")
+  fi
+  open_when_ready "$port" $$ &
+  watcher=$!
+  PRISM_LISTEN="$listen" PRISM_PUBLIC_PORT="$port" PRISM_PROJECT="${folder/#$HOME/\~}" PROJECT_DIR="$folder" HOST_UID="$(id -u)" HOST_GID="$(id -g)" compose run --rm ${publish[@]+"${publish[@]}"} agent serve
 }
 
 fix() {
@@ -106,7 +166,7 @@ fix() {
   mkdir -p "$HERE/.bin"
   local id
   id="$(docker create prism-agent)"
-  docker cp "$id:/opt/prism/hosts/prism-$os-$arch" "$bin" >/dev/null || { docker rm -f "$id" >/dev/null; exit 1; }
+  docker cp "$id:/opt/prism/hosts/prism-$os-$arch" "$bin" >/dev/null 2>&1 || { docker rm -f "$id" >/dev/null; echo "Computer help isn't available for $os/$arch in this build." >&2; exit 1; }
   docker rm "$id" >/dev/null
   chmod +x "$bin"
   echo "Computer help mode: Prism runs on this computer (not in the Docker box)."

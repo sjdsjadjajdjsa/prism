@@ -1,5 +1,7 @@
 # Contributing
 
+New here? Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit together.
+
 ## Build
 
 Build the CLI with Docker:

@@ -282,20 +282,36 @@ func drawBeam(cv *canvas, t theme, sx, sy, dir int, n float64) {
 	if dir < 0 {
 		length = float64(sx)
 	}
-	if fire < 1 {
+	dimNow := 0.0
+	if n < 1250 {
+		dimNow = 0.35 * charge * (1 - fire*0.4)
+	}
+	shade := mix(t.bg, mix(t.bg, rgb{0, 0, 0}, 0.6), dimNow)
+	if flash := 1 - math.Abs(n-820)/90; flash > 0 {
+		shade = mix(shade, mix(t.bg, rgb{255, 255, 255}, 0.35), flash*0.5)
+	}
+	if fire == 0 {
 		spread := (1 - converge) * 0.5
 		for i := 0; i < rays; i++ {
 			off := (float64(i)/(rays-1) - 0.5) * 2
 			angle := off*spread + math.Sin(n/120+float64(i))*0.02*(1-converge)
 			col := mix(t.at(float64(i)/rays), t.fg, 0.2+0.5*converge)
 			for d := 0; d < int(length*charge); d++ {
-				cv.set(sx+dir*d, sy+int(math.Round(math.Tan(angle)*float64(d)*0.5)), '━', col, true)
+				x, y := sx+dir*d, sy+int(math.Round(math.Tan(angle)*float64(d)*0.5))
+				if c := cv.get(x, y); c != nil {
+					c.bg = mix(c.bg, shade, 0.5)
+				}
+				cv.set(x, y, '━', col, true)
 			}
 		}
 		if converge > 0 {
 			glowCol := mix(t.at(n/800), white, 0.6)
 			for r := 0; r < 3; r++ {
-				cv.set(sx+dir*r, sy, '█', mix(t.bg, glowCol, converge*(1-float64(r)*0.3)), false)
+				x := sx + dir*r
+				if c := cv.get(x, sy); c != nil {
+					c.bg = shade
+				}
+				cv.set(x, sy, '█', mix(shade, glowCol, converge*(1-float64(r)*0.3)), false)
 			}
 		}
 	}
@@ -313,6 +329,9 @@ func drawBeam(cv *canvas, t theme, sx, sy, dir int, n float64) {
 				} else if dy == half {
 					ch = '▀'
 				}
+				if c := cv.get(x, sy+dy); c != nil {
+					c.bg = mix(shade, t.bg, fade)
+				}
 				cv.set(x, sy+dy, ch, mix(col, t.bg, fade), false)
 			}
 		}
@@ -326,7 +345,10 @@ func drawBeam(cv *canvas, t theme, sx, sy, dir int, n float64) {
 			if life <= 0 {
 				continue
 			}
-			if c := cv.get(px, py); c != nil && (c.ch == ' ' || c.ch == '━') {
+			if (px-sx)*dir < 0 {
+				continue
+			}
+			if c := cv.get(px, py); c != nil && c.ch == ' ' {
 				cv.set(px, py, []rune("✦·✧•")[i%4], mix(t.bg, t.at(hash(i, 5, 6)), life), false)
 			}
 		}
@@ -388,17 +410,17 @@ func drawShardGallery(cv *canvas, t theme, n float64, beam bool) {
 	colW := cv.w / 4
 	for i, m := range moods {
 		x := (i%4)*colW + (colW-26)/2
-		y := 2 + (i/4)*17
+		y := 1 + (i/4)*16
 		drawBubble(cv, t, x, y, m.line, 1)
 		drawShard(cv, t, x, y+5, m.md, n+float64(i)*700)
 		cv.text(x+13-len(m.label)/2, y+14, m.label, t.muted, false)
 	}
 	small := []buddyPose{{md: moodHappy, wave: true}, {md: moodWorking, charge: 0.3}, {md: moodWorking, charge: 1}, {md: moodThinking, look: -1}, {md: moodProud}, {md: moodSurprised}, {md: moodSleepy}}
 	names := []string{"hello", "working", "charged", "reading", "proud", "oops", "sleepy"}
-	cv.text(4, cv.h-6, "small size, beside the input box", t.muted, false)
+	cv.text(4, cv.h-9, "small size, beside the input box", t.muted, false)
 	for i, p := range small {
 		x := 6 + i*(cv.w-12)/len(small)
-		drawShardSmall(cv, t, x, cv.h-4, p, n)
+		drawShardSmall(cv, t, x, cv.h-7, p, n)
 		cv.text(x+6-len(names[i])/2, cv.h-1, names[i], mix(t.bg, t.muted, 0.8), false)
 	}
 }

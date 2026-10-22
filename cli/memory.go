@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -57,6 +58,9 @@ type usageDay struct {
 }
 
 var usageMu sync.Mutex
+
+// tmpSeq makes writeAtomic's temp names unique across goroutines in one process.
+var tmpSeq atomic.Uint64
 
 func configDir() string {
 	dir, err := os.UserConfigDir()
@@ -131,8 +135,24 @@ func writeAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	tmp := fmt.Sprintf("%s.%d.tmp", path, os.Getpid())
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	tmp := fmt.Sprintf("%s.%d.%d.tmp", path, os.Getpid(), tmpSeq.Add(1))
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	// Durability before the rename: a crash must not leave a zero-length file.
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -148,6 +168,14 @@ func (s *store) saveSession(sess session) error {
 		return err
 	}
 	if err := writeAtomic(s.path("sessions", sess.ID+".json"), data); err != nil {
+		return err
+	}
+	// A tiny sidecar so sessions() can list chats without reading every full file.
+	hdr, err := json.Marshal(sessionInfo{ID: sess.ID, Title: sess.Title, Updated: sess.Updated})
+	if err != nil {
+		return err
+	}
+	if err := writeAtomic(s.path("sessions", sess.ID+".hdr"), hdr); err != nil {
 		return err
 	}
 	s.pruneSessions(keepSessions)
@@ -176,22 +204,47 @@ func (s *store) pruneSessions(keep int) {
 	sort.Slice(all, func(i, j int) bool { return all[i].mod.After(all[j].mod) })
 	for _, old := range all[min(keep, len(all)):] {
 		os.Remove(old.path)
+		os.Remove(strings.TrimSuffix(old.path, ".json") + ".hdr")
 	}
 }
 
 // sessions lists saved chats, newest first, decoding only the header fields.
 // The returned sessions carry no Messages; resume loads the full file on demand.
 func (s *store) sessions() []session {
-	files, _ := filepath.Glob(s.path("sessions", "*.json"))
+	seen := map[string]bool{}
 	var out []session
-	for _, f := range files {
+	add := func(info sessionInfo) {
+		if info.ID == "" || seen[info.ID] {
+			return
+		}
+		seen[info.ID] = true
+		out = append(out, session{ID: info.ID, Title: info.Title, Updated: info.Updated})
+	}
+	hdrs, _ := filepath.Glob(s.path("sessions", "*.hdr"))
+	for _, f := range hdrs {
 		data, err := os.ReadFile(f)
 		if err != nil {
 			continue
 		}
 		var info sessionInfo
-		if json.Unmarshal(data, &info) == nil && info.ID != "" {
-			out = append(out, session{ID: info.ID, Title: info.Title, Updated: info.Updated})
+		if json.Unmarshal(data, &info) == nil {
+			add(info)
+		}
+	}
+	// Sessions saved before sidecars existed have only the full file.
+	files, _ := filepath.Glob(s.path("sessions", "*.json"))
+	for _, f := range files {
+		id := strings.TrimSuffix(filepath.Base(f), ".json")
+		if seen[id] {
+			continue
+		}
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		var info sessionInfo
+		if json.Unmarshal(data, &info) == nil {
+			add(info)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Updated.After(out[j].Updated) })
@@ -247,7 +300,23 @@ func lockFile(path string) func() {
 	if err != nil {
 		return func() {}
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	// Non-blocking: a holder suspended mid-update must not park this goroutine
+	// forever (addUsage runs on every response, outside any cancellable context).
+	// After a short wait, proceed unlocked rather than losing the update.
+	fd := int(f.Fd())
+	locked := false
+	for i := 0; i < 20; i++ {
+		err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			locked = true
+			break
+		}
+		if err != syscall.EWOULDBLOCK && err != syscall.EAGAIN {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if !locked {
 		f.Close()
 		return func() {}
 	}
@@ -411,7 +480,10 @@ func (a *Agent) memoryJob() *memoryJob {
 	if a.store == nil || a.store.dir == "" || os.Getenv("PRISM_MEMORY") == "off" || !a.worthRemembering() {
 		return nil
 	}
-	job := &memoryJob{api: a.api, journal: a.journal(), current: a.store.memory(), store: a.store, gen: a.store.generation()}
+	// Read the generation first: a forget() between the two reads must not let
+	// this job pass setMemoryIf and resurrect the facts it just deleted.
+	gen := a.store.generation()
+	job := &memoryJob{api: a.api, journal: a.journal(), current: a.store.memory(), store: a.store, gen: gen}
 	a.memMark = len(a.messages)
 	return job
 }

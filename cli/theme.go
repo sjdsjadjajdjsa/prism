@@ -61,7 +61,7 @@ var themes = []theme{
 	{
 		name: "rose-pine", bg: hex("#191724"), panel: hex("#1f1d2e"), fg: hex("#e0def4"), muted: hex("#6e6a86"),
 		faint: hex("#26233a"), red: hex("#eb6f92"), green: hex("#9ccfd8"),
-		spectrum: hexes("#eb6f92", "#f6c177", "#ebbcba", "#9ccfd8", "#31748f", "#c4a7e7"),
+		spectrum: hexes("#eb6f92", "#f6c177", "#ebbcba", "#9ccfd8", "#3e8fb0", "#c4a7e7"),
 	},
 	{
 		name: "matte-black", bg: hex("#121212"), panel: hex("#1a1a1a"), fg: hex("#d6d6d6"), muted: hex("#6b6b6b"),

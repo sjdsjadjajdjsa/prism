@@ -5,7 +5,7 @@
 
 <p align="center"><img src="docs/demo.gif" alt="Prism fixing a bug with free AI" width="820"></p>
 
-Prism is a coding assistant for your terminal that runs entirely on **free AI**. It reads your code, edits files, runs commands and checks its own work, without costing anything.
+Prism is a coding assistant for your terminal that runs entirely on **free AI**. It reads your code, edits files, runs commands and checks its own work.
 
 It runs inside Docker, so it can only touch the one folder you give it.
 
@@ -28,7 +28,7 @@ cd ~/my-project
 prism
 ```
 
-The first start takes a few minutes while Docker builds Prism. After that it opens instantly.
+The first start takes a few minutes while Docker builds Prism; later starts are instant.
 
 | System | Status |
 | --- | --- |
@@ -36,7 +36,7 @@ The first start takes a few minutes while Docker builds Prism. After that it ope
 | macOS | should work with Docker Desktop, not tested yet |
 | Windows | should work inside WSL (Ubuntu) with Docker Desktop, not tested yet |
 
-If you try it on a Mac or Windows, please open an issue and say how it went.
+Tried it on Mac or Windows? Please open an issue with how it went.
 
 <details><summary>Install by hand</summary>
 
@@ -51,11 +51,11 @@ Then just type what you want: `fix the bug in app.py`, `make me a to-do list web
 
 ## Free AI, no setup
 
-Prism works with **no keys at all**. Out of the box it uses free models from Kilo Gateway, BlockRun and LLM7. Free models are shared with everyone, so they can be slow or busy at times; the router below hides most of that.
+A **router** is a small helper that picks a free AI for each step, and a **key** is a secret code you get free from an AI company's website, pasted in with `prism setup`; you don't need a key to start.
+
+Prism works with **no keys at all**. Out of the box it uses free models from Kilo Gateway, BlockRun and LLM7; the router below hides most of the slowness.
 
 Want it faster and smarter? `prism setup` walks you through free keys, about a minute each. None of them ask for a card.
-
-A **router** is a small helper that picks a free AI for each step, and a **key** is a secret code you get free from an AI company's website, pasted in with `prism setup`; you don't need a key to start.
 
 | Provider | What you get | Key |
 | --- | --- | --- |
@@ -88,16 +88,6 @@ Each row is one run of the same tasks on the same computer. A task only counts i
 <p align="center"><img src="docs/bench-website.svg" alt="One website task: 1171s to 24s" width="820"></p>
 
 Free models are shared, so the same run can be 30% faster or slower on another day. Compare rows loosely. The raw numbers are in [bench/history.json](bench/history.json), `python3 bench/chart.py` redraws the charts, and `bench/run.sh` and `bench/chat.sh` measure your own setup.
-
-## Meet Shard
-
-<p align="center"><img src="docs/shard.png" alt="Shard's moods" width="820"></p>
-
-Shard is Prism's mascot. He reacts to what the AI is doing: thinking, working, done, or waiting because every free model is busy. When a task with real steps finishes, he fires the Last Prism beam:
-
-<p align="center"><img src="docs/beam.png" alt="The Last Prism beam" width="820"></p>
-
-`/beam` turns the beam on or off, and `/quiet` does the same for Shard's lines.
 
 ## Skills
 
@@ -154,9 +144,11 @@ Prism normally lives in a Docker box and can't see your computer. `prism fix` ru
 prism web
 ```
 
-The same Prism, Shard and beam included, at http://127.0.0.1:4849. It only listens on your own computer.
+The same Prism, Shard and beam included, in your browser. It opens by itself; the address is printed in the terminal (usually http://127.0.0.1:4849, but the exact port is printed in the terminal). It only listens on your own computer.
 
 <p align="center"><img src="docs/web.png" alt="Prism in the browser, firing the Last Prism beam" width="820"></p>
+
+Inside the terminal app, `/web` moves the current chat to your browser (same history and memory). Close the tab or press enter in the terminal to come back, and everything done in the browser is there. The browser version now understands the same slash commands, with the same suggestion list.
 
 ## Memory
 
@@ -189,7 +181,17 @@ The same Prism, Shard and beam included, at http://127.0.0.1:4849. It only liste
 | `pgup` `pgdown`, mouse wheel | scroll (smooth, with a scrollbar) |
 | click a `▸ N steps` line | open folded steps from an earlier turn (`ctrl+o` opens all of them) |
 | `/` | list every command, `tab` completes |
-| `/models` `/new` `/resume` `/init` `/skills` `/mcp` `/memory` `/usage` `/beam` `/quiet` `/help` `/quit` | |
+| `/models` `/new` `/resume` `/init` `/skills` `/mcp` `/memory` `/usage` `/beam` `/quiet` `/web` `/help` `/quit` | |
+
+## Meet Shard
+
+<p align="center"><img src="docs/shard.png" alt="Shard's moods" width="820"></p>
+
+Shard is Prism's mascot. He reacts to what the AI is doing: thinking, working, done, or waiting when every free model is busy. When a task with real steps finishes, he fires the Last Prism beam:
+
+<p align="center"><img src="docs/beam.png" alt="The Last Prism beam" width="820"></p>
+
+`/beam` turns the beam on or off, and `/quiet` hides Shard's one-line comments.
 
 ## Safety and privacy
 

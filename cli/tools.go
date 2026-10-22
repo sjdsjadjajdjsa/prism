@@ -158,11 +158,41 @@ func resolve(dir, path string) string {
 	return filepath.Join(dir, path)
 }
 
+// resolvedDir resolves symlinks in dir, returning the real path.
+// It is called once per outside() invocation.
+func resolvedDir(dir string) string {
+	if r, err := filepath.EvalSymlinks(dir); err == nil {
+		return r
+	}
+	return dir
+}
+
+// resolveDeepest resolves symlinks on the deepest existing ancestor of path.
+// This handles the case where path does not yet exist (e.g. a write to a new file).
+func resolveDeepest(path string) string {
+	// Walk up until we find an existing component.
+	for p := path; ; {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			// Re-attach the non-existing suffix.
+			suffix := path[len(p):]
+			return filepath.Clean(r + suffix)
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			// Reached filesystem root with no existing component.
+			return path
+		}
+		p = parent
+	}
+}
+
 func outside(dir, path string) bool {
 	if anyPath {
 		return false
 	}
-	rel, err := filepath.Rel(dir, path)
+	rDir := resolvedDir(dir)
+	rPath := resolveDeepest(path)
+	rel, err := filepath.Rel(rDir, rPath)
 	return err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
@@ -475,6 +505,14 @@ func bashTool(ctx context.Context, dir string, args map[string]any) toolResult {
 		leftover, err = true, nil
 		if cmd.ProcessState != nil && cmd.ProcessState.ExitCode() > 0 {
 			err = &exec.ExitError{ProcessState: cmd.ProcessState}
+		}
+	} else if err == nil && cmd.Process != nil {
+		// Kill any background processes that redirected their output and let
+		// the shell exit cleanly (the pipe was already closed, so WaitDelay
+		// never fires). ESRCH means the group is already gone — that's fine.
+		if kerr := syscall.Kill(-cmd.Process.Pid, 0); kerr == nil {
+			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			leftover = true
 		}
 	}
 	text := out.tail()

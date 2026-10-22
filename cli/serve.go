@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,11 @@ type server struct {
 	busy   bool
 	snap   []wireEntry    // history snapshot served while a chat is running
 	memWG  sync.WaitGroup // outstanding background memory job
+
+	handoff  bool
+	lastSeen time.Time
+	requests int
+	sent     int
 }
 
 type wireEntry struct {
@@ -72,15 +78,57 @@ func publicPort(addr string) string {
 }
 
 func newHandler(agent *Agent, port, webDir, theme string) http.Handler {
-	s := &server{agent: agent, webDir: webDir, theme: theme}
+	return newServer(agent, webDir, theme).handler(port)
+}
+
+func newServer(agent *Agent, webDir, theme string) *server {
+	return &server{agent: agent, webDir: webDir, theme: theme}
+}
+
+func (s *server) handler(port string) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/command", s.command)
+	mux.HandleFunc("GET /api/ping", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.HandleFunc("GET /api/info", s.info)
 	mux.HandleFunc("GET /api/history", s.history)
 	mux.HandleFunc("POST /api/chat", s.chat)
 	mux.HandleFunc("POST /api/stop", s.stop)
 	mux.HandleFunc("POST /api/new", s.reset)
-	mux.Handle("GET /", noDirListing(webDir, http.FileServer(http.Dir(webDir))))
-	return localOnly(port, mux)
+	mux.Handle("GET /", noDirListing(s.webDir, http.FileServer(http.Dir(s.webDir))))
+	return localOnly(port, s.seen(mux))
+}
+
+func (s *server) seen(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/ping" || r.Method == http.MethodPost {
+			s.mu.Lock()
+			s.lastSeen = time.Now()
+			s.mu.Unlock()
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// state reports when a browser last talked to the server and whether a chat is running.
+func (s *server) state() (time.Time, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastSeen, s.busy
+}
+
+// stopRun cancels a running chat and waits up to a few seconds for it to end.
+func (s *server) stopRun() {
+	s.mu.Lock()
+	if s.cancel != nil {
+		s.cancel()
+	}
+	s.mu.Unlock()
+	for i := 0; i < 50; i++ {
+		if _, busy := s.state(); !busy {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // localOnly rejects any request whose Host is not the loopback address on the
@@ -131,7 +179,10 @@ func (s *server) info(w http.ResponseWriter, r *http.Request) {
 			ready++
 		}
 	}
-	writeJSON(w, map[string]any{"project": projectName(s.agent.dir), "theme": s.theme, "models_ready": ready})
+	s.mu.Lock()
+	handoff := s.handoff
+	s.mu.Unlock()
+	writeJSON(w, map[string]any{"project": projectName(s.agent.dir), "theme": s.theme, "models_ready": ready, "handoff": handoff})
 }
 
 // snapshot converts the agent's messages to wire entries. Callers must hold
@@ -204,7 +255,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		cancel()
 		s.mu.Lock()
 		s.snap = s.snapshot()
-		s.busy, s.cancel = false, nil
+		s.busy, s.cancel, s.lastSeen = false, nil, time.Now()
 		s.mu.Unlock()
 	}()
 	// A memory job from the previous chat may still be running; never let it
@@ -248,6 +299,9 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		case evNote:
 			send(map[string]any{"type": "note", "text": e.text})
 		case evUsage:
+			s.mu.Lock()
+			s.requests, s.sent = s.agent.requests, s.agent.sent
+			s.mu.Unlock()
 			send(map[string]any{"type": "usage", "tokens": e.tokens, "window": e.window})
 		case evDone:
 			switch {
@@ -282,4 +336,132 @@ func webDir() string {
 		}
 	}
 	return ""
+}
+
+func (s *server) command(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
+		http.Error(w, "send JSON like {\"text\": \"/models\"}", http.StatusBadRequest)
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	busy := s.busy
+	fields := strings.Fields(body.Text)
+	if len(fields) == 0 {
+		writeJSON(w, map[string]any{"kind": "error", "text": "empty command"})
+		return
+	}
+	info := func(title string, lines []string) {
+		writeJSON(w, map[string]any{"kind": "info", "title": title, "lines": lines})
+	}
+	a := s.agent
+	switch fields[0] {
+	case "/models", "/model", "/status":
+		rows, err := fetchRoutes(a.api)
+		if err != nil {
+			writeJSON(w, map[string]any{"kind": "error", "text": err.Error()})
+			return
+		}
+		var lines []string
+		for _, row := range rows {
+			state := "ready"
+			if !row.Ready {
+				state = fmt.Sprintf("resting %ds", row.RetryIn)
+			}
+			lines = append(lines, fmt.Sprintf("%s  %s  %s", modelName(row.Route), provider(row.Route), state))
+		}
+		info("free models, in the order prism tries them", append(lines, "", "add more free models: prism setup"))
+	case "/skills":
+		if len(fields) > 2 && fields[1] == "new" {
+			if busy {
+				writeJSON(w, map[string]any{"kind": "error", "text": "wait until prism finishes"})
+				return
+			}
+			info(newSkill(a, fields[2]), []string{})
+			return
+		}
+		var lines []string
+		for _, sk := range a.skills {
+			lines = append(lines, fmt.Sprintf("%s: %s (%s)", sk.name, sk.description, sk.source))
+		}
+		info("skills", append(lines, "", "add your own: /skills new <name> in the terminal, or .prism/skills/<name>.md"))
+	case "/mcp":
+		info("connected tools (MCP)", mcpLines(a.mcp.status()))
+	case "/usage":
+		u := todayUsage()
+		info("free AI usage", []string{
+			fmt.Sprintf("today: %d requests, %s tokens sent", u.Requests, short(u.Tokens)),
+			fmt.Sprintf("this chat: %d requests, %s tokens sent", s.requests, short(s.sent)),
+		})
+	case "/memory", "/forget":
+		if busy {
+			writeJSON(w, map[string]any{"kind": "error", "text": "wait until prism finishes"})
+			return
+		}
+		if fields[0] == "/forget" || (len(fields) > 1 && fields[1] == "forget") {
+			if err := a.store.forget(); err != nil {
+				writeJSON(w, map[string]any{"kind": "error", "text": err.Error()})
+				return
+			}
+			a.messages[0].Content = a.systemPrompt()
+			info("memory cleared for this folder", []string{})
+			return
+		}
+		mem := a.store.memory()
+		lines := strings.Split(mem, "\n")
+		if mem == "" {
+			lines = []string{"nothing yet: prism saves what it learns after each task"}
+		}
+		info("what prism remembers here", lines)
+	case "/resume", "/continue":
+		if busy {
+			writeJSON(w, map[string]any{"kind": "error", "text": "wait until prism finishes"})
+			return
+		}
+		var others []session
+		for _, sess := range a.store.sessions() {
+			if sess.ID != a.session {
+				others = append(others, sess)
+			}
+		}
+		if len(others) > resumeShown {
+			others = others[:resumeShown]
+		}
+		if len(fields) > 1 {
+			k, err := strconv.Atoi(fields[1])
+			if err != nil || k < 1 || k > len(others) {
+				writeJSON(w, map[string]any{"kind": "error", "text": "no chat with that number, try /resume"})
+				return
+			}
+			full, err := a.store.loadSession(others[k-1].ID)
+			if err != nil {
+				writeJSON(w, map[string]any{"kind": "error", "text": err.Error()})
+				return
+			}
+			a.resume(full)
+			s.snap = nil
+			writeJSON(w, map[string]any{"kind": "reload"})
+			return
+		}
+		if len(others) == 0 {
+			info("no earlier chats in this folder yet", []string{})
+			return
+		}
+		var lines []string
+		for k, sess := range others {
+			lines = append(lines, fmt.Sprintf("%d  %s  %s", k+1, ago(sess.Updated), sess.Title))
+		}
+		info("earlier chats", append(lines, "", "type /resume <number> to reopen one"))
+	case "/init":
+		if busy {
+			writeJSON(w, map[string]any{"kind": "error", "text": "wait until prism finishes, then run /init"})
+			return
+		}
+		writeJSON(w, map[string]any{"kind": "send", "message": initPrompt})
+	default:
+		writeJSON(w, map[string]any{"kind": "error", "text": fields[0] + " isn't a command"})
+	}
 }

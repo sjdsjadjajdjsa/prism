@@ -7,6 +7,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
   <meta name="color-scheme" content="dark">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="commands.css">
 </head>
 <body>
   <div id="splash" class="splash" aria-hidden="true">
@@ -30,7 +31,7 @@
       <span id="top-say" class="top-say muted"></span>
       <label class="theme-pick">
         <span class="muted">theme</span>
-        <select id="theme" aria-label="theme">
+        <select id="theme" aria-label="Select theme">
           <option value="prism">prism</option>
           <option value="tokyo-night">tokyo-night</option>
           <option value="catppuccin">catppuccin</option>
@@ -64,8 +65,9 @@
       <form id="composer" class="composer" autocomplete="off">
         <div id="inputbox" class="inputbox">
           <span class="prompt grad">›</span>
-          <textarea id="input" rows="1" placeholder="ask anything…" spellcheck="false"></textarea>
+          <textarea id="input" rows="1" placeholder="ask anything…" spellcheck="false" aria-label="Chat input"></textarea>
           <span id="busyhint" class="busyhint muted" hidden>working…  esc to stop</span>
+          <div id="cmd-suggest" class="cmd-suggest" role="listbox" aria-label="Slash commands" hidden></div>
         </div>
       </form>
       <div class="status">
@@ -84,6 +86,8 @@
     <canvas id="beam-canvas"></canvas>
   </div>
 
+  <script src="beam.js" defer></script>
+  <script src="commands.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>

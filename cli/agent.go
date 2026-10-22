@@ -170,8 +170,8 @@ Work like a careful senior engineer:
 - After changing code, run it or its tests with bash to prove it works, then fix whatever fails.
 - Keep using tools until the task is done. Ask the user only when something is truly unclear.
 - Never start servers or other commands that keep running; check work with commands that finish.
-- Never delete or overwrite files the user asked for or already had, unless they asked you to. Files you create for the task are the result: never remove them to "clean up".
-- Before you say you are done, confirm the files you made still exist and do what was asked.
+- Never delete or overwrite files that existed before you started or that the user asked for, unless they asked you to. Files you create for the task are the result: never remove them to "clean up".
+- Before you say you are done, confirm the files you created still exist and contain the expected changes.
 - When finished, reply briefly in plain words: what you changed and how you checked it.`, dir)
 }
 
@@ -248,6 +248,8 @@ func (a *Agent) loop(ctx context.Context, emit func(any)) error {
 			switch {
 			case call.Function.Name == "skill":
 				result = a.useSkill(call.Function.Arguments)
+			case a.isSkill(call.Function.Name):
+				result = a.useSkill(`{"name":"` + call.Function.Name + `"}`)
 			case a.approve != nil && (needsApproval[call.Function.Name] || a.mcp.has(call.Function.Name)) && !a.approve(ctx, call.Function.Name, approvalText(call.Function.Name, call.Function.Arguments)):
 				result = toolResult{output: "The user said no to this. Do not try it again another way; explain what you wanted to do and ask what they prefer.", summary: "you said no"}
 			case a.mcp.has(call.Function.Name):

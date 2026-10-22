@@ -38,6 +38,8 @@ function hash(x, y, s) {
 }
 
 const palette = { spec: [], bg: [0, 0, 0], fg: [255, 255, 255], muted: [100, 100, 100] };
+// hex-string mirror of the palette, the shape web/beam.js and web/shard.js expect
+const themeCache = { name: 'prism', bg: '#0b0b10', fg: '#e8e6f0', muted: '#6e6a86', faint: '#1d1c29', spectrum: [] };
 function setTheme(name) {
   if (!THEMES.includes(name)) return false;
   document.documentElement.dataset.theme = name;
@@ -47,6 +49,12 @@ function setTheme(name) {
   palette.bg = hexToRgb(cssVar('--bg'));
   palette.fg = hexToRgb(cssVar('--fg'));
   palette.muted = hexToRgb(cssVar('--muted'));
+  themeCache.name = name;
+  themeCache.bg = cssVar('--bg') || themeCache.bg;
+  themeCache.fg = cssVar('--fg') || themeCache.fg;
+  themeCache.muted = cssVar('--muted') || themeCache.muted;
+  themeCache.faint = cssVar('--faint') || themeCache.faint;
+  themeCache.spectrum = [0, 1, 2, 3, 4, 5, 6].map((i) => cssVar('--s' + i));
   return true;
 }
 
@@ -270,7 +278,7 @@ function renderMarkdown(root, src) {
 
 function inline(parent, text) {
   // tokens: `code`, **bold**, *em*, [text](url)
-  const re = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)|(\[[^\]\n]+\]\((https?:\/\/[^)\s]+)\))/g;
+  const re = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|((?<![\w*])\*(?=[A-Za-z])[^*\n]*?[^\s\d*]\*(?![\w*]))|(\[[^\]\n]+\]\((https?:\/\/[^)\s]+)\))/g;
   let last = 0, m;
   while ((m = re.exec(text))) {
     if (m.index > last) parent.appendChild(document.createTextNode(text.slice(last, m.index)));
@@ -366,8 +374,13 @@ function renderStatus() {
 // ---------- shard buddy ----------
 const SHARD = ['......#......', '.....###.....', '....#####....', '...#######...', '..#########..', '.###########.', '#############'];
 const shardCv = $('shard');
-shardCv.width = 170; shardCv.height = 100; // room for '!', the wave hand and orbiting dots
+const SHARD_W = 170, SHARD_H = 100; // room for '!', the wave hand and orbiting dots
+const DPR = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+shardCv.width = Math.round(SHARD_W * DPR); shardCv.height = Math.round(SHARD_H * DPR);
+shardCv.style.width = SHARD_W + 'px'; shardCv.style.height = SHARD_H + 'px';
 const shardCtx = shardCv.getContext('2d');
+shardCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
+shardCtx.imageSmoothingEnabled = false;
 const MONO = 'ui-monospace, Menlo, Consolas, monospace';
 const buddy = { mood: 'idle', charge: 0, since: 0, moodUntil: 0, wink: 0, waveUntil: 0, lookAt: -1e9, busySince: 0 };
 function inShard(ox, oy, px, sx, sy) {
@@ -379,7 +392,9 @@ const BUBBLES = {
   crack: 'hm. a crack in the lens.', fogged: 'all lenses fogged. give it a minute.', hello: 'light in. rainbow out.',
 };
 let bubbleTimer = 0;
+let quiet = false; // /quiet
 function say(key, ms = 3200) {
+  if (quiet) return;
   const text = BUBBLES[key] || key;
   $('bubble-text').textContent = text; $('bubble').hidden = false;
   clearTimeout(bubbleTimer);
@@ -394,8 +409,8 @@ function drawShard(now) {
   const md = buddy.mood;
   const W = 13, H = 7, px = 10;
   const bob = (REDUCED ? 0 : Math.round(Math.sin(n / (md === 'working' ? 260 : 900)) * (md === 'working' ? 2 : 1.5)));
-  shardCtx.clearRect(0, 0, shardCv.width, shardCv.height);
-  const ox = Math.floor((shardCv.width - W * px) / 2), oy = shardCv.height - H * px - 6 + bob;
+  shardCtx.clearRect(0, 0, SHARD_W, SHARD_H);
+  const ox = Math.round((SHARD_W - W * px) / 2), oy = Math.round(SHARD_H - H * px - 6 + bob);
   const white = [255, 255, 255], bg = palette.bg;
   let glow = 0;
   if (md === 'working') glow = 0.18 + 0.12 * Math.sin(n / 140);
@@ -439,30 +454,17 @@ function drawShard(now) {
       shardCtx.fillRect(ox + x * px, oy + y * px, px, px);
     }
   }
-  // eyes (row 4) and mouth (row 5)
+  // eyes only — exactly eyeGlyphs + drawShardSmall in cli/shard.go: dark pixels on row 4,
+  // columns 4 and 8 shifted by look; no mouth; closed (nothing drawn) while blinking or sleepy.
   const drift = md === 'thinking' ? Math.round(Math.sin(n / 700)) : 0;
-  const eyeShift = Math.max(-1, Math.min(1, drift + (n - buddy.lookAt < 700 ? -1 : 0))); // glance left at fresh text
-  const dark = rgbStr(mix(bg, [0, 0, 0], 0.6));
-  shardCtx.fillStyle = dark;
-  for (const ex of [center - 2 + eyeShift, center + 2 + eyeShift]) {
-    const X = ox + ex * px, Y = oy + 4 * px;
-    if (md === 'surprised') shardCtx.fillRect(X - 2, Y - 2, px + 4, px + 4); // wide eyes
-    else if (md === 'sleepy' || blink) shardCtx.fillRect(X, Y + px / 2, px, px / 2);
-    else if (md === 'proud' || md === 'happy') shardCtx.fillRect(X, Y, px, px / 2);
-    else shardCtx.fillRect(X, Y, px, px);
-  }
-  const my = oy + 5 * px;
-  if (md === 'happy' || md === 'proud') {
-    shardCtx.fillRect(ox + (center - 2) * px, my, px, px / 2);
-    shardCtx.fillRect(ox + (center + 2) * px, my, px, px / 2);
-    shardCtx.fillRect(ox + (center - 1) * px, my + px / 2, 3 * px, px / 2);
-  } else if (md === 'surprised' || md === 'oops') {
-    shardCtx.fillRect(ox + center * px, my, px, px);
-  } else if (md === 'sleepy') {
-    shardCtx.fillRect(ox + (center - 1) * px, my, 3 * px, px / 2);
-  } else {
-    shardCtx.fillRect(ox + (center - 1) * px, my, px, px / 2);
-    shardCtx.fillRect(ox + (center + 1) * px, my, px, px / 2);
+  const look = Math.max(-1, Math.min(1, drift + (n - buddy.lookAt < 700 ? -1 : 0))); // glance left at fresh text
+  const eyesClosed = (md === 'sleepy' || blink) && md !== 'happy';
+  if (!eyesClosed) {
+    shardCtx.fillStyle = rgbStr(mix(bg, [0, 0, 0], 0.3));
+    const eyeH = md === 'surprised' ? px * 2 : px; // '█' spans rows 4-5, '▀' is row 4 only
+    for (const ex of [4 + look, 8 + look]) {
+      shardCtx.fillRect(ox + ex * px, oy + 4 * px, px, eyeH);
+    }
   }
   // decorations — mirrors drawShardSmall in cli/shard.go
   const cx = ox + 6.5 * px, cy = oy + 3 * px;
@@ -522,93 +524,46 @@ function sparkle(count = 6, chars = '✦✧·+◇') {
   }
 }
 
-// ---------- last prism beam ----------
-let beamRun = null;
-function lastBeam() {
-  if (REDUCED || beamRun) return;
-  const wrap = $('beam'), cv = $('beam-canvas'), ctx = cv.getContext('2d');
+// ---------- last prism beam (web/beam.js) ----------
+let beamStop = null;
+let beamEnabled = true; // /beam
+function playBeam() {
+  if (REDUCED || !beamEnabled || beamStop) return;
+  const wrap = $('beam'), cv = $('beam-canvas');
+  if (!wrap || !cv || !window.PrismBeam) return;
   cv.width = innerWidth; cv.height = innerHeight;
   wrap.hidden = false;
-  // timeline mirrors drawBeam/beamShake in cli/shard.go: charge 0-350ms, converge 350-800, fire 800-1050, fade 1250-1750
-  const start = performance.now();
-  const white = [255, 255, 255], CELL = 14;
   const body = document.body;
-  const stop = () => {
-    if (beamRun) { cancelAnimationFrame(beamRun); beamRun = null; }
-    wrap.hidden = true; ctx.clearRect(0, 0, cv.width, cv.height);
+  const cell = { w: 12, h: 18 };
+  // origin sits on Shard's left edge — PrismBeam fires leftward from there, like the terminal
+  const r = shardCv.getBoundingClientRect();
+  const originX = Math.max(1, Math.round(r.left / cell.w));
+  const originY = Math.max(0, Math.round((r.top + r.height * 0.29) / cell.h));
+  let timer = 0;
+  const finish = () => {
+    clearTimeout(timer);
+    removeEventListener('keydown', finish, true);
+    removeEventListener('pointerdown', finish, true);
+    if (beamStop) { const s = beamStop; beamStop = null; s(); }
+    wrap.hidden = true;
+    cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
     body.classList.remove('shake');
-    removeEventListener('keydown', stop, true); removeEventListener('pointerdown', stop, true);
   };
-  addEventListener('keydown', stop, true); addEventListener('pointerdown', stop, true);
-  const tick = () => {
-    const n = performance.now() - start;
-    const charge = ease(n / 350), converge = ease((n - 350) / 450), fire = ease((n - 800) / 250), fade = ease((n - 1250) / 500);
-    if (fade >= 1) return stop();
-    const W = cv.width, H = cv.height;
-    ctx.clearRect(0, 0, W, H);
-    // origin: Shard's apex; the beam leaves it toward the wider side of the page
-    const r = shardCv.getBoundingClientRect();
-    const sx = r.left + r.width * 0.5, sy = r.top + r.height * 0.29;
-    const dir = sx > W / 2 ? -1 : 1, length = dir < 0 ? sx : W - sx;
-    // dim the page while charging
-    if (n < 1250) { ctx.globalAlpha = 0.35 * charge * (1 - fire * 0.4) * 0.7; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); }
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.lineCap = 'round';
-    if (fire < 1) {
-      // seven spectrum rays fan out from the apex and converge into one line
-      const spread = (1 - converge) * 0.5, L = length * charge;
-      ctx.lineWidth = 1.5; ctx.globalAlpha = 0.8 * (1 - fire);
-      for (let i = 0; i < 7; i++) {
-        const off = (i / 6 - 0.5) * 2;
-        const angle = off * spread + Math.sin(n / 120 + i) * 0.02 * (1 - converge);
-        ctx.strokeStyle = rgbStr(mix(specAt(palette.spec, i / 7), palette.fg, 0.2 + 0.5 * converge));
-        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + dir * L, sy + Math.tan(angle) * L * 0.5); ctx.stroke();
-      }
-      if (converge > 0) {
-        // converging glow point at Shard
-        const gr = 16 + 54 * converge, gc = mix(specAt(palette.spec, n / 800), white, 0.6);
-        const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, gr);
-        g.addColorStop(0, rgbStr(gc)); g.addColorStop(0.35, rgbStr(mix(gc, palette.bg, 0.5))); g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.globalAlpha = converge; ctx.fillStyle = g; ctx.fillRect(sx - gr, sy - gr, gr * 2, gr * 2);
-      }
-    }
-    if (fire > 0) {
-      const L = length * fire, half = 2 + fire * 7 * (1 - fade), seg = 10;
-      ctx.globalAlpha = 1 - fade;
-      for (let d = 0; d < L; d += seg) {
-        // brightness pulses travel along the beam
-        const pulse = 0.5 + 0.5 * Math.sin(d / 40 - n / 45);
-        const col = mix(specAt(palette.spec, d / 180 - n / 300), white, 0.5 + 0.3 * pulse);
-        const x = dir > 0 ? sx + d : sx - d - seg, w = Math.min(seg, L - d);
-        ctx.fillStyle = rgbStr(mix(col, palette.bg, 0.6)); ctx.fillRect(x, sy - half * 2.4, w, half * 4.8);   // soft halo
-        ctx.fillStyle = rgbStr(col); ctx.fillRect(x, sy - half, w, half * 2);                                  // body
-        ctx.fillStyle = `rgba(255,255,255,${(0.35 + 0.45 * pulse).toFixed(3)})`; ctx.fillRect(x, sy - half * 0.4, w, half * 0.8); // core
-      }
-      // sparkles drift outward from the beam and fade
-      const age = (n - 800) / 1000;
-      ctx.font = '14px ' + MONO; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      for (let i = 0; i < 28; i++) {
-        const life = 1 - Math.max(0, age - hash(i, 9, 9) * 0.6) / 0.9;
-        if (life <= 0) continue;
-        const d = hash(i, 1, 2) * length * fire;
-        const drift = age * (2 + hash(i, 8, 3) * 5) * (hash(i, 4, 1) < 0.5 ? -1 : 1);
-        const py = sy + ((hash(i, 3, 7) - 0.5) * 4 + drift) * CELL;
-        const px = sx + dir * (d + age * hash(i, 6, 2) * 6 * CELL);
-        ctx.globalAlpha = life; ctx.fillStyle = rgbStr(specAt(palette.spec, hash(i, 5, 6)));
-        ctx.fillText('✦·✧•'[i % 4], px, py);
-      }
-    }
-    // quick white flash at full power
-    const flash = 1 - Math.abs(n - 820) / 90;
-    if (flash > 0) { ctx.globalAlpha = 0.35 * flash; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); }
-    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
-    // 240ms page shake (CSS transform on body, see style.css)
-    const s = n >= 820 && n <= 1060 ? [1, -1, 1, 0][Math.floor((n - 820) / 60) % 4] : 0;
-    body.classList.toggle('shake', s !== 0);
-    body.style.setProperty('--shake-x', (s * 4) + 'px'); body.style.setProperty('--shake-y', (-s * 2) + 'px');
-    beamRun = requestAnimationFrame(tick);
-  };
-  beamRun = requestAnimationFrame(tick);
+  beamStop = window.PrismBeam.play({
+    canvas: cv,
+    originX,
+    originY,
+    cell,
+    theme: themeCache,
+    onShake: (dx) => {
+      body.classList.toggle('shake', !!dx);
+      body.style.setProperty('--shake-x', (dx * 4) + 'px');
+      body.style.setProperty('--shake-y', (-dx * 2) + 'px');
+    },
+  });
+  addEventListener('keydown', finish, true);
+  addEventListener('pointerdown', finish, true);
+  timer = setTimeout(finish, 1900);
 }
 
 // ---------- splash ----------
@@ -765,7 +720,7 @@ function handleEvent(ev) {
       if (ev.tests_passed) { say('tests', 3600); setMood('proud', 3000); sparkle(8); }
       else if (ev.tools > 0) { say('done', 3000); setMood('happy', 2400); sparkle(6); }
       else setMood('idle');
-      if (ev.tools > 0) lastBeam();
+      if (ev.tools > 0) playBeam();
       break;
     }
     case 'error': {
@@ -814,29 +769,89 @@ function showHelp() {
   hideHello();
   const t = newTurn();
   const md = el('div', 'md');
-  renderMarkdown(md, '### commands\n- `/new` — start a fresh session\n- `/theme <name>` — ' + THEMES.join(', ') + '\n- `/help` — this list\n\nenter sends · shift+enter newline · esc stops');
+  const list = (window.PrismCommands && window.PrismCommands.list) || [];
+  const rows = list.length
+    ? list.map((c) => '- `' + c.name + '` — ' + c.help).join('\n')
+    : '- `/new` — start a fresh chat\n- `/theme <name>` — ' + THEMES.join(', ') + '\n- `/help` — this list';
+  renderMarkdown(md, '### commands\n' + rows + '\n\nenter sends · shift+enter newline · esc stops');
   t.appendChild(md);
   scrollDown();
 }
 
-async function command(line) {
-  const [cmd, ...rest] = line.trim().split(/\s+/);
+// a server command that answered with text (/models, /usage, /memory …)
+function addInfoBlock(text) {
+  hideHello();
+  const t = newTurn();
+  const md = el('div', 'md');
+  renderMarkdown(md, String(text == null ? '' : text));
+  t.appendChild(md);
+  scrollDown();
+}
+
+function resetTranscript() {
+  clear(transcript); state.turn = null; state.steps = null; state.textEl = null; state.tokens = 0; renderStatus();
+  const hello = el('div', 'hello'); hello.id = 'hello';
+  hello.appendChild(el('p', 'hello-title', 'what are we building today?'));
+  hello.appendChild(el('p', 'muted', 'try:  fix a bug  ·  make a website  ·  /help'));
+  transcript.appendChild(hello);
+}
+
+// /new /theme /beam /quiet /help answer here; everything else goes to cli/serve.go command().
+async function runCommand(line) {
+  const text = String(line || '').trim();
+  if (!text) return;
+  if (text.charAt(0) !== '/') { send(text); return; }
+  const [cmd, ...rest] = text.split(/\s+/);
   switch (cmd) {
     case '/new':
       try { await api('/api/new', {}); } catch (e) { addError('could not start new session', String(e.message)); return; }
-      clear(transcript); state.turn = null; state.steps = null; state.textEl = null; state.tokens = 0; renderStatus();
-      const hello = el('div', 'hello'); hello.id = 'hello';
-      hello.appendChild(el('p', 'hello-title', 'what are we building today?'));
-      hello.appendChild(el('p', 'muted', 'try:  fix a bug  ·  make a website  ·  /help'));
-      transcript.appendChild(hello);
+      resetTranscript();
       say('hello', 2400); setMood('happy', 1500);
       return;
     case '/theme':
       if (!setTheme(rest[0] || '')) addNote(`themes: ${THEMES.join(', ')}`);
       else addNote(`theme: ${rest[0]}`);
       return;
+    case '/beam':
+      beamEnabled = !beamEnabled;
+      addNote(`finish beam ${beamEnabled ? 'on' : 'off'}`);
+      return;
+    case '/quiet':
+      quiet = !quiet;
+      if (quiet) hush();
+      addNote(`shard's lines ${quiet ? 'off' : 'on'}`);
+      return;
     case '/help': showHelp(); return;
-    default: return send(line);
+    default: break;
+  }
+  if (DEMO || !window.PrismCommands) { addNote(`${cmd} needs the prism server`); return; }
+  let data = null;
+  try { data = await window.PrismCommands.runServer(text); }
+  catch (e) { addError('command failed', String((e && e.message) || e)); return; }
+  const action = data && (data.kind || data.action || data.type);
+  switch (action) {
+    case 'info': {
+      // server sends {kind:'info', title, lines:[]} — format into markdown
+      let body = '';
+      if (data.title) body += `### ${data.title}\n`;
+      if (Array.isArray(data.lines)) body += data.lines.join('\n');
+      else body += data.text || data.detail || '';
+      addInfoBlock(body || data.text || data.detail || '');
+      return;
+    }
+    case 'reload':
+      try {
+        const hist = await api('/api/history');
+        resetTranscript();
+        if (hist) loadHistory(hist.entries);
+      } catch (e) { addError('could not reload', String((e && e.message) || e)); }
+      return;
+    case 'send': send(data.message || data.text || text); return;
+    case 'error': addError(data.headline || 'command failed', data.detail || data.text || ''); return;
+    default:
+      if (data && (data.text || data.lines)) addInfoBlock(data.text || (Array.isArray(data.lines) ? data.lines.join('\n') : ''));
+      else addNote(`unknown command: ${cmd}`);
+      return;
   }
 }
 
@@ -928,11 +943,14 @@ input.addEventListener('keydown', (e) => {
     e.preventDefault();
     const v = input.value.trim();
     if (!v) return;
+    if (v.charAt(0) === '/' && window.PrismCommands) return; // commands.js owns slash lines
     if (state.busy) { say('fogged', 1800); return; }
     input.value = ''; autosize();
-    command(v);
+    runCommand(v);
   } else if (e.key === 'Escape') {
     e.preventDefault();
+    const suggest = $('cmd-suggest');
+    if (suggest && !suggest.hidden) { suggest.hidden = true; return; }
     if (state.busy) stop(); else { input.value = ''; autosize(); }
   }
 });
@@ -944,6 +962,52 @@ addEventListener('keydown', (e) => {
   if (a !== input && a.tagName !== 'SELECT' && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) input.focus();
 });
 
+// ---------- shard buddy draw (web/shard.js when it is loaded) ----------
+function drawBuddy(now) {
+  const S = window.PrismShard;
+  if (S && typeof S.drawSmall === 'function') {
+    if (buddy.moodUntil && now > buddy.moodUntil) setMood(state.busy ? 'working' : 'idle');
+    const charge = Math.max(buddy.charge, state.busy ? Math.min(1, (now - buddy.busySince) / 20000) : 0);
+    const look = now - buddy.lookAt < 700 ? -1 : 0;
+    S.drawSmall(shardCv, themeCache, { md: buddy.mood, mood: buddy.mood, charge, look, wave: now < buddy.waveUntil }, now);
+    return;
+  }
+  drawShard(now);
+}
+
+// ---------- terminal handoff ----------
+function showHandoff() {
+  if ($('handoff')) return;
+  const note = el('div', 'handoff muted', 'this chat is shared with your terminal · close this tab to go back');
+  note.id = 'handoff';
+  note.style.cssText = 'text-align:center;font-size:12px;padding:4px 16px 0;color:var(--muted)';
+  const top = document.querySelector('header.top');
+  if (top) top.insertAdjacentElement('afterend', note);
+}
+function showClosed() {
+  if ($('closed')) return;
+  const o = el('div', '', '');
+  o.id = 'closed';
+  o.style.cssText = 'position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;'
+    + 'background:rgba(0,0,0,.72);backdrop-filter:blur(2px);color:var(--fg);font-size:15px;letter-spacing:.02em';
+  o.appendChild(el('p', '', 'prism was closed in the terminal'));
+  document.body.appendChild(o);
+}
+// 3s liveness ping — raw fetch, never the demo stub
+function startHeartbeat() {
+  if (DEMO) return;
+  let everOk = false;
+  setInterval(async () => {
+    try {
+      const r = await fetch('/api/ping');
+      if (!r.ok) throw new Error(String(r.status));
+      everOk = true;
+    } catch {
+      if (everOk) showClosed();
+    }
+  }, 3000);
+}
+
 // ---------- boot ----------
 async function boot() {
   let saved = null;
@@ -952,7 +1016,7 @@ async function boot() {
   buildSplash();
   renderStatus();
   let loopRaf = 0;
-  const loop = () => { loopRaf = 0; if (document.hidden) return; const now = performance.now(); drawShard(now); renderLive(now); loopRaf = requestAnimationFrame(loop); };
+  const loop = () => { loopRaf = 0; if (document.hidden) return; const now = performance.now(); drawBuddy(now); renderLive(now); loopRaf = requestAnimationFrame(loop); };
   const startLoop = () => { if (!loopRaf && !document.hidden) loopRaf = requestAnimationFrame(loop); };
   document.addEventListener('visibilitychange', () => { if (document.hidden) { if (loopRaf) { cancelAnimationFrame(loopRaf); loopRaf = 0; } } else startLoop(); });
   startLoop();
@@ -962,6 +1026,7 @@ async function boot() {
       if (info.project) $('project').textContent = info.project;
       if (info.theme && !params.get('theme') && !saved) setTheme(info.theme);
       state.modelsReady = info.models_ready; renderStatus();
+      if (info.handoff) showHandoff();
     }
     const hist = await api('/api/history');
     if (hist) loadHistory(hist.entries);
@@ -969,6 +1034,15 @@ async function boot() {
     state.modelsReady = 0; renderStatus();
     $('top-say').textContent = 'server unreachable';
   }
+  if (window.PrismCommands) {
+    const box = $('cmd-suggest');
+    window.PrismCommands.attach({
+      input,
+      suggestBox: box,
+      run: (text) => { input.value = ''; autosize(); if (box) box.hidden = true; runCommand(text); },
+    });
+  }
+  startHeartbeat();
   if (DEMO) {
     setTimeout(() => {
       input.value = ''; send('make my todo list persist between reloads, then run the tests');

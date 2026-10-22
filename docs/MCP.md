@@ -18,6 +18,10 @@ Prism reads two config files:
 Inside the Docker container, home is `/home/prism` and your project folder is
 mounted at `/workspace`, so the files live at
 `/home/prism/.config/prism/mcp.json` and `/workspace/.prism/mcp.json`.
+Beginners should prefer `.prism/mcp.json` in the project root: it is easier to
+reach from the host, persists across container restarts without extra volume
+configuration, and can be committed to git (using `${VAR}` references instead
+of real secrets).
 
 ## Config format
 
@@ -83,8 +87,13 @@ asking.
 
 ## Examples
 
-All of these are free to use. Paste them into `~/.config/prism/mcp.json` (or a
-project's `.prism/mcp.json`) and merge them under one `mcpServers` key.
+All of these are free to use. Each block below is a complete, pasteable
+`mcp.json` file. Save it as `.prism/mcp.json` inside your project (recommended
+for beginners -- it stays with the project and works inside the container
+without any extra volume setup) or as `~/.config/prism/mcp.json` to apply it
+to every project.
+
+To combine several servers, merge their entries under one `mcpServers` key.
 
 ### 1. Filesystem
 
@@ -92,20 +101,30 @@ Lets the AI read and write files in a folder you choose. Give it `/workspace`
 so it can see your project inside the container.
 
 ```json
-"filesystem": {
-  "command": "npx",
-  "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+    }
+  }
 }
 ```
 
 ### 2. Fetch web pages
 
-Lets the AI pull down a URL and read the page as text. Its tool is called `imageFetch`, but it fetches normal web pages too, not just images.
+Lets the AI pull down a URL and read the page as text or Markdown.
+`mcp-fetch-server` is a pure-Node package with no native dependencies, so it
+works on Linux and inside the Docker container.
 
 ```json
-"fetch": {
-  "command": "npx",
-  "args": ["-y", "@kazuph/mcp-fetch"]
+{
+  "mcpServers": {
+    "fetch": {
+      "command": "npx",
+      "args": ["-y", "mcp-fetch-server"]
+    }
+  }
 }
 ```
 
@@ -117,9 +136,13 @@ shell commands. After it connects, run its `git_set_working_dir` tool with
 otherwise the tools look in the wrong folder.
 
 ```json
-"git": {
-  "command": "npx",
-  "args": ["-y", "@cyanheads/git-mcp-server"]
+{
+  "mcpServers": {
+    "git": {
+      "command": "npx",
+      "args": ["-y", "@cyanheads/git-mcp-server"]
+    }
+  }
 }
 ```
 
@@ -129,13 +152,20 @@ Drives a real browser: open pages, click, fill forms, take screenshots. Useful
 for checking the website you are building.
 
 ```json
-"browser": {
-  "command": "npx",
-  "args": ["-y", "@playwright/mcp@latest"]
+{
+  "mcpServers": {
+    "browser": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"]
+    }
+  }
 }
 ```
 
-The first start downloads Playwright's browser build, so it takes a while.
+Note: Playwright requires system libraries (libnss3, libatk, libgbm and
+others) that are not present in Prism's Docker image. This example may not
+work inside the container yet. It works on a host machine that has those
+libraries installed.
 
 ### 5. GitHub (free account needed)
 
@@ -153,10 +183,14 @@ export GITHUB_TOKEN=ghp_yourtoken
 Then add:
 
 ```json
-"github": {
-  "url": "https://api.githubcopilot.com/mcp/",
-  "headers": {
-    "Authorization": "Bearer ${GITHUB_TOKEN}"
+{
+  "mcpServers": {
+    "github": {
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_TOKEN}"
+      }
+    }
   }
 }
 ```

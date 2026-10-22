@@ -1,6 +1,6 @@
 ---
 name: automate-task
-description: Write a Python script that automates a file chore with a dry-run default and clear output.
+description: Scripts that automate a chore: rename, sort, move, convert files or CSV.
 ---
 
 # Skill: automate a chore

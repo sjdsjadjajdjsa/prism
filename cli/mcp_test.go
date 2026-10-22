@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -70,6 +71,11 @@ func runFakeStdioMCP(in io.Reader, out io.Writer) {
 		}
 		switch method {
 		case "initialize":
+			if d := os.Getenv("PRISM_FAKE_MCP_DELAY"); d != "" {
+				if ms, err := strconv.Atoi(d); err == nil && ms > 0 {
+					time.Sleep(time.Duration(ms) * time.Millisecond)
+				}
+			}
 			reply(id, map[string]any{
 				"protocolVersion": mcpProtocol,
 				"capabilities":    map[string]any{"tools": map[string]any{}},
@@ -512,6 +518,112 @@ func TestMCPStringIDs(t *testing.T) {
 		t.Fatal("call did not return")
 	}
 	<-c.done
+}
+
+// TestMCPCrossServerDedupWire verifies that two servers whose tool names
+// produce the same wire name are disambiguated globally (not per-server).
+func TestMCPCrossServerDedupWire(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both servers expose a tool called "alpha". Dots and slashes sanitize to
+	// the same prefix, so both wires would be "fake_srv__alpha" without
+	// cross-server dedup. "fake" and "fake2" would not collide.
+	dir := writeMCPConfig(t, map[string]any{
+		"fake.srv": map[string]any{"command": exe, "env": map[string]string{fakeMCPEnv: "1"}},
+		"fake/srv": map[string]any{"command": exe, "env": map[string]string{fakeMCPEnv: "1"}},
+	})
+	hub := startMCP(dir)
+	defer hub.close()
+	hub.wait(20 * time.Second)
+
+	names := specNames(hub)
+	seen := map[string]int{}
+	for _, n := range names {
+		seen[n]++
+	}
+	for n, c := range seen {
+		if c > 1 {
+			t.Errorf("wire name %q appears %d times — cross-server dedup failed", n, c)
+		}
+	}
+	// Both servers must still expose their tools (none silently dropped).
+	if len(names) != 4 { // fake.srv: alpha,beta + fake/srv: alpha,beta
+		t.Errorf("expected 4 unique wire names, got %d: %v", len(names), names)
+	}
+	want := map[string]bool{"fake_srv__alpha": true, "fake_srv__beta": true, "fake_srv__alpha_2": true, "fake_srv__beta_2": true}
+	for _, n := range names {
+		if !want[n] {
+			t.Errorf("unexpected wire %q; names %v (sanitized prefixes must actually collide)", n, names)
+		}
+	}
+}
+
+// TestMCPDedupSuffixNoCollide verifies that when a tool is renamed to _2 and
+// a tool named _2 already exists, the suffix keeps incrementing until free.
+func TestMCPDedupSuffixNoCollide(t *testing.T) {
+	// Build a hub directly with hand-crafted tools that would collide naively.
+	hub := &mcpHub{}
+	s1 := &mcpServer{name: "s", state: "ready", tools: []mcpTool{
+		{server: "s", name: "x", wire: "s__x"},
+		{server: "s", name: "x", wire: "s__x"},     // dup → would become s__x_2
+		{server: "s", name: "x_2", wire: "s__x_2"}, // already taken
+	}}
+	hub.servers = []*mcpServer{s1}
+	dedupWireNames(hub.servers)
+
+	wires := make([]string, len(s1.tools))
+	for i, t := range s1.tools {
+		wires[i] = t.wire
+	}
+	seen := map[string]int{}
+	for _, w := range wires {
+		seen[w]++
+	}
+	for w, c := range seen {
+		if c > 1 {
+			t.Errorf("wire %q still duplicated after dedup: %v", w, wires)
+		}
+	}
+}
+
+// TestMCPHubClosedDuringConnect starts a real hub against a slow fake server,
+// closes it while connect is still in flight, and checks close() itself marks
+// that server error "hub closed" instead of leaving it "starting".
+func TestMCPHubClosedDuringConnect(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := writeMCPConfig(t, map[string]any{
+		"slow": map[string]any{"command": exe, "env": map[string]string{fakeMCPEnv: "1", "PRISM_FAKE_MCP_DELAY": "800"}},
+	})
+	hub := startMCP(dir)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		st := hub.status()
+		if len(st) == 1 && st[0].name == "slow" && st[0].state == "starting" {
+			break
+		}
+		if len(st) == 1 && st[0].state != "starting" {
+			t.Fatalf("slow server left starting before close: %+v", st)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	hub.close()
+	var got mcpStatus
+	for _, s := range hub.status() {
+		if s.name == "slow" {
+			got = s
+		}
+	}
+	if got.state == "starting" {
+		t.Fatalf("server state is still starting after hub.close()")
+	}
+	if got.state != "error" || got.err != "hub closed" {
+		t.Fatalf("status after close = %+v, want state error err %q", got, "hub closed")
+	}
 }
 
 func TestMCPBadConfig(t *testing.T) {

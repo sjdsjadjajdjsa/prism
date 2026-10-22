@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -84,6 +85,7 @@ type model struct {
 	answering      bool
 	scrollPos      float64
 	expandAll      bool
+	web            *webSession
 	pending        *evApprove
 }
 
@@ -109,6 +111,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.scrollPos = float64(m.scroll)
 		}
+		m.checkWeb()
 		frame := slowFrame
 		if m.gallery != "" || (!m.chat && m.now < 4*time.Second) || m.busy || m.now-m.chatAt < time.Second || m.animating() {
 			frame = fastFrame
@@ -156,6 +159,7 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.cancel != nil {
 			m.cancel()
 		}
+		m.endWeb()
 		return m, tea.Quit
 	}
 	if m.gallery != "" {
@@ -166,6 +170,12 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if !m.chat {
 		m.openChat()
+		return m, nil
+	}
+	if m.web != nil {
+		if k == "enter" {
+			return m, m.endWeb()
+		}
 		return m, nil
 	}
 	if m.pending != nil {
@@ -297,7 +307,7 @@ func (m *model) handle(event any) {
 	case evRemembered:
 		if e.changed {
 			m.speak("noted.")
-			if !m.busy {
+			if !m.busy && m.web == nil {
 				m.agent.messages[0].Content = m.agent.systemPrompt()
 			}
 		}
@@ -343,6 +353,18 @@ func (m model) View() tea.View {
 	t := themes[m.theme]
 	cv := newCanvas(m.w, m.h, t.bg, t.fg)
 	switch {
+	case m.web != nil:
+		drawHandoff(cv, t, m)
+	case strings.HasPrefix(m.gallery, "beam:"):
+		freeze, _ := strconv.Atoi(strings.TrimPrefix(m.gallery, "beam:"))
+		m.chat, m.beamOn, m.chatAt = true, true, -time.Hour
+		m.beamAt = m.now - time.Duration(freeze)*time.Millisecond
+		if m.beamAt <= 0 {
+			m.beamAt = 1
+			m.now = m.beamAt + time.Duration(freeze)*time.Millisecond
+		}
+		m.entries = []*entry{{kind: "user", text: "fix the bug in shop.py"}, {kind: "text", text: "Fixed. total() now multiplies price by quantity."}, {kind: "meta", text: "4.2s", arg: "nvidia/nemotron-3-ultra"}}
+		drawChat(cv, t, m)
 	case m.gallery != "":
 		drawShardGallery(cv, t, ms(m.now), m.gallery == "beam")
 	case m.chat:

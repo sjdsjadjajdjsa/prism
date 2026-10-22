@@ -35,7 +35,10 @@ command -v git >/dev/null 2>&1 || { say "Prism needs git. Linux: sudo apt instal
 
 if [[ -d "$DIR/.git" ]]; then
   say "Updating Prism in $DIR"
-  git -C "$DIR" pull --ff-only -q
+  git -C "$DIR" pull --ff-only || {
+    echo "Couldn't update Prism in $DIR (local changes, a different version, or no internet). To start fresh, move the folder away (mv \"$DIR\" \"$DIR-old\") and run this again." >&2
+    exit 1
+  }
 else
   say "Downloading Prism to $DIR"
   git clone -q --depth 1 "$REPO" "$DIR"

@@ -140,6 +140,10 @@ func (h *mcpHub) connect(s *mcpServer) {
 		closed = h.closed
 		if !closed {
 			s.state, s.conn, s.tools = "ready", conn, tools
+			dedupWireNames(h.servers)
+		} else {
+			s.state = "error"
+			s.err = "hub closed before connect finished"
 		}
 	})
 	if closed {
@@ -182,17 +186,42 @@ func listMCPTools(ctx context.Context, conn mcpConn, server string) ([]mcpTool, 
 		}
 		cursor = res.NextCursor
 	}
-	seen := map[string]int{}
-	for i := range tools {
-		seen[tools[i].wire]++
-		if n := seen[tools[i].wire]; n > 1 {
-			tools[i].wire = cutUTF8(tools[i].wire, 60) + fmt.Sprintf("_%d", n)
-		}
-	}
 	if len(tools) > 128 {
 		tools = tools[:128]
 	}
 	return tools, nil
+}
+
+// dedupWireNames resolves cross-server wire-name collisions in place.
+// It must be called under h.mu after all tools have been collected.
+// The suffix loop guarantees the renamed wire is itself not already taken.
+func dedupWireNames(servers []*mcpServer) {
+	used := map[string]bool{}
+	for _, s := range servers {
+		for _, t := range s.tools {
+			used[t.wire] = true
+		}
+	}
+	// Second pass: for any wire that appears more than once, rename the
+	// later occurrences with _2, _3, … skipping any name already taken.
+	count := map[string]int{}
+	for _, s := range servers {
+		for i := range s.tools {
+			w := s.tools[i].wire
+			count[w]++
+			if count[w] > 1 {
+				base := cutUTF8(w, 60)
+				for n := 2; ; n++ {
+					candidate := base + fmt.Sprintf("_%d", n)
+					if !used[candidate] {
+						s.tools[i].wire = candidate
+						used[candidate] = true
+						break
+					}
+				}
+			}
+		}
+	}
 }
 
 var unsafeTool = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
@@ -331,6 +360,9 @@ func (h *mcpHub) close() {
 	defer h.mu.Unlock()
 	h.closed = true
 	for _, s := range h.servers {
+		if s.state == "starting" {
+			s.state, s.err = "error", "hub closed"
+		}
 		if s.conn != nil {
 			s.conn.close()
 		}

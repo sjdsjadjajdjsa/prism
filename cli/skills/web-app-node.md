@@ -1,6 +1,6 @@
 ---
 name: web-app-node
-description: Use for Node.js, JavaScript, npm or package.json projects. Build small apps with npm scripts and tests.
+description: Node app, node script, npm project, JavaScript app, package.json. Never use for Python.
 ---
 
 # Skill: small Node.js app

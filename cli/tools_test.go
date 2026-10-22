@@ -88,3 +88,43 @@ func TestBashBackgroundAndTimeout(t *testing.T) {
 		t.Fatalf("timeout: ok=%v took %v out %q", r.ok, time.Since(start), r.output)
 	}
 }
+
+// TestSymlinkEscape verifies that a symlink inside the project pointing outside
+// cannot be used to read or write files outside the project root.
+func TestSymlinkEscape(t *testing.T) {
+	dir := t.TempDir()
+	// Create a symlink inside the project that points to /tmp (outside).
+	symTarget := t.TempDir() // a real dir outside `dir`
+	os.WriteFile(filepath.Join(symTarget, "secret.txt"), []byte("secret"), 0o644)
+	os.Symlink(symTarget, filepath.Join(dir, "escape"))
+
+	// Reading through the symlink should be blocked.
+	r := tool(t, dir, "read", `{"path":"escape/secret.txt"}`)
+	if r.ok || !strings.Contains(strings.ToLower(r.output), "outside") {
+		t.Fatalf("symlink escape read: ok=%v output=%q", r.ok, r.output)
+	}
+	// Writing through the symlink should also be blocked.
+	r = tool(t, dir, "write", `{"path":"escape/new.txt","content":"pwned"}`)
+	if r.ok || !strings.Contains(strings.ToLower(r.output), "outside") {
+		t.Fatalf("symlink escape write: ok=%v output=%q", r.ok, r.output)
+	}
+}
+
+// TestBashRedirectedBackground verifies that `sleep 30 >/dev/null 2>&1 &`
+// returns quickly (the shell exits immediately) and the background process
+// is killed so it doesn't leak.
+func TestBashRedirectedBackground(t *testing.T) {
+	start := time.Now()
+	r := tool(t, t.TempDir(), "bash", `{"command":"sleep 30 >/dev/null 2>&1 &"}`)
+	elapsed := time.Since(start)
+	if !r.ok {
+		t.Fatalf("redirected background: ok=%v output=%q", r.ok, r.output)
+	}
+	if elapsed > 6*time.Second {
+		t.Fatalf("redirected background took too long: %v", elapsed)
+	}
+	// The output should mention that a background process was stopped.
+	if !strings.Contains(r.output, "background process was stopped") {
+		t.Fatalf("expected background-stopped note, got: %q", r.output)
+	}
+}

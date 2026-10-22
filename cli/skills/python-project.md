@@ -1,6 +1,6 @@
 ---
 name: python-project
-description: Python only: set up a new Python project with a venv, requirements.txt, main module, and tests.
+description: Python only: set up a Python project with a venv, requirements.txt, main module, and tests. Not for Node or JavaScript.
 ---
 
 # Skill: new Python project

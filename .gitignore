@@ -6,3 +6,4 @@ bench/*.txt
 .network
 .bin/
 PLAN.md
+.ports/

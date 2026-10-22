@@ -91,7 +91,7 @@ Docker Desktop has to be running whenever you use Prism.
 
 Prism runs inside **WSL**, which is Linux built into Windows and made by Microsoft. It needs Windows 10 (version 2004 or newer) or Windows 11.
 
-**1. Install WSL.** Right-click the Start button and pick **Terminal (Admin)** or **PowerShell (Admin)**. Windows shows a permission prompt asking if the app can make changes to your device; click **Yes**. Then run:
+**1. Install WSL.** Right-click the Start button and pick **Terminal (Admin)**. Windows shows a permission prompt asking if the app can make changes to your device; click **Yes**. Then run:
 
 ```powershell
 wsl --install
@@ -101,7 +101,7 @@ wsl --install
 
 You can recognise the Ubuntu window: it is dark (a black background) and, once it is ready, shows a line ending in `$`, like `sam@PC:~$`. That line is where you type commands.
 
-If no Ubuntu window opens, open the **Ubuntu** app from the Start menu yourself. If step 1 prints a list of names like Ubuntu and Debian and stops, type `wsl --install -d Ubuntu` and restart again.
+If no Ubuntu window opens, open the **Ubuntu** app from the Start menu yourself. If you see help text instead of an install, run `wsl --list --online`, then `wsl --install -d Ubuntu`, and restart.
 
 **3. Install Docker Desktop.** It's free for personal use. Go to [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/), download the Windows version and install it with the default options. Open Docker Desktop and wait until it says it's running.
 

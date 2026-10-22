@@ -1,6 +1,6 @@
 ---
 name: explain-code
-description: Use when the user asks how code works or wants it explained, even for beginners. Read-only tour.
+description: User asks how code works, what a file does, or to explain a project. Read-only.
 ---
 
 # Skill: explain code

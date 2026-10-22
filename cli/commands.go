@@ -24,6 +24,7 @@ var commands = []command{
 	{"/resume", "reopen an earlier chat in this folder"},
 	{"/init", "write PRISM.md, the rules prism always follows here"},
 	{"/skills", "playbooks prism can follow · /skills new <name> to write your own"},
+	{"/web", "open this chat in your browser · press enter here to come back"},
 	{"/mcp", "connected tools (MCP servers) · see docs/MCP.md"},
 	{"/memory", "see what prism remembers · /memory forget"},
 	{"/usage", "free AI used today"},
@@ -134,6 +135,8 @@ func (m *model) command(text string) tea.Cmd {
 		}
 		lines = append(lines, "", "/memory forget clears it")
 		m.entries = append(m.entries, &entry{kind: "info", text: "what prism remembers here", lines: lines})
+	case "/web":
+		m.startWeb()
 	case "/mcp":
 		m.entries = append(m.entries, &entry{kind: "info", text: "connected tools (MCP)", lines: mcpLines(m.agent.mcp.status())})
 	case "/skills":
@@ -338,6 +341,8 @@ func newSkill(a *Agent, name string) string {
 		return err.Error()
 	}
 	a.skills = loadSkills(a.dir)
-	a.messages[0].Content = a.systemPrompt()
+	if len(a.messages) > 0 {
+		a.messages[0].Content = a.systemPrompt()
+	}
 	return "wrote .prism/skills/" + name + ".md · fill in the steps, prism picks it up right away"
 }

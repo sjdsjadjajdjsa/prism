@@ -18,7 +18,7 @@
 [data-theme="rose-pine"] {
   --bg: #191724; --panel: #1f1d2e; --fg: #e0def4; --muted: #6e6a86; --faint: #26233a;
   --red: #eb6f92; --green: #9ccfd8;
-  --s0: #eb6f92; --s1: #f6c177; --s2: #ebbcba; --s3: #9ccfd8; --s4: #31748f; --s5: #c4a7e7; --s6: #eb6f92;
+  --s0: #eb6f92; --s1: #f6c177; --s2: #ebbcba; --s3: #9ccfd8; --s4: #3e8fb0; --s5: #c4a7e7; --s6: #eb6f92;
 }
 [data-theme="matte-black"] {
   --bg: #121212; --panel: #1a1a1a; --fg: #d6d6d6; --muted: #6b6b6b; --faint: #222222;
@@ -90,6 +90,10 @@ button, select, textarea { font: inherit; color: inherit; }
   color: var(--muted); padding: 2px 6px; outline: none;
 }
 .theme-pick select:focus { border-color: var(--muted); }
+textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--s4);
+  outline-offset: 2px;
+}
 .top-say { font-style: italic; }
 
 /* ---- transcript column ---- */
@@ -228,6 +232,7 @@ body.busy .inputbox::before { animation-duration: 1.6s; opacity: 1; }
   line-height: 22px; max-height: 180px; color: var(--fg); min-width: 0;
 }
 .inputbox textarea::placeholder { color: var(--muted); }
+.inputbox textarea:focus-visible { outline: 2px solid var(--s4); outline-offset: 2px; }
 .busyhint { position: absolute; right: 14px; top: 10px; font-size: 12px; line-height: 22px; }
 
 .status {
@@ -311,7 +316,7 @@ body.busy .inputbox::before { animation-duration: 1.6s; opacity: 1; }
 body.shake { transform: translate(var(--shake-x, 0px), var(--shake-y, 0px)); }
 
 @media (prefers-reduced-motion: reduce) {
-  .grad, .inputbox::before { animation: none; }
-  .step.running .dia, .cursor, .spark { animation: none; }
+  *, *::before, *::after { animation: none !important; }
   body.shake { transform: none; }
-}
+  .splash { transition: none; }
+  }
