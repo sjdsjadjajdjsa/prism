@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# usage: bench/run.sh <label> <router-port>
+# usage: bench/run.sh <label> [router-api-url]
 set -u
-LABEL="$1"; PORT="$2"; HERE="$(cd "$(dirname "$0")/.." && pwd)"
+LABEL="$1"; API="${2:-}"; HERE="$(cd "$(dirname "$0")/.." && pwd)"
+FILES=(-f "$HERE/docker-compose.yml")
+[[ "$(cat "$HERE/.network" 2>/dev/null)" == host ]] && FILES+=(-f "$HERE/docker-compose.host.yml")
 OUT="$HERE/bench/results-$LABEL.txt"; : > "$OUT"
 task() {
   local name="$1" prompt="$2" setup="$3" check="$4" dir
   dir="$(mktemp -d /tmp/bench-$LABEL-$name-XXXX)"
   (cd "$dir" && eval "$setup")
   local start=$(date +%s)
-  PROJECT_DIR="$dir" HOST_UID=$(id -u) HOST_GID=$(id -g) timeout 900 docker compose -f "$HERE/docker-compose.yml" run --rm --no-deps -T -e PRISM_PROJECT="$dir" -e PRISM_MEMORY="${PRISM_MEMORY:-}" -e PRISM_THINK="${PRISM_THINK:-}" agent -api "http://127.0.0.1:$PORT/v1" run "$prompt" > "$dir.log" 2>&1
+  PROJECT_DIR="$dir" HOST_UID=$(id -u) HOST_GID=$(id -g) timeout 900 docker compose --project-directory "$HERE" "${FILES[@]}" run --rm --no-deps -T -e PRISM_PROJECT="$dir" -e PRISM_MEMORY="${PRISM_MEMORY:-}" -e PRISM_THINK="${PRISM_THINK:-}" agent ${API:+-api "$API"} run "$prompt" > "$dir.log" 2>&1
   local secs=$(( $(date +%s) - start ))
   local ok=fail; (cd "$dir" && eval "$check") >/dev/null 2>&1 && ok=pass
   local models=$(grep -o '^\[[^]]*\]' "$dir.log" | sort -u | tr -d '[]' | tr '\n' ' ')

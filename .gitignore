@@ -3,3 +3,4 @@ keys.conf.tmp
 cli/bin/
 bench/*.txt
 .empryo/
+.network

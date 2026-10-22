@@ -1,11 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+src="${BASH_SOURCE[0]}"
+while [[ -L "$src" ]]; do
+  dir="$(cd -P "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  [[ "$src" == /* ]] || src="$dir/$src"
+done
+HERE="$(cd -P "$(dirname "$src")" && pwd)"
 KEYS="$HERE/keys.conf"
 ROUTER="http://127.0.0.1:4848"
 
-compose() { docker compose --project-directory "$HERE" -f "$HERE/docker-compose.yml" "$@"; }
+network_mode() {
+  local file="$HERE/.network" code=0
+  if [[ ! -s "$file" ]]; then
+    docker run --rm alpine:3 wget -q -T 8 -O /dev/null https://deb.debian.org >/dev/null 2>&1 || code=$?
+    case "$code" in
+      0) echo bridge > "$file" ;;
+      1) [[ "$(uname -s)" == Linux ]] && echo host > "$file" || echo bridge > "$file" ;;
+      *) echo bridge; return ;;
+    esac
+  fi
+  cat "$file"
+}
+
+compose() {
+  local extra=()
+  [[ "$(network_mode)" == host ]] && extra=(-f "$HERE/docker-compose.host.yml")
+  docker compose --project-directory "$HERE" -f "$HERE/docker-compose.yml" ${extra[@]+"${extra[@]}"} "$@"
+}
 
 usage() {
   cat <<'EOF'
@@ -62,7 +85,12 @@ install() {
   echo "Installed: $bin/prism"
   case ":$PATH:" in
     *":$bin:"*) echo "Run prism from any project folder." ;;
-    *) echo "Add this line to ~/.bashrc, then open a new terminal:"; echo '  export PATH="$HOME/.local/bin:$PATH"' ;;
+    *)
+      local rc="$HOME/.bashrc"
+      [[ "${SHELL##*/}" == zsh ]] && rc="$HOME/.zshrc"
+      grep -qs '.local/bin' "$rc" || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$rc"
+      echo "Open a new terminal, then run prism from any project folder."
+      ;;
   esac
 }
 

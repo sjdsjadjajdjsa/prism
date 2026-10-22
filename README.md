@@ -11,17 +11,37 @@ It runs inside Docker, so it can only touch the one folder you give it.
 
 ## Quick start
 
-You need Linux and Docker (`docker run hello-world` should work).
+You only need **Docker** (free). Then one command:
 
 ```bash
-git clone https://github.com/sjdsjadjajdjsa/prism.git
-cd prism
-./prism install      # adds the prism command
+curl -fsSL https://raw.githubusercontent.com/sjdsjadjajdjsa/prism/main/install.sh | bash
+```
+
+It checks Docker, downloads Prism to `~/.prism` and adds the `prism` command. Then open a new terminal:
+
+```bash
 cd ~/my-project
 prism
 ```
 
 The first start takes a few minutes while Docker builds Prism. After that it opens instantly.
+
+| System | Status |
+| --- | --- |
+| Linux | tested (Linux Mint 22) |
+| macOS | should work with Docker Desktop, not tested yet |
+| Windows | should work inside WSL (Ubuntu) with Docker Desktop, not tested yet |
+
+No Apple ID, app signing or account is needed: Prism is a terminal script plus Docker. If you try it on a Mac or Windows, please open an issue and say how it went.
+
+<details><summary>Install by hand</summary>
+
+```bash
+git clone https://github.com/sjdsjadjajdjsa/prism.git
+cd prism
+./prism install
+```
+</details>
 
 Then just type what you want: `fix the bug in app.py`, `make me a to-do list website`, `explain this code`.
 
@@ -91,6 +111,7 @@ Shard is Prism's little crystal. He waves hello, charges up while the AI works, 
 | `prism status` | which free models are ready |
 | `prism logs` | watch which model answers each step |
 | `prism stop` | stop the background router |
+| `prism install` | add the `prism` command to your terminal |
 
 | Inside Prism | |
 | --- | --- |
@@ -106,7 +127,7 @@ Shard is Prism's little crystal. He waves hello, charges up while the AI works, 
 - Prism only sees the folder you start it in. It refuses to run in your home folder or `/`.
 - Commands run inside the Docker box, not on your computer. Files it creates belong to you.
 - Keys live in `keys.conf`, readable only by you and ignored by git.
-- The router only listens on `127.0.0.1`.
+- The router is never exposed outside Docker (or only on `127.0.0.1` in host mode, below).
 - **Free AI services may keep what you send them.** Don't paste passwords or private data.
 
 ## How it's built
@@ -114,12 +135,15 @@ Shard is Prism's little crystal. He waves hello, charges up while the AI works, 
 | Path | What it is |
 | --- | --- |
 | `prism` | the command you run |
+| `install.sh` | the one-line installer |
 | `cli/` | the Prism app, in Go with Charm's Bubble Tea |
 | `router/` | the free-model router (`providers.json` is the model list) |
 | `agent/` | the Docker image Prism runs in |
 | `bench/` | the speed and correctness tests |
 
 `prism run "message"` inside the container runs without the screen, for scripts and tests.
+
+**Networking:** on first run Prism checks whether Docker's normal network can reach the internet. Some Linux firewalls block it; then Prism shares the computer's network instead (`docker-compose.host.yml`). The choice is saved in `.network`; delete it to check again.
 
 ## Thanks
 

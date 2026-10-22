@@ -1,0 +1,17 @@
+# Used automatically when Docker's normal network can't reach the internet
+# (some Linux firewalls block it). Containers share the computer's network instead.
+services:
+  router:
+    build:
+      network: host
+    network_mode: host
+    environment:
+      HOST: 127.0.0.1
+    extra_hosts: !reset []
+
+  agent:
+    build:
+      network: host
+    network_mode: host
+    environment:
+      PRISM_API: http://127.0.0.1:4848/v1
