@@ -63,8 +63,13 @@ pick_folder() {
 start_router() {
   local output
   if ! output="$(compose build --quiet router agent 2>&1)"; then
-    echo "$output" >&2
-    exit 1
+    if docker image inspect prism-agent prism-router >/dev/null 2>&1; then
+      echo "Couldn't check for updates (Docker Hub may be down). Starting the version you already have." >&2
+    else
+      echo "$output" >&2
+      echo "Docker couldn't download what Prism needs. Check your internet and try again in a minute." >&2
+      exit 1
+    fi
   fi
   compose up -d router >/dev/null 2>&1
   for _ in $(seq 1 30); do
