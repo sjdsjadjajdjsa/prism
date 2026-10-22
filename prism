@@ -14,10 +14,11 @@ ROUTER="http://127.0.0.1:4848"
 network_mode() {
   local file="$HERE/.network" code=0
   if [[ ! -s "$file" ]]; then
+    docker info >/dev/null 2>&1 || { echo bridge; return; }
     docker run --rm alpine:3 wget -q -T 8 -O /dev/null https://deb.debian.org >/dev/null 2>&1 || code=$?
     case "$code" in
       0) echo bridge > "$file" ;;
-      1) [[ "$(uname -s)" == Linux ]] && echo host > "$file" || echo bridge > "$file" ;;
+      1) [[ "$(uname -s)" == Linux ]] && ! grep -qi microsoft /proc/version 2>/dev/null && echo host > "$file" || echo bridge > "$file" ;;
       *) echo bridge; return ;;
     esac
   fi
@@ -100,7 +101,7 @@ fix() {
   mkdir -p "$HERE/.bin"
   local id
   id="$(docker create prism-agent)"
-  docker cp "$id:/opt/prism/hosts/prism-$os-$arch" "$bin" >/dev/null
+  docker cp "$id:/opt/prism/hosts/prism-$os-$arch" "$bin" >/dev/null || { docker rm -f "$id" >/dev/null; exit 1; }
   docker rm "$id" >/dev/null
   chmod +x "$bin"
   echo "Computer help mode: Prism runs on this computer (not in the Docker box)."
@@ -120,6 +121,7 @@ install() {
     *)
       local rc="$HOME/.bashrc"
       [[ "${SHELL##*/}" == zsh ]] && rc="$HOME/.zshrc"
+      [[ "$(uname -s)" == Darwin && "${SHELL##*/}" == bash ]] && rc="$HOME/.bash_profile"
       grep -qs '.local/bin' "$rc" || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$rc"
       echo "Open a new terminal, then run prism from any project folder."
       ;;

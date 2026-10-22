@@ -32,7 +32,7 @@ Use this when the user asks "what does this do", "explain this project", or "wal
 
 ## Step 4: Check understanding
 - Point out the one or two places a beginner should read first to learn more.
-- If something in the code is confusing or looks like a bug, mention it honestly — but do not fix it.
+- If something in the code is confusing or looks like a bug, mention it honestly, but do not fix it.
 - End by offering to go deeper on any one file or function.
 
 ## Format

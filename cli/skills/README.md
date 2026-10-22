@@ -32,7 +32,7 @@ Users can drop their own skill files in either place:
 - `<project>/.prism/skills/<name>.md`: skills for one project
 - `~/.config/prism/skills/<name>.md`: skills for all your projects
 
-Same format as above. Project skills override user skills with the same name.
+Same format as above. Project skills override user skills with the same name. Inside Prism, `/skills new <name>` writes a starter file for you.
 
 ## Built-in skills
 
@@ -44,3 +44,8 @@ Same format as above. Project skills override user skills with the same name.
 - `git-basics`: safe git setup and commits, no history rewrites
 - `refactor`: restructure code with behaviour proven identical
 - `computer-help`: troubleshoot a Linux machine, ask before changes
+- `browser-game`: small canvas game in one index.html, loop, input, score, restart
+- `discord-bot`: Python discord.py bot skeleton, token from .env, sample command
+- `automate-task`: Python chore script with dry-run default and clear output
+- `portfolio-site`: resume page with marked placeholders and print-friendly CSS
+- `learn-mode`: teach a beginner in small steps with tiny hands-on changes

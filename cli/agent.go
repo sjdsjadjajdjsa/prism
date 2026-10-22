@@ -91,7 +91,9 @@ type Agent struct {
 	memMark    int
 	quick      bool
 	light      bool
+	lastRoute  string
 	skills     []skill
+	mcp        *mcpHub
 	system     bool
 	approve    func(ctx context.Context, tool, arg string) bool
 }
@@ -114,10 +116,11 @@ func newAgent(api, dir, project string) *Agent {
 }
 
 func (a *Agent) tools() []any {
-	if len(a.skills) == 0 {
-		return toolSpecs
+	out := append([]any{}, toolSpecs...)
+	if len(a.skills) > 0 {
+		out = append(out, skillSpec)
 	}
-	return append(append([]any{}, toolSpecs...), skillSpec)
+	return append(out, a.mcp.specs()...)
 }
 
 func (a *Agent) reset() {
@@ -156,7 +159,7 @@ Work like a careful senior engineer:
 - After changing code, run it or its tests with bash to prove it works, then fix whatever fails.
 - Keep using tools until the task is done. Ask the user only when something is truly unclear.
 - Never start servers or other commands that keep running; check work with commands that finish.
-- Never delete or overwrite files the user asked for or already had, unless they asked you to.
+- Never delete or overwrite files the user asked for or already had, unless they asked you to. Files you create for the task are the result: never remove them to "clean up".
 - Before you say you are done, confirm the files you made still exist and do what was asked.
 - When finished, reply briefly in plain words: what you changed and how you checked it.`, dir)
 }
@@ -199,8 +202,10 @@ func (a *Agent) loop(ctx context.Context, emit func(any)) error {
 			switch {
 			case call.Function.Name == "skill":
 				result = a.useSkill(call.Function.Arguments)
-			case a.approve != nil && needsApproval[call.Function.Name] && !a.approve(ctx, call.Function.Name, approvalText(call.Function.Name, call.Function.Arguments)):
+			case a.approve != nil && (needsApproval[call.Function.Name] || a.mcp.has(call.Function.Name)) && !a.approve(ctx, call.Function.Name, approvalText(call.Function.Name, call.Function.Arguments)):
 				result = toolResult{output: "The user said no to this. Do not try it again another way; explain what you wanted to do and ask what they prefer.", summary: "you said no"}
+			case a.mcp.has(call.Function.Name):
+				result = a.mcp.run(ctx, call.Function.Name, call.Function.Arguments)
 			default:
 				result = runTool(ctx, a.dir, call.Function.Name, call.Function.Arguments)
 			}
@@ -216,8 +221,16 @@ func (a *Agent) loop(ctx context.Context, emit func(any)) error {
 
 func (a *Agent) completeRetry(ctx context.Context, emit func(any)) (Message, error) {
 	var re *routerError
+	var avoid []string
 	for attempt := 0; ; attempt++ {
-		reply, err := a.complete(ctx, a.messages, nil, emit)
+		var extra map[string]any
+		if len(avoid) > 0 {
+			extra = map[string]any{"prism_avoid": avoid}
+		}
+		reply, err := a.complete(ctx, a.messages, extra, emit)
+		if a.lastRoute != "" {
+			avoid = append(avoid, a.lastRoute)
+		}
 		if err == nil || ctx.Err() != nil || errors.As(err, &re) || attempt == 2 {
 			return reply, err
 		}
@@ -227,6 +240,9 @@ func (a *Agent) completeRetry(ctx context.Context, emit func(any)) (Message, err
 
 func (a *Agent) compact(ctx context.Context, emit func(any)) error {
 	emit(evNote{"compacting the conversation so it stays sharp…"})
+	light := a.light
+	a.light = false
+	defer func() { a.light = light }()
 	request := append(append([]Message{}, a.messages...), Message{Role: "user", Content: compactPrompt})
 	reply, err := a.complete(ctx, request, map[string]any{"tool_choice": "none"}, func(any) {})
 	if err != nil {
@@ -237,10 +253,10 @@ func (a *Agent) compact(ctx context.Context, emit func(any)) error {
 		return errors.New("compacting failed: the model returned an empty summary")
 	}
 	a.messages = []Message{
-		a.messages[0],
+		{Role: "system", Content: a.systemPrompt()},
 		{Role: "user", Content: summaryPrefix + " (earlier messages were compacted):\n\n" + summary + "\n\nThe user's latest request, word for word:\n" + a.latestRequest() + "\n\nContinue from where you left off."},
 	}
-	a.memMark = len(a.messages)
+	a.memMark = 1
 	a.tokens = estimate(a.messages)
 	emit(evNote{"conversation compacted"})
 	emit(evUsage{a.tokens, a.window})
@@ -282,6 +298,7 @@ func (a *Agent) complete(ctx context.Context, messages []Message, extra map[stri
 		return Message{}, err
 	}
 	req.Header.Set("content-type", "application/json")
+	a.lastRoute = ""
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -303,7 +320,8 @@ func (a *Agent) complete(ctx context.Context, messages []Message, extra map[stri
 		}
 		return Message{}, fmt.Errorf("router error %d: %s", res.StatusCode, strings.TrimSpace(string(data)))
 	}
-	if route := res.Header.Get("x-free-route"); route != "" {
+	a.lastRoute = res.Header.Get("x-free-route")
+	if route := a.lastRoute; route != "" {
 		wait, _ := strconv.Atoi(res.Header.Get("x-free-wait"))
 		emit(evRoute{route, time.Duration(wait) * time.Millisecond})
 	}
@@ -513,5 +531,11 @@ func approvalText(tool, raw string) string {
 	case "edit":
 		return "change the file " + sarg(args, "path")
 	}
+	if isMCP(tool) {
+		server, name, _ := strings.Cut(tool, "__")
+		return "use the " + name + " tool from " + server + " with " + clipText(raw, 300)
+	}
 	return tool
 }
+
+func isMCP(name string) bool { return strings.Contains(name, "__") }

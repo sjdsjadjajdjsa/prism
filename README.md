@@ -79,11 +79,11 @@ A small router picks the model for every step:
 
 Each row is one run of the same tasks on the same computer. A task only counts if a script confirms the result works.
 
-<p align="center"><img src="docs/bench-coding.svg" alt="Coding benchmark: 465s down to 96s with a free NVIDIA key, 168s with no keys" width="820"></p>
+<p align="center"><img src="docs/bench-coding.svg" alt="Coding benchmark: 465s at first, 96s at best, 165s now with skills, 168s with no keys" width="820"></p>
 <p align="center"><img src="docs/bench-chat.svg" alt="Simple questions: 10.7s to 0.4s" width="820"></p>
 <p align="center"><img src="docs/bench-website.svg" alt="One website task: 1171s to 24s" width="820"></p>
 
-Free models are shared, so the same run can be 30% faster or slower on another day. Compare rows loosely. The raw numbers are in [bench/history.json](bench/history.json), `python3 bench/chart.py` redraws the charts, and `bench/run.sh` and `bench/chat.sh` measure your own setup.
+Free models are shared, so the same run can be 30% faster or slower on another day. The latest row is slower than the best one on purpose: with skills, Prism checks its website work more carefully before saying it is done. Compare rows loosely. The raw numbers are in [bench/history.json](bench/history.json), `python3 bench/chart.py` redraws the charts, and `bench/run.sh` and `bench/chat.sh` measure your own setup.
 
 ## Meet Shard
 
@@ -97,7 +97,7 @@ Shard is Prism's mascot. He reacts to what the AI is doing: thinking, working, d
 
 ## Skills
 
-Skills are short playbooks Prism follows for common jobs. It picks the right one by itself.
+Skills are short playbooks Prism follows for common jobs. It picks the right one by itself. `/skills new <name>` creates a new one.
 
 | Skill | For |
 | --- | --- |
@@ -109,8 +109,30 @@ Skills are short playbooks Prism follows for common jobs. It picks the right one
 | `git-basics` | safe git: .gitignore, small commits, no secrets |
 | `refactor` | restructure without changing behaviour |
 | `computer-help` | troubleshooting a Linux computer, asking before changes |
+| `browser-game` | a small canvas game with a game loop and input |
+| `discord-bot` | a Python discord.py bot skeleton with a slash command |
+| `automate-task` | a Python script to automate file chores with dry-run |
+| `portfolio-site` | a personal resume or portfolio page with print CSS |
+| `learn-mode` | teach by building in small steps with explanations |
 
 `/skills` lists them. Add your own as `.prism/skills/<name>.md` in a project or `~/.config/prism/skills/<name>.md`. See [cli/skills/README.md](cli/skills/README.md) for the format.
+
+## Tools and plugins (MCP)
+
+Prism can connect MCP servers to give the AI extra tools such as file access, web pages, git, a browser or GitHub. Add a `.prism/mcp.json` like this to connect the filesystem server:
+
+```json
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+    }
+  }
+}
+```
+
+Type `/mcp` to see what is connected. Put the same file in `~/.config/prism/mcp.json` to use a server in every project. See [docs/MCP.md](docs/MCP.md) for more.
 
 ## Computer help
 
@@ -163,7 +185,7 @@ The same Prism, Shard and beam included, at http://127.0.0.1:4849. It only liste
 | `pgup` `pgdown`, mouse wheel | scroll (smooth, with a scrollbar) |
 | click a `▸ N steps` line | open folded steps from an earlier turn (`ctrl+o` opens all of them) |
 | `/` | list every command, `tab` completes |
-| `/models` `/new` `/resume` `/init` `/skills` `/memory` `/usage` `/beam` `/quiet` `/help` `/quit` | |
+| `/models` `/new` `/resume` `/init` `/skills` `/mcp` `/memory` `/usage` `/beam` `/quiet` `/help` `/quit` | |
 
 ## Safety and privacy
 

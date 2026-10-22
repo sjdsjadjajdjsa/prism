@@ -76,7 +76,7 @@ function hideHello() { const h = $('hello'); if (h) h.remove(); }
 function newTurn() {
   const t = el('div', 'turn');
   transcript.appendChild(t);
-  state.turn = t; state.steps = null; state.textEl = null; state.textBuf = '';
+  state.turn = t; state.steps = null; state.textEl = null; state.textBuf = ''; state.stepMap.clear(); flushText();
   return t;
 }
 function curTurn() { return state.turn || newTurn(); }
@@ -90,6 +90,7 @@ function addUser(text) {
 function stepGroup() {
   const t = curTurn();
   if (!state.steps || state.steps.parentNode !== t) {
+    flushText();
     state.steps = el('div', 'steps-group');
     state.steps.dataset.open = '1';
     t.appendChild(state.steps);
@@ -114,6 +115,7 @@ function addStep({ id, tool, arg, ok, summary, running }) {
 
 function finishStep(ev) {
   let s = ev.id != null && state.stepMap.get(String(ev.id));
+  if (ev.id != null) state.stepMap.delete(String(ev.id));
   if (!s) {
     const running = stepGroup().querySelectorAll('.step.running');
     s = running[running.length - 1];
@@ -169,11 +171,19 @@ function collapseOldTurns() {
   turns.forEach((t, i) => { if (i < turns.length - 1) t.querySelectorAll('.steps-group').forEach(collapseGroup); });
 }
 
+// markdown re-render is coalesced to one per animation frame while streaming;
+// textPending remembers the element + buffer so a later state.textEl = null can't drop the last render
+let textRaf = 0, textPending = null;
+function flushText() {
+  if (textRaf) { cancelAnimationFrame(textRaf); textRaf = 0; }
+  if (textPending) { renderMarkdown(textPending.el, textPending.buf); textPending = null; }
+}
 function addText(text) {
   const t = curTurn();
-  if (!state.textEl) { state.textEl = el('div', 'md'); t.appendChild(state.textEl); state.textBuf = ''; state.steps = null; }
+  if (!state.textEl) { flushText(); state.textEl = el('div', 'md'); t.appendChild(state.textEl); state.textBuf = ''; state.steps = null; }
   state.textBuf += text;
-  renderMarkdown(state.textEl, state.textBuf);
+  textPending = { el: state.textEl, buf: state.textBuf };
+  if (!textRaf) textRaf = requestAnimationFrame(() => { textRaf = 0; flushText(); });
 }
 function addNote(text) { curTurn().appendChild(el('div', 'note', text)); state.textEl = null; }
 function addError(headline, detail) {
@@ -331,10 +341,11 @@ function renderLive(now) {
 
 function setBusy(b) {
   state.busy = b;
+  if (b) buddy.busySince = performance.now();
   document.body.classList.toggle('busy', b);
   $('busyhint').hidden = !b;
   $('key-esc-label').textContent = b ? 'stop' : 'clear';
-  if (!b) { clear(liveEl); state.draft = null; state.reasoning = ''; }
+  if (!b) { clear(liveEl); state.draft = null; state.reasoning = ''; flushText(); }
 }
 
 function renderStatus() {
@@ -355,8 +366,14 @@ function renderStatus() {
 // ---------- shard buddy ----------
 const SHARD = ['......#......', '.....###.....', '....#####....', '...#######...', '..#########..', '.###########.', '#############'];
 const shardCv = $('shard');
+shardCv.width = 170; shardCv.height = 100; // room for '!', the wave hand and orbiting dots
 const shardCtx = shardCv.getContext('2d');
-const buddy = { mood: 'idle', charge: 0, since: 0, moodUntil: 0, wink: 0 };
+const MONO = 'ui-monospace, Menlo, Consolas, monospace';
+const buddy = { mood: 'idle', charge: 0, since: 0, moodUntil: 0, wink: 0, waveUntil: 0, lookAt: -1e9, busySince: 0 };
+function inShard(ox, oy, px, sx, sy) {
+  const gx = Math.floor((sx - ox) / px), gy = Math.floor((sy - oy) / px);
+  return gy >= 0 && gy < SHARD.length && gx >= 0 && gx < SHARD[0].length && SHARD[gy][gx] === '#';
+}
 const BUBBLES = {
   thinking: 'refracting…', working: 'focusing the beam.', done: 'converged.', tests: 'green across the spectrum.',
   crack: 'hm. a crack in the lens.', fogged: 'all lenses fogged. give it a minute.', hello: 'light in. rainbow out.',
@@ -384,8 +401,20 @@ function drawShard(now) {
   if (md === 'working') glow = 0.18 + 0.12 * Math.sin(n / 140);
   else if (md === 'thinking') glow = 0.06;
   else if (md === 'proud') glow = 0.12 + 0.08 * Math.sin(n / 200);
-  glow += buddy.charge * (0.22 + 0.06 * Math.sin(n / 90));
+  // charge rises over 20s while busy (cli/buddy.go pose), or with the size of a tool draft
+  const charge = Math.max(buddy.charge, state.busy ? Math.min(1, (n - buddy.busySince) / 20000) : 0);
+  glow += charge * (0.22 + 0.06 * Math.sin(n / 90));
   const dim = md === 'sleepy' ? 0.5 : 0;
+  if (md === 'proud' && !REDUCED) {
+    // extra halo behind the body
+    const hx = ox + 6.5 * px, hy = oy + 3.5 * px, hr = 58 + 6 * Math.sin(n / 200);
+    const halo = shardCtx.createRadialGradient(hx, hy, 4, hx, hy, hr);
+    halo.addColorStop(0, rgbStr(mix(bg, specAt(palette.spec, n / 3000), 0.55)));
+    halo.addColorStop(1, rgbStr(bg));
+    shardCtx.globalAlpha = 0.45 + 0.15 * Math.sin(n / 200);
+    shardCtx.fillStyle = halo; shardCtx.fillRect(hx - hr, hy - hr, hr * 2, hr * 2);
+    shardCtx.globalAlpha = 1;
+  }
   const speed = md === 'thinking' || md === 'working' ? 900 : 1700;
   const band = ((n / speed) % 1.8) * (W + H) - H;
   const center = 6;
@@ -411,12 +440,13 @@ function drawShard(now) {
     }
   }
   // eyes (row 4) and mouth (row 5)
-  const eyeShift = md === 'thinking' ? Math.round(Math.sin(n / 700)) : 0;
+  const drift = md === 'thinking' ? Math.round(Math.sin(n / 700)) : 0;
+  const eyeShift = Math.max(-1, Math.min(1, drift + (n - buddy.lookAt < 700 ? -1 : 0))); // glance left at fresh text
   const dark = rgbStr(mix(bg, [0, 0, 0], 0.6));
   shardCtx.fillStyle = dark;
   for (const ex of [center - 2 + eyeShift, center + 2 + eyeShift]) {
     const X = ox + ex * px, Y = oy + 4 * px;
-    if (md === 'surprised') shardCtx.fillRect(X, Y, px, px);
+    if (md === 'surprised') shardCtx.fillRect(X - 2, Y - 2, px + 4, px + 4); // wide eyes
     else if (md === 'sleepy' || blink) shardCtx.fillRect(X, Y + px / 2, px, px / 2);
     else if (md === 'proud' || md === 'happy') shardCtx.fillRect(X, Y, px, px / 2);
     else shardCtx.fillRect(X, Y, px, px);
@@ -433,6 +463,48 @@ function drawShard(now) {
   } else {
     shardCtx.fillRect(ox + (center - 1) * px, my, px, px / 2);
     shardCtx.fillRect(ox + (center + 1) * px, my, px, px / 2);
+  }
+  // decorations — mirrors drawShardSmall in cli/shard.go
+  const cx = ox + 6.5 * px, cy = oy + 3 * px;
+  shardCtx.textBaseline = 'middle'; shardCtx.textAlign = 'center';
+  if (charge > 0.05 && !REDUCED) {
+    // three dots orbiting the body, tighter as charge builds
+    for (let i = 0; i < 3; i++) {
+      const a = n / 260 + i * 2.1;
+      const dx = cx + Math.cos(a) * (8 - charge * 3) * px * 0.9, dy = cy + Math.sin(a) * 1.6 * px * 1.3;
+      if (inShard(ox, oy, px, dx, dy)) continue;
+      shardCtx.fillStyle = rgbStr(mix(bg, specAt(palette.spec, i / 3 + n / 4000), 0.4 + 0.6 * charge));
+      shardCtx.fillRect(Math.round(dx) - 2, Math.round(dy) - 2, 4, 4);
+    }
+  }
+  if (md === 'surprised') {
+    shardCtx.font = 'bold 18px ' + MONO;
+    shardCtx.fillStyle = rgbStr(specAt(palette.spec, 0.05));
+    shardCtx.fillText('!', ox + 12 * px, oy - 8);
+  } else if (md === 'happy' || md === 'proud') {
+    shardCtx.font = '12px ' + MONO;
+    for (let i = 0; i < 5; i++) {
+      if (hash(i, Math.floor(n / 180), 9) <= 0.3) continue;
+      const a = (i / 5) * 2 * Math.PI + n / 700;
+      const sx = cx + Math.cos(a) * 7.5 * px, sy = cy + Math.sin(a) * 2.6 * px;
+      if (inShard(ox, oy, px, sx, sy)) continue;
+      shardCtx.fillStyle = rgbStr(specAt(palette.spec, i / 5));
+      shardCtx.fillText('✦·✧'[i % 3], sx, sy);
+    }
+  } else if (md === 'sleepy') {
+    shardCtx.font = '12px ' + MONO;
+    for (let i = 0; i < 3; i++) {
+      if (i > (n / 900) % 3) continue;
+      shardCtx.fillStyle = rgbStr(mix(bg, palette.muted, 0.9 - 0.2 * i));
+      shardCtx.fillText('z', ox + (12.5 + i) * px, oy - 2 - i * 10);
+    }
+  }
+  if (n < buddy.waveUntil && !REDUCED) {
+    // waving hand: ▝ / ▗ alternate every 170ms, just right of the body on row 1
+    const up = Math.floor(n / 170) % 2 === 0;
+    shardCtx.fillStyle = rgbStr(specAt(palette.spec, 0.15 + n / 6000));
+    shardCtx.fillRect(ox + 13 * px + 3, oy + 2 * px + (up ? 0 : px), px, px);
+    shardCtx.fillRect(ox + 12 * px + 3, oy + 3 * px, px, px / 2);
   }
 }
 
@@ -453,44 +525,87 @@ function sparkle(count = 6, chars = '✦✧·+◇') {
 // ---------- last prism beam ----------
 let beamRun = null;
 function lastBeam() {
-  if (REDUCED) return;
+  if (REDUCED || beamRun) return;
   const wrap = $('beam'), cv = $('beam-canvas'), ctx = cv.getContext('2d');
   cv.width = innerWidth; cv.height = innerHeight;
   wrap.hidden = false;
-  const start = performance.now(), DUR = 1600;
-  const rays = palette.spec.map((c, i) => ({ c, y0: (i + 0.5) / palette.spec.length }));
-  const stop = () => { if (beamRun) { cancelAnimationFrame(beamRun); beamRun = null; } wrap.hidden = true; ctx.clearRect(0, 0, cv.width, cv.height); removeEventListener('keydown', stop, true); removeEventListener('pointerdown', stop, true); };
+  // timeline mirrors drawBeam/beamShake in cli/shard.go: charge 0-350ms, converge 350-800, fire 800-1050, fade 1250-1750
+  const start = performance.now();
+  const white = [255, 255, 255], CELL = 14;
+  const body = document.body;
+  const stop = () => {
+    if (beamRun) { cancelAnimationFrame(beamRun); beamRun = null; }
+    wrap.hidden = true; ctx.clearRect(0, 0, cv.width, cv.height);
+    body.classList.remove('shake');
+    removeEventListener('keydown', stop, true); removeEventListener('pointerdown', stop, true);
+  };
   addEventListener('keydown', stop, true); addEventListener('pointerdown', stop, true);
   const tick = () => {
-    const t = (performance.now() - start) / DUR;
-    if (t >= 1) return stop();
-    ctx.clearRect(0, 0, cv.width, cv.height);
-    const W = cv.width, H = cv.height, cy = H * 0.42, px = W * 0.42;
-    const conv = ease(t / 0.5);                        // rainbow rays sweep in from the left and meet at the prism point
-    const out = ease((t - 0.3) / 0.3);                 // one white beam leaves to the right
-    const flash = t > 0.48 && t < 0.7 ? Math.sin(((t - 0.48) / 0.22) * Math.PI) : 0;
-    const fade = t > 0.62 ? 1 - ease((t - 0.62) / 0.38) : 1;
+    const n = performance.now() - start;
+    const charge = ease(n / 350), converge = ease((n - 350) / 450), fire = ease((n - 800) / 250), fade = ease((n - 1250) / 500);
+    if (fade >= 1) return stop();
+    const W = cv.width, H = cv.height;
+    ctx.clearRect(0, 0, W, H);
+    // origin: Shard's apex; the beam leaves it toward the wider side of the page
+    const r = shardCv.getBoundingClientRect();
+    const sx = r.left + r.width * 0.5, sy = r.top + r.height * 0.29;
+    const dir = sx > W / 2 ? -1 : 1, length = dir < 0 ? sx : W - sx;
+    // dim the page while charging
+    if (n < 1250) { ctx.globalAlpha = 0.35 * charge * (1 - fire * 0.4) * 0.7; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); }
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
-    for (const r of rays) {
-      const y0 = cy + (r.y0 - 0.5) * H * 0.9;          // spread across the left edge
-      const reach = Math.min(1, conv * 1.15);          // how far along the ray we have travelled
-      ctx.globalAlpha = 0.55 * fade * Math.min(1, conv * 3);
-      ctx.strokeStyle = rgbStr(r.c); ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(px * reach, y0 + (cy - y0) * reach); ctx.stroke();
+    if (fire < 1) {
+      // seven spectrum rays fan out from the apex and converge into one line
+      const spread = (1 - converge) * 0.5, L = length * charge;
+      ctx.lineWidth = 1.5; ctx.globalAlpha = 0.8 * (1 - fire);
+      for (let i = 0; i < 7; i++) {
+        const off = (i / 6 - 0.5) * 2;
+        const angle = off * spread + Math.sin(n / 120 + i) * 0.02 * (1 - converge);
+        ctx.strokeStyle = rgbStr(mix(specAt(palette.spec, i / 7), palette.fg, 0.2 + 0.5 * converge));
+        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + dir * L, sy + Math.tan(angle) * L * 0.5); ctx.stroke();
+      }
+      if (converge > 0) {
+        // converging glow point at Shard
+        const gr = 16 + 54 * converge, gc = mix(specAt(palette.spec, n / 800), white, 0.6);
+        const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, gr);
+        g.addColorStop(0, rgbStr(gc)); g.addColorStop(0.35, rgbStr(mix(gc, palette.bg, 0.5))); g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.globalAlpha = converge; ctx.fillStyle = g; ctx.fillRect(sx - gr, sy - gr, gr * 2, gr * 2);
+      }
     }
-    if (out > 0) {
-      const g = ctx.createLinearGradient(px, 0, W, 0);
-      g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(1, 'rgba(255,255,255,0.15)');
-      ctx.globalAlpha = (0.75 + 0.25 * flash) * fade;
-      ctx.fillStyle = g; ctx.fillRect(px, cy - 1 - 3 * flash, (W - px) * out, 2 + 6 * flash);
-      const glow = ctx.createRadialGradient(px, cy, 0, px, cy, 40 + 60 * flash);
-      glow.addColorStop(0, 'rgba(255,255,255,0.9)'); glow.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = glow; ctx.globalAlpha = (0.6 + 0.4 * flash) * fade;
-      ctx.fillRect(px - 100, cy - 100, 200, 200);
+    if (fire > 0) {
+      const L = length * fire, half = 2 + fire * 7 * (1 - fade), seg = 10;
+      ctx.globalAlpha = 1 - fade;
+      for (let d = 0; d < L; d += seg) {
+        // brightness pulses travel along the beam
+        const pulse = 0.5 + 0.5 * Math.sin(d / 40 - n / 45);
+        const col = mix(specAt(palette.spec, d / 180 - n / 300), white, 0.5 + 0.3 * pulse);
+        const x = dir > 0 ? sx + d : sx - d - seg, w = Math.min(seg, L - d);
+        ctx.fillStyle = rgbStr(mix(col, palette.bg, 0.6)); ctx.fillRect(x, sy - half * 2.4, w, half * 4.8);   // soft halo
+        ctx.fillStyle = rgbStr(col); ctx.fillRect(x, sy - half, w, half * 2);                                  // body
+        ctx.fillStyle = `rgba(255,255,255,${(0.35 + 0.45 * pulse).toFixed(3)})`; ctx.fillRect(x, sy - half * 0.4, w, half * 0.8); // core
+      }
+      // sparkles drift outward from the beam and fade
+      const age = (n - 800) / 1000;
+      ctx.font = '14px ' + MONO; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      for (let i = 0; i < 28; i++) {
+        const life = 1 - Math.max(0, age - hash(i, 9, 9) * 0.6) / 0.9;
+        if (life <= 0) continue;
+        const d = hash(i, 1, 2) * length * fire;
+        const drift = age * (2 + hash(i, 8, 3) * 5) * (hash(i, 4, 1) < 0.5 ? -1 : 1);
+        const py = sy + ((hash(i, 3, 7) - 0.5) * 4 + drift) * CELL;
+        const px = sx + dir * (d + age * hash(i, 6, 2) * 6 * CELL);
+        ctx.globalAlpha = life; ctx.fillStyle = rgbStr(specAt(palette.spec, hash(i, 5, 6)));
+        ctx.fillText('✦·✧•'[i % 4], px, py);
+      }
     }
-    if (flash > 0) { ctx.globalAlpha = 0.18 * flash; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); }
+    // quick white flash at full power
+    const flash = 1 - Math.abs(n - 820) / 90;
+    if (flash > 0) { ctx.globalAlpha = 0.35 * flash; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); }
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    // 240ms page shake (CSS transform on body, see style.css)
+    const s = n >= 820 && n <= 1060 ? [1, -1, 1, 0][Math.floor((n - 820) / 60) % 4] : 0;
+    body.classList.toggle('shake', s !== 0);
+    body.style.setProperty('--shake-x', (s * 4) + 'px'); body.style.setProperty('--shake-y', (-s * 2) + 'px');
     beamRun = requestAnimationFrame(tick);
   };
   beamRun = requestAnimationFrame(tick);
@@ -576,6 +691,7 @@ function buildSplash() {
     setTimeout(() => { s.hidden = true; }, 650);
     removeEventListener('keydown', end, true); removeEventListener('pointerdown', end, true);
     say('hello', 2600); setMood('happy', 1800); sparkle(4);
+    buddy.waveUntil = performance.now() + 2200;
     $('input').focus();
   };
   addEventListener('keydown', end, true); addEventListener('pointerdown', end, true);
@@ -594,18 +710,30 @@ async function api(path, body) {
 
 async function* readStream(res) {
   const reader = res.body.getReader(), dec = new TextDecoder();
-  let buf = '';
+  let buf = '', data = [];
+  const parse = () => {
+    if (!data.length) return null;
+    const s = data.join('\n'); data = [];
+    try { return JSON.parse(s); } catch { return null; /* skip bad event */ }
+  };
+  const handleLine = (line) => {
+    if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
+  };
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
     buf += dec.decode(value, { stream: true });
-    let idx;
-    while ((idx = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, idx).trim(); buf = buf.slice(idx + 1);
-      if (!line.startsWith('data:')) continue;
-      try { yield JSON.parse(line.slice(5).trim()); } catch { /* skip bad line */ }
+    let m;
+    while ((m = /\r\n|\r|\n/.exec(buf))) {
+      const line = buf.slice(0, m.index); buf = buf.slice(m.index + m[0].length);
+      if (line === '') { const ev = parse(); if (ev) yield ev; }
+      else handleLine(line);
     }
   }
+  // flush a final unterminated event
+  buf += dec.decode();
+  if (buf) handleLine(buf);
+  const last = parse(); if (last) yield last;
 }
 
 function handleEvent(ev) {
@@ -619,15 +747,16 @@ function handleEvent(ev) {
       state.reasoning += ev.text || ''; if (state.phase !== 'thinking') setPhase('thinking'); break;
     case 'text':
       if (state.phase !== 'text') setPhase('text');
+      buddy.lookAt = performance.now();
       state.draft = null; addText(ev.text || ''); scrollDown(); break;
     case 'draft':
       state.draft = { tool: ev.tool, arg: ev.arg, chars: ev.chars || 0 }; setPhase('draft'); buddy.charge = Math.min(1, (ev.chars || 0) / 4000); break;
     case 'tool_start':
-      state.draft = null; buddy.charge = 0; setPhase('tool'); setMood('working'); state.textEl = null;
+      state.draft = null; buddy.charge = 0; setPhase('tool'); setMood('working'); flushText(); state.textEl = null;
       addStep({ id: ev.id, tool: ev.tool, arg: ev.arg, running: true }); scrollDown(); break;
     case 'tool_done':
       finishStep(ev); setPhase('thinking'); state.reasoning = '';
-      if (ev.ok === false) { setMood('oops', 1800); say('crack', 2600); } break;
+      if (ev.ok === false) { setMood('surprised', 1500); say('crack', 2600); } break;
     case 'note': addNote(ev.text || ''); break;
     case 'usage': state.tokens = ev.tokens || 0; state.window = ev.window || 0; renderStatus(); break;
     case 'done': {
@@ -822,8 +951,11 @@ async function boot() {
   setTheme(params.get('theme') || saved || 'prism');
   buildSplash();
   renderStatus();
-  const loop = () => { const now = performance.now(); drawShard(now); renderLive(now); requestAnimationFrame(loop); };
-  requestAnimationFrame(loop);
+  let loopRaf = 0;
+  const loop = () => { loopRaf = 0; if (document.hidden) return; const now = performance.now(); drawShard(now); renderLive(now); loopRaf = requestAnimationFrame(loop); };
+  const startLoop = () => { if (!loopRaf && !document.hidden) loopRaf = requestAnimationFrame(loop); };
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { if (loopRaf) { cancelAnimationFrame(loopRaf); loopRaf = 0; } } else startLoop(); });
+  startLoop();
   try {
     const info = await api('/api/info');
     if (info) {

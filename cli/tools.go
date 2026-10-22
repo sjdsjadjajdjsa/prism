@@ -10,10 +10,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 type diffLine struct {
@@ -123,8 +126,19 @@ func iarg(args map[string]any, key string, fallback int) int {
 func describe(raw string) string {
 	args := map[string]any{}
 	json.Unmarshal([]byte(raw), &args)
-	for _, key := range []string{"path", "command", "pattern", "name"} {
+	for _, key := range []string{"path", "command", "pattern", "name", "url", "query"} {
 		if s := sarg(args, key); s != "" {
+			first, _, _ := strings.Cut(s, "\n")
+			return first
+		}
+	}
+	keys := make([]string, 0, len(args))
+	for k := range args {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if s, ok := args[k].(string); ok && s != "" {
 			first, _, _ := strings.Cut(s, "\n")
 			return first
 		}
@@ -341,17 +355,38 @@ func changed(before, after string) toolResult {
 	return toolResult{ok: true, added: added, removed: removed, diff: diff, summary: fmt.Sprintf("+%d -%d", added, removed)}
 }
 
+// tailBuffer keeps roughly the last limit bytes written to it. Write runs on
+// the process's pipe goroutine while tail is read from elsewhere, so both
+// take the mutex.
 type tailBuffer struct {
+	mu    sync.Mutex
 	data  []byte
 	limit int
 }
 
 func (t *tailBuffer) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.data = append(t.data, p...)
 	if len(t.data) > 2*t.limit {
 		t.data = append([]byte(nil), t.data[len(t.data)-t.limit:]...)
 	}
 	return len(p), nil
+}
+
+// tail returns at most limit bytes of the newest output as a string. When it
+// has to cut, it cuts on a rune boundary and marks the cut with "…".
+func (t *tailBuffer) tail() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(t.data) <= t.limit {
+		return string(t.data)
+	}
+	start := len(t.data) - t.limit
+	for start < len(t.data) && !utf8.RuneStart(t.data[start]) {
+		start++
+	}
+	return "…" + string(t.data[start:])
 }
 
 func bashTool(ctx context.Context, dir string, args map[string]any) toolResult {
@@ -378,10 +413,7 @@ func bashTool(ctx context.Context, dir string, args map[string]any) toolResult {
 			err = &exec.ExitError{ProcessState: cmd.ProcessState}
 		}
 	}
-	text := string(out.data)
-	if len(text) > out.limit {
-		text = "…" + text[len(text)-out.limit:]
-	}
+	text := out.tail()
 	code := 0
 	var exitErr *exec.ExitError
 	switch {

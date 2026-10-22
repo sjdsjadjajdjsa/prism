@@ -1,11 +1,11 @@
 ---
 name: refactor
-description: Restructure code without changing behaviour — capture current output first, small steps, verify each.
+description: Restructure code without changing behaviour: capture current output first, small steps, verify each.
 ---
 
 # Skill: refactor safely
 
-Use this when the user wants code cleaned up, renamed, split, or restructured — without changing what it does.
+Use this when the user wants code cleaned up, renamed, split, or restructured, without changing what it does.
 
 ## Rule zero
 - Behaviour must stay identical. Same inputs, same outputs, same errors. If the user wants behaviour changed too, do that as a separate step before or after, never mixed in.
@@ -31,7 +31,7 @@ Use this when the user wants code cleaned up, renamed, split, or restructured �
 - After each move:
   - Check syntax: `node --check file.js` or `python3 -m py_compile file.py`.
   - Rerun the tests or the baseline commands.
-  - Compare output with the baseline: `diff /tmp/before1.txt <(python3 main.py < sample1.txt)` — the diff must be empty.
+  - Compare output with the baseline: `diff /tmp/before1.txt <(python3 main.py < sample1.txt)`: the diff must be empty.
 - If a check fails, undo just that step and redo it smaller. Do not pile more changes on a broken state.
 
 ## Step 4: Final sweep

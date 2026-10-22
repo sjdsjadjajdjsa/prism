@@ -5,7 +5,7 @@ const config = JSON.parse(readFileSync(new URL('./providers.json', import.meta.u
 const port = Number(process.env.PORT) || 4848
 const host = process.env.HOST || '127.0.0.1'
 const firstByteTimeout = 150_000
-const stallTimeout = 90_000
+const stallTimeout = 240_000
 const hedgeDelay = Number(process.env.HEDGE_MS) || 6000
 const maxParallel = 3
 const rankPenalty = 4000
@@ -71,7 +71,7 @@ const ordered = () => {
     .filter(({ route }) => (cooldowns.get(route.id) ?? 0) <= now)
     .sort((a, b) => a.score - b.score)
     .map(({ route }) => route)
-  return ready.length ? ready : all.sort((a, b) => cooldowns.get(a.id) - cooldowns.get(b.id))
+  return ready.length ? ready : all.sort((a, b) => (cooldowns.get(a.id) ?? 0) - (cooldowns.get(b.id) ?? 0))
 }
 
 const within = (promise, ms) => {
@@ -103,9 +103,20 @@ const send = (res, status, body) => {
   res.end(JSON.stringify(body))
 }
 
+const maxBody = 4 * 1024 * 1024
+
 const readBody = async req => {
   const chunks = []
-  for await (const chunk of req) chunks.push(chunk)
+  let size = 0
+  for await (const chunk of req) {
+    size += chunk.length
+    if (size > maxBody) {
+      const error = new Error('Request body exceeds 4 MB')
+      error.tooLarge = true
+      throw error
+    }
+    chunks.push(chunk)
+  }
   return Buffer.concat(chunks).toString('utf8')
 }
 
@@ -113,11 +124,17 @@ const complete = async (req, res) => {
   let payload
   try {
     payload = JSON.parse(await readBody(req))
-  } catch {
+  } catch (error) {
+    if (error?.tooLarge) {
+      req.destroy()
+      return send(res, 413, { error: { message: 'Request body exceeds 4 MB', type: 'invalid_request' } })
+    }
     return send(res, 400, { error: { message: 'Request body must be JSON', type: 'invalid_request' } })
   }
-  const { prism_quick: quick, ...rest } = payload
-  const queue = ordered()
+  const { prism_quick: quick, prism_avoid: avoid, ...rest } = payload
+  const avoided = new Set(Array.isArray(avoid) ? avoid : [])
+  const queue = ordered().sort((a, b) => avoided.has(a.id) - avoided.has(b.id))
+  if (!queue.length) return send(res, 503, { error: { message: 'No free AI routes are configured', type: 'no_route_available', failures: [] } })
   const failures = []
   const live = new Set()
   let winner = null
@@ -130,7 +147,17 @@ const complete = async (req, res) => {
     for (const attempt of live) attempt.controller.abort()
   })
 
-  const request = attempt =>
+  const request = async attempt => {
+    const headers = new AbortController()
+    const timer = setTimeout(() => headers.abort(new DOMException('no headers', 'TimeoutError')), firstByteTimeout)
+    try {
+      return await post(attempt, AbortSignal.any([attempt.controller.signal, headers.signal]))
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  const post = (attempt, signal) =>
     fetch(`${attempt.route.baseURL}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -139,7 +166,7 @@ const complete = async (req, res) => {
         ...(attempt.route.key && { authorization: `Bearer ${attempt.route.key}` }),
       },
       body: JSON.stringify({ ...rest, ...(quick && attempt.route.quick), model: attempt.route.model }),
-      signal: attempt.controller.signal,
+      signal,
     })
 
   const giveUp = () => {
@@ -164,7 +191,7 @@ const complete = async (req, res) => {
   const pump = async (attempt, upstream, reader, first) => {
     for (const other of live) {
       if (other !== attempt) {
-        learn(other.route, Date.now() - other.started)
+        learn(other.route, Math.max(expectedWait(other.route), Date.now() - other.started))
         other.controller.abort()
       }
     }
@@ -205,6 +232,10 @@ const complete = async (req, res) => {
       try {
         upstream = await request(attempt)
       } catch (error) {
+        if (error.name === 'TimeoutError' && !attempt.controller.signal.aborted) {
+          networkError = `no reply in ${seconds(firstByteTimeout)}`
+          break
+        }
         networkError = [error.cause?.code, error.cause?.message ?? error.message].filter(Boolean).join(' ')
       }
     }

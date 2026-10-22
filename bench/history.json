@@ -29,13 +29,18 @@
         "value": 131
       },
       {
+        "label": "before skills",
+        "note": "faster tool runs, folded steps",
+        "value": 96
+      },
+      {
         "label": "now",
-        "note": "skills, folded steps, faster tool runs",
-        "value": 96,
+        "note": "skills + MCP, avg of 2 runs; website skill adds checks",
+        "value": 165,
         "highlight": true
       },
       {
-        "label": "now, no keys at all",
+        "label": "no keys at all",
         "note": "only no-sign-up models (Kilo, BlockRun, LLM7)",
         "value": 168
       }

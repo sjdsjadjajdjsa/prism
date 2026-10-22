@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +22,8 @@ type server struct {
 	mu     sync.Mutex
 	cancel context.CancelFunc
 	busy   bool
+	snap   []wireEntry    // history snapshot served while a chat is running
+	memWG  sync.WaitGroup // outstanding background memory job
 }
 
 type wireEntry struct {
@@ -48,6 +53,25 @@ func wire(diff []diffLine) []wireDiff {
 }
 
 func serve(agent *Agent, addr, webDir, theme string) error {
+	port := publicPort(addr)
+	fmt.Printf("Prism web is running: http://127.0.0.1:%s\nPress Ctrl+C to stop.\n", port)
+	return http.ListenAndServe(addr, newHandler(agent, port, webDir, theme))
+}
+
+// publicPort is the port browsers reach the server on: PRISM_PUBLIC_PORT when
+// set (e.g. Docker listens on 0.0.0.0:4849 but is published on 127.0.0.1:4849),
+// otherwise the port of the listen address.
+func publicPort(addr string) string {
+	if p := strings.TrimSpace(os.Getenv("PRISM_PUBLIC_PORT")); p != "" {
+		return p
+	}
+	if _, p, err := net.SplitHostPort(addr); err == nil {
+		return p
+	}
+	return addr[strings.LastIndex(addr, ":")+1:]
+}
+
+func newHandler(agent *Agent, port, webDir, theme string) http.Handler {
 	s := &server{agent: agent, webDir: webDir, theme: theme}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/info", s.info)
@@ -55,20 +79,41 @@ func serve(agent *Agent, addr, webDir, theme string) error {
 	mux.HandleFunc("POST /api/chat", s.chat)
 	mux.HandleFunc("POST /api/stop", s.stop)
 	mux.HandleFunc("POST /api/new", s.reset)
-	mux.Handle("GET /", http.FileServer(http.Dir(webDir)))
-	fmt.Printf("Prism web is running: http://127.0.0.1:%s\nPress Ctrl+C to stop.\n", addr[strings.LastIndex(addr, ":")+1:])
-	return http.ListenAndServe(addr, sameOrigin(mux))
+	mux.Handle("GET /", noDirListing(webDir, http.FileServer(http.Dir(webDir))))
+	return localOnly(port, mux)
 }
 
-func sameOrigin(next http.Handler) http.Handler {
+// localOnly rejects any request whose Host is not the loopback address on the
+// public port (defeats DNS rebinding), and any POST whose Origin is not the
+// loopback origin (defeats cross-site form posts and missing-Origin requests).
+func localOnly(port string, next http.Handler) http.Handler {
+	hosts := map[string]bool{"127.0.0.1:" + port: true, "localhost:" + port: true, "[::1]:" + port: true}
+	origins := map[string]bool{"http://127.0.0.1:" + port: true, "http://localhost:" + port: true}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
-			if origin := r.Header.Get("Origin"); origin != "" && !strings.HasSuffix(origin, "://"+r.Host) {
-				http.Error(w, "cross-origin requests are not allowed", http.StatusForbidden)
+		if !hosts[strings.ToLower(r.Host)] {
+			http.Error(w, "prism only answers to 127.0.0.1", http.StatusForbidden)
+			return
+		}
+		if r.Method == http.MethodPost && !origins[strings.ToLower(r.Header.Get("Origin"))] {
+			http.Error(w, "cross-origin requests are not allowed", http.StatusForbidden)
+			return
+		}
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// noDirListing answers 404 for directories that have no index.html instead of
+// letting http.FileServer render a listing.
+func noDirListing(root string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := filepath.Join(root, filepath.FromSlash(path.Clean("/"+r.URL.Path)))
+		if st, err := os.Stat(p); err == nil && st.IsDir() {
+			if _, err := os.Stat(filepath.Join(p, "index.html")); err != nil {
+				http.NotFound(w, r)
 				return
 			}
 		}
-		w.Header().Set("X-Content-Type-Options", "nosniff")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -89,13 +134,29 @@ func (s *server) info(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"project": projectName(s.agent.dir), "theme": s.theme, "models_ready": ready})
 }
 
+// snapshot converts the agent's messages to wire entries. Callers must hold
+// s.mu and must not call it while a chat is running.
+func (s *server) snapshot() []wireEntry {
+	out := []wireEntry{}
+	for _, e := range entriesFrom(s.agent.messages) {
+		out = append(out, wireEntry{Kind: e.kind, Text: e.text, Tool: e.tool, Arg: e.arg, OK: e.res.ok, Summary: e.res.summary})
+	}
+	return out
+}
+
 func (s *server) history(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
-	entries := entriesFrom(s.agent.messages)
+	var out []wireEntry
+	if s.busy {
+		// agent.Run is mutating messages outside the lock; serve the copy
+		// taken before the run started instead of reading live state.
+		out = s.snap
+	} else {
+		out = s.snapshot()
+	}
 	s.mu.Unlock()
-	out := []wireEntry{}
-	for _, e := range entries {
-		out = append(out, wireEntry{Kind: e.kind, Text: e.text, Tool: e.tool, Arg: e.arg, OK: e.res.ok, Summary: e.res.summary})
+	if out == nil {
+		out = []wireEntry{}
 	}
 	writeJSON(w, map[string]any{"entries": out})
 }
@@ -117,6 +178,7 @@ func (s *server) reset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.agent.reset()
+	s.snap = nil
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -136,13 +198,18 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithCancel(r.Context())
 	s.busy, s.cancel = true, cancel
+	s.snap = s.snapshot()
 	s.mu.Unlock()
 	defer func() {
 		cancel()
 		s.mu.Lock()
+		s.snap = s.snapshot()
 		s.busy, s.cancel = false, nil
 		s.mu.Unlock()
 	}()
+	// A memory job from the previous chat may still be running; never let it
+	// overlap with agent.Run.
+	s.memWG.Wait()
 
 	flusher, _ := w.(http.Flusher)
 	w.Header().Set("content-type", "text/event-stream")
@@ -195,7 +262,9 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	if job := s.agent.memoryJob(); job != nil {
+		s.memWG.Add(1)
 		go func() {
+			defer s.memWG.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
 			job.run(ctx)

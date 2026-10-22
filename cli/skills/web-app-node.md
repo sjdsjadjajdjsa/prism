@@ -37,7 +37,7 @@ Use this when the user wants a Node tool, script, or small app.
 - Run `node --check index.js` (and on every other `.js` file) to catch syntax errors without executing.
 - Run `npm test`. It must print success and exit 0.
 - Run `npm start` once with sample input to show real output.
-- If anything listens on a port, make sure your verification kills it or never starts it — nothing should keep running after you finish.
+- If anything listens on a port, make sure your verification kills it or never starts it, nothing should keep running after you finish.
 
 ## Report
 - List the files created and the exact commands: `npm install`, `npm start`, `npm test`.

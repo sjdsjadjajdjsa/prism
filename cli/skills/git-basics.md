@@ -1,6 +1,6 @@
 ---
 name: git-basics
-description: Set up git safely — init, .gitignore, small clear commits, no force pushes, never commit secrets.
+description: Set up git safely: init, .gitignore, small clear commits, no force pushes, never commit secrets.
 ---
 
 # Skill: git basics
@@ -24,7 +24,7 @@ Use this for git setup, commits, and teaching beginners safe git habits.
 - If you find a secret already committed, tell the user plainly: the key must be rotated (changed) because removing it from git does not make it safe again. Ask before rewriting anything.
 
 ## Commits
-- Commit small and often. One logical change per commit — one feature, one fix.
+- Commit small and often. One logical change per commit: one feature, one fix.
 - Stage deliberately: `git add <file>` for the files that belong to this change. Avoid `git add -A` until you have checked `git status`.
 - Message style: short imperative line under 60 chars, e.g. `fix crash when input file is empty` or `add dark mode toggle`. Not "updates" or "stuff".
 

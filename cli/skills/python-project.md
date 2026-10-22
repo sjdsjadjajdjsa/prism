@@ -54,4 +54,4 @@ Use this when the user wants to start a Python script, tool, or package from scr
 ## Verify and report
 - Run the program once: `.venv/bin/python main.py` (with sample args if needed). Show it works.
 - Run the tests. All must pass.
-- Finish with a short summary: the files created, and the two commands the user needs — activate the venv, run the program.
+- Finish with a short summary: the files created, and the two commands the user needs: activate the venv, run the program.

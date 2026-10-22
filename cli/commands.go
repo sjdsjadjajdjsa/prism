@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -20,7 +23,8 @@ var commands = []command{
 	{"/new", "start a fresh chat"},
 	{"/resume", "reopen an earlier chat in this folder"},
 	{"/init", "write PRISM.md, the rules prism always follows here"},
-	{"/skills", "playbooks prism can follow · add your own in .prism/skills/"},
+	{"/skills", "playbooks prism can follow · /skills new <name> to write your own"},
+	{"/mcp", "connected tools (MCP servers) · see docs/MCP.md"},
 	{"/memory", "see what prism remembers · /memory forget"},
 	{"/usage", "free AI used today"},
 	{"/theme", "switch theme, or /theme <name>"},
@@ -116,7 +120,13 @@ func (m *model) command(text string) tea.Cmd {
 		}
 		lines = append(lines, "", "/memory forget clears it")
 		m.entries = append(m.entries, &entry{kind: "info", text: "what prism remembers here", lines: lines})
+	case "/mcp":
+		m.entries = append(m.entries, &entry{kind: "info", text: "connected tools (MCP)", lines: mcpLines(m.agent.mcp.status())})
 	case "/skills":
+		if len(fields) > 2 && fields[1] == "new" {
+			m.entries = append(m.entries, &entry{kind: "note", text: newSkill(m.agent, fields[2])})
+			return nil
+		}
 		var lines []string
 		for _, s := range m.agent.skills {
 			lines = append(lines, fmt.Sprintf("%-15s %s  (%s)", s.name, s.description, s.source))
@@ -273,4 +283,44 @@ func short(n int) string {
 		return fmt.Sprintf("%.1fk", float64(n)/1e3)
 	}
 	return strconv.Itoa(n)
+}
+
+func mcpLines(list []mcpStatus) []string {
+	if len(list) == 0 {
+		return []string{"none yet · add servers to .prism/mcp.json or ~/.config/prism/mcp.json", "", "guide: docs/MCP.md in the prism repo"}
+	}
+	var lines []string
+	for _, s := range list {
+		switch s.state {
+		case "ready":
+			lines = append(lines, fmt.Sprintf("● %-14s %d tools: %s", s.name, len(s.tools), clipText(strings.Join(s.tools, ", "), 70)))
+		case "error":
+			lines = append(lines, fmt.Sprintf("✕ %-14s %s", s.name, clipText(s.err, 90)))
+		default:
+			lines = append(lines, fmt.Sprintf("◌ %-14s %s", s.name, s.state))
+		}
+	}
+	return append(lines, "", "the AI uses these tools by itself when they fit the task")
+}
+
+var skillName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,40}$`)
+
+func newSkill(a *Agent, name string) string {
+	if !skillName.MatchString(name) {
+		return "skill names use lowercase letters, numbers and dashes, like my-skill"
+	}
+	path := filepath.Join(a.dir, ".prism", "skills", name+".md")
+	if _, err := os.Stat(path); err == nil {
+		return ".prism/skills/" + name + ".md already exists"
+	}
+	body := "---\nname: " + name + "\ndescription: one line saying when prism should use this skill\n---\n\n# " + name + "\n\n- Step one: what to look at first.\n- Step two: what to change.\n- Check: the command that proves it worked.\n"
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err.Error()
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		return err.Error()
+	}
+	a.skills = loadSkills(a.dir)
+	a.messages[0].Content = a.systemPrompt()
+	return "wrote .prism/skills/" + name + ".md · fill in the steps, prism picks it up right away"
 }

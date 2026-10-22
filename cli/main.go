@@ -297,6 +297,9 @@ func (m *model) handle(event any) {
 	case evRemembered:
 		if e.changed {
 			m.speak("noted.")
+			if !m.busy {
+				m.agent.messages[0].Content = m.agent.systemPrompt()
+			}
 		}
 	case evDone:
 		m.busy, m.thinking, m.cancel, m.reasoning, m.draft, m.pending = false, false, nil, "", nil, nil
@@ -514,6 +517,8 @@ func main() {
 	}
 	agent := newAgent(*api, dir, project)
 	agent.skills = loadSkills(dir)
+	agent.mcp = startMCP(dir)
+	defer agent.mcp.close()
 	agent.system = *system
 	agent.messages[0].Content = agent.systemPrompt()
 	if *resume {
@@ -538,6 +543,7 @@ func main() {
 		return
 	}
 	if args := flag.Args(); len(args) > 0 && args[0] == "run" {
+		agent.mcp.wait(90 * time.Second)
 		if agent.system {
 			agent.approve = askOnTerminal
 		}
