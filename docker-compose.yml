@@ -1,0 +1,38 @@
+name: prism
+
+services:
+  router:
+    build:
+      context: ./router
+      network: host
+    network_mode: host
+    env_file:
+      - path: keys.conf
+        required: false
+    volumes:
+      - router-data:/data
+    restart: unless-stopped
+
+  agent:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+      network: host
+    network_mode: host
+    profiles: [agent]
+    depends_on: [router]
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    working_dir: /workspace
+    environment:
+      PRISM_PROJECT: ${PRISM_PROJECT:-}
+      TERM: ${TERM:-xterm-256color}
+      COLORTERM: ${COLORTERM:-truecolor}
+    volumes:
+      - ${PROJECT_DIR:-./workspace}:/workspace
+      - prism-config:/home/prism/.config/prism
+    stdin_open: true
+    tty: true
+
+volumes:
+  router-data:
+  prism-config:

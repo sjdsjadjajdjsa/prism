@@ -1,0 +1,101 @@
+{
+  "providers": [
+    {
+      "name": "nvidia",
+      "requires": "NVIDIA_API_KEY",
+      "baseURL": "https://integrate.api.nvidia.com/v1",
+      "models": [
+        "nvidia/nemotron-3-ultra-550b-a55b",
+        "nvidia/nemotron-3.5-lightning-30b-a3b"
+      ],
+      "quick": {
+        "chat_template_kwargs": {
+          "enable_thinking": false
+        }
+      }
+    },
+    {
+      "name": "groq",
+      "requires": "GROQ_API_KEY",
+      "baseURL": "https://api.groq.com/openai/v1",
+      "models": [
+        "openai/gpt-oss-120b"
+      ]
+    },
+    {
+      "name": "kilo",
+      "baseURL": "https://api.kilo.ai/api/gateway",
+      "models": [
+        "minimax/minimax-m3.1-flash:free",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "poolside/laguna-s-2.1:free"
+      ]
+    },
+    {
+      "name": "gemini",
+      "requires": "GEMINI_API_KEY",
+      "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "models": [
+        "gemini-flash-latest"
+      ]
+    },
+    {
+      "name": "mistral",
+      "requires": "MISTRAL_API_KEY",
+      "baseURL": "https://api.mistral.ai/v1",
+      "models": [
+        "codestral-latest"
+      ]
+    },
+    {
+      "name": "openrouter",
+      "requires": "OPENROUTER_API_KEY",
+      "baseURL": "https://openrouter.ai/api/v1",
+      "models": [
+        "minimax/minimax-m3.1-flash:free",
+        "openrouter/free"
+      ]
+    },
+    {
+      "name": "ollama",
+      "requires": "OLLAMA_MODEL",
+      "auth": false,
+      "baseURL": "${OLLAMA_URL:-http://host.docker.internal:11434/v1}",
+      "models": [
+        "${OLLAMA_MODEL}"
+      ]
+    },
+    {
+      "name": "nvidia",
+      "requires": "NVIDIA_API_KEY",
+      "baseURL": "https://integrate.api.nvidia.com/v1",
+      "models": [
+        "z-ai/glm-5.3",
+        "z-ai/glm-5.3-flash"
+      ]
+    },
+    {
+      "name": "zai",
+      "requires": "ZAI_API_KEY",
+      "baseURL": "https://api.z.ai/api/paas/v4",
+      "models": [
+        "glm-4.7-flash"
+      ]
+    },
+    {
+      "name": "blockrun",
+      "baseURL": "https://blockrun.ai/api/v1",
+      "models": [
+        "nvidia/nemotron-3-ultra-550b",
+        "nvidia/nemotron-3.5-lightning"
+      ]
+    },
+    {
+      "name": "llm7",
+      "baseURL": "https://api.llm7.io/v1",
+      "models": [
+        "codestral-latest"
+      ]
+    }
+  ]
+}

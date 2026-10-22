@@ -1,0 +1,268 @@
+import http from 'node:http'
+import { readFileSync, writeFileSync, renameSync } from 'node:fs'
+
+const config = JSON.parse(readFileSync(new URL('./providers.json', import.meta.url), 'utf8'))
+const port = Number(process.env.PORT) || 4848
+const host = process.env.HOST || '127.0.0.1'
+const firstByteTimeout = 150_000
+const stallTimeout = 90_000
+const hedgeDelay = Number(process.env.HEDGE_MS) || 6000
+const maxParallel = 3
+const rankPenalty = 4000
+const statsTTL = 6 * 60 * 60_000
+const coldHedgeDelay = 2000
+const statsFile = process.env.STATS_FILE || ''
+const stats = new Map()
+let saveTimer
+
+try {
+  for (const [id, stat] of Object.entries(JSON.parse(readFileSync(statsFile, 'utf8')))) stats.set(id, stat)
+} catch {}
+
+const saveStats = () => {
+  if (!statsFile || saveTimer) return
+  saveTimer = setTimeout(() => {
+    saveTimer = null
+    try {
+      writeFileSync(`${statsFile}.tmp`, JSON.stringify(Object.fromEntries(stats)))
+      renameSync(`${statsFile}.tmp`, statsFile)
+    } catch (error) {
+      console.log(`could not save speed stats: ${error.message}`)
+    }
+  }, 2000)
+}
+const cooldowns = new Map()
+const lastErrors = new Map()
+
+const expand = text => text.replace(/\$\{(\w+)(?::-([^}]*))?\}/g, (_, name, fallback = '') => process.env[name] || fallback)
+
+const routes = () =>
+  config.providers
+    .filter(provider => !provider.requires || process.env[provider.requires])
+    .flatMap(provider =>
+      provider.models.map(name => {
+        const model = expand(name)
+        return {
+          id: `${provider.name}/${model}`,
+          model,
+          baseURL: expand(provider.baseURL),
+          key: provider.requires && provider.auth !== false ? process.env[provider.requires] : undefined,
+          quick: provider.quick,
+        }
+      }),
+    )
+
+const expectedWait = route => {
+  const stat = stats.get(route.id)
+  return stat && Date.now() - stat.at < statsTTL ? stat.wait : 0
+}
+
+const learn = (route, ms) => {
+  const fresh = expectedWait(route)
+  stats.set(route.id, { wait: fresh ? fresh * 0.6 + ms * 0.4 : ms, at: Date.now() })
+  saveStats()
+}
+
+const ordered = () => {
+  const now = Date.now()
+  const all = routes()
+  const ready = all
+    .map((route, rank) => ({ route, score: rank * rankPenalty + expectedWait(route) }))
+    .filter(({ route }) => (cooldowns.get(route.id) ?? 0) <= now)
+    .sort((a, b) => a.score - b.score)
+    .map(({ route }) => route)
+  return ready.length ? ready : all.sort((a, b) => cooldowns.get(a.id) - cooldowns.get(b.id))
+}
+
+const within = (promise, ms) => {
+  let timer
+  return Promise.race([promise, new Promise(resolve => (timer = setTimeout(() => resolve(null), ms)))]).finally(() => clearTimeout(timer))
+}
+
+const seconds = ms => `${(ms / 1000).toFixed(1)}s`
+
+const pauseFor = (status, headers) => {
+  if (status === 429) return (Number(headers?.get('retry-after')) || 60) * 1000
+  if (status === 401 || status === 402 || status === 403) return 15 * 60_000
+  if (status === 404) return 60 * 60_000
+  if (status === 0 || status >= 500) return 30_000
+  return 0
+}
+
+const fail = (route, status, headers, detail) => {
+  const pause = pauseFor(status, headers)
+  if (pause) cooldowns.set(route.id, Date.now() + pause)
+  const message = `${route.id} failed (${status || 'network'}): ${String(detail).slice(0, 200)}`
+  lastErrors.set(route.id, message)
+  console.log(`✗ ${message}`)
+  return message
+}
+
+const send = (res, status, body) => {
+  res.writeHead(status, { 'content-type': 'application/json' })
+  res.end(JSON.stringify(body))
+}
+
+const readBody = async req => {
+  const chunks = []
+  for await (const chunk of req) chunks.push(chunk)
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+const complete = async (req, res) => {
+  let payload
+  try {
+    payload = JSON.parse(await readBody(req))
+  } catch {
+    return send(res, 400, { error: { message: 'Request body must be JSON', type: 'invalid_request' } })
+  }
+  const { prism_quick: quick, ...rest } = payload
+  const queue = ordered()
+  const failures = []
+  const live = new Set()
+  let winner = null
+  let closed = false
+  let next = 0
+  let hedgeTimer
+  res.on('close', () => {
+    if (res.writableFinished) return
+    closed = true
+    for (const attempt of live) attempt.controller.abort()
+  })
+
+  const request = attempt =>
+    fetch(`${attempt.route.baseURL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'user-agent': 'free-ai-router',
+        ...(attempt.route.key && { authorization: `Bearer ${attempt.route.key}` }),
+      },
+      body: JSON.stringify({ ...rest, ...(quick && attempt.route.quick), model: attempt.route.model }),
+      signal: attempt.controller.signal,
+    })
+
+  const giveUp = () => {
+    if (winner || closed || live.size || next < queue.length) return
+    send(res, 503, {
+      error: {
+        message: `Every free AI route failed. ${failures.map(failure => failure.message).join(' | ')}`,
+        type: 'no_route_available',
+        failures: failures.map(({ route, status }) => ({ route, status })),
+      },
+    })
+  }
+
+  const lose = (attempt, status, headers, detail) => {
+    live.delete(attempt)
+    if (winner || closed || attempt.controller.signal.aborted) return
+    failures.push({ route: attempt.route.id, status, message: fail(attempt.route, status, headers, detail) })
+    launch()
+    giveUp()
+  }
+
+  const pump = async (attempt, upstream, reader, first) => {
+    for (const other of live) {
+      if (other !== attempt) {
+        learn(other.route, Date.now() - other.started)
+        other.controller.abort()
+      }
+    }
+    live.clear()
+    clearTimeout(hedgeTimer)
+    const wait = Date.now() - attempt.started
+    learn(attempt.route, wait)
+    cooldowns.delete(attempt.route.id)
+    lastErrors.delete(attempt.route.id)
+    console.log(`→ ${attempt.route.id} (started in ${seconds(wait)})`)
+    res.writeHead(200, {
+      'content-type': upstream.headers.get('content-type') ?? 'application/json',
+      'cache-control': 'no-cache',
+      'x-free-route': attempt.route.id,
+      'x-free-wait': String(wait),
+    })
+    res.write(first)
+    try {
+      while (!closed) {
+        const chunk = await within(reader.read(), stallTimeout)
+        if (!chunk) {
+          console.log(`✗ ${attempt.route.id} stalled for ${seconds(stallTimeout)}, cut off`)
+          lastErrors.set(attempt.route.id, `${attempt.route.id} stalled mid-reply`)
+          attempt.controller.abort()
+          break
+        }
+        if (chunk.done) break
+        res.write(chunk.value)
+      }
+    } catch {}
+    res.end()
+  }
+
+  const run = async attempt => {
+    let upstream
+    let networkError
+    for (let tries = 0; tries < 2 && !upstream && !attempt.controller.signal.aborted; tries++) {
+      try {
+        upstream = await request(attempt)
+      } catch (error) {
+        networkError = [error.cause?.code, error.cause?.message ?? error.message].filter(Boolean).join(' ')
+      }
+    }
+    if (!upstream) return lose(attempt, 0, null, networkError)
+    if (!upstream.ok) return lose(attempt, upstream.status, upstream.headers, await upstream.text().catch(() => ''))
+    const reader = upstream.body.getReader()
+    const remaining = firstByteTimeout - (Date.now() - attempt.started)
+    const first = await within(reader.read(), Math.max(1000, remaining)).catch(() => null)
+    if (winner || closed || attempt.controller.signal.aborted) {
+      reader.cancel().catch(() => {})
+      return
+    }
+    if (!first || first.done) {
+      attempt.controller.abort()
+      live.delete(attempt)
+      failures.push({ route: attempt.route.id, status: 0, message: fail(attempt.route, 0, null, first ? 'empty reply' : `no reply after ${seconds(firstByteTimeout)}`) })
+      launch()
+      return giveUp()
+    }
+    winner = attempt
+    await pump(attempt, upstream, reader, first.value)
+  }
+
+  const launch = () => {
+    clearTimeout(hedgeTimer)
+    if (winner || closed || next >= queue.length || live.size >= maxParallel) return
+    const attempt = { route: queue[next++], controller: new AbortController(), started: Date.now() }
+    if (live.size) console.log(`⇄ ${attempt.route.id} joins the race`)
+    live.add(attempt)
+    run(attempt)
+    hedgeTimer = setTimeout(launch, expectedWait(attempt.route) ? hedgeDelay : coldHedgeDelay)
+  }
+
+  launch()
+}
+
+const status = () => {
+  const now = Date.now()
+  return routes().map(route => ({
+    route: route.id,
+    ready: (cooldowns.get(route.id) ?? 0) <= now,
+    retryInSeconds: Math.max(0, Math.ceil(((cooldowns.get(route.id) ?? 0) - now) / 1000)),
+    lastError: lastErrors.get(route.id) ?? null,
+    startsInSeconds: Number((expectedWait(route) / 1000).toFixed(1)),
+  }))
+}
+
+http
+  .createServer((req, res) => {
+    const path = new URL(req.url, 'http://router').pathname
+    if (req.method === 'POST' && path === '/v1/chat/completions') return complete(req, res)
+    if (path === '/v1/models') return send(res, 200, { object: 'list', data: [{ id: 'auto', object: 'model', owned_by: 'free-ai' }] })
+    if (path === '/status' && new URL(req.url, 'http://router').searchParams.get('format') === 'text') {
+      res.writeHead(200, { 'content-type': 'text/plain' })
+      return res.end(status().map(row => `${row.ready ? '✓ ready  ' : `… resting ${row.retryInSeconds}s`}  ${row.route}${row.lastError ? `\n             last error: ${row.lastError}` : ''}`).join('\n') + '\n')
+    }
+    if (path === '/status') return send(res, 200, status())
+    if (path === '/health') return send(res, 200, { ok: true })
+    send(res, 404, { error: { message: 'Not found', type: 'not_found' } })
+  })
+  .listen(port, host, () => console.log(`Free AI router on ${host}:${port} → ${routes().map(route => route.id).join(', ')}`))

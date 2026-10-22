@@ -1,0 +1,26 @@
+name: check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: cli/go.mod
+      - name: Go
+        working-directory: cli
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go build ./...
+      - name: Router
+        run: node --check router/server.mjs && node -e "JSON.parse(require('fs').readFileSync('router/providers.json','utf8'))"
+      - name: Scripts
+        run: bash -n prism bench/run.sh bench/chat.sh
+      - name: Images
+        run: docker compose build router agent

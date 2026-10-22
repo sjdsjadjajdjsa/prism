@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+KEYS="$HERE/keys.conf"
+ROUTER="http://127.0.0.1:4848"
+
+compose() { docker compose --project-directory "$HERE" -f "$HERE/docker-compose.yml" "$@"; }
+
+usage() {
+  cat <<'EOF'
+Prism: free AI that codes, running safely inside Docker.
+
+  prism                 code in the current folder
+  prism <folder>        code in that folder
+  prism continue        pick up the last chat in the current folder
+  prism setup           add free keys for more models (optional, never a card)
+  prism status          see which free AI models are ready
+  prism logs            watch which model answers each message
+  prism stop            stop the background AI router
+  prism install         add the prism command to your terminal
+
+Prism can only see the folder you give it. Nothing else on your computer.
+EOF
+}
+
+pick_folder() {
+  local folder
+  folder="$(cd "${1:-$PWD}" 2>/dev/null && pwd)" || { echo "Folder not found: ${1:-$PWD}" >&2; exit 1; }
+  if [[ "$folder" == "/" || "$folder" == "$HOME" ]]; then
+    echo "That folder is too big to share safely ($folder). Pick a project folder instead." >&2
+    exit 1
+  fi
+  echo "$folder"
+}
+
+start_router() {
+  local output
+  if ! output="$(compose build --quiet router agent 2>&1)"; then
+    echo "$output" >&2
+    exit 1
+  fi
+  compose up -d router >/dev/null 2>&1
+  for _ in $(seq 1 30); do
+    compose exec -T router wget -qO- "$ROUTER/health" >/dev/null 2>&1 && return
+    sleep 0.5
+  done
+  echo "The AI router did not start. Run: prism logs" >&2
+  exit 1
+}
+
+run_agent() {
+  local folder="$1"; shift
+  start_router
+  PRISM_PROJECT="${folder/#$HOME/\~}" PROJECT_DIR="$folder" HOST_UID="$(id -u)" HOST_GID="$(id -g)" compose run --rm agent "$@"
+}
+
+install() {
+  local bin="$HOME/.local/bin"
+  mkdir -p "$bin"
+  ln -sf "$HERE/prism" "$bin/prism"
+  echo "Installed: $bin/prism"
+  case ":$PATH:" in
+    *":$bin:"*) echo "Run prism from any project folder." ;;
+    *) echo "Add this line to ~/.bashrc, then open a new terminal:"; echo '  export PATH="$HOME/.local/bin:$PATH"' ;;
+  esac
+}
+
+ask_key() {
+  local name="$1" label="$2" link="$3" current value
+  current="$(grep -E "^$name=" "$KEYS" 2>/dev/null | cut -d= -f2- || true)"
+  echo
+  echo "$label"
+  echo "  Get a free key: $link"
+  if [[ -n "$current" ]]; then
+    read -rsp "  Paste key (Enter keeps the saved one): " value
+  else
+    read -rsp "  Paste key (Enter to skip): " value
+  fi
+  echo
+  value="${value:-$current}"
+  { grep -vE "^$name=" "$KEYS" || true; echo "$name=$value"; } > "$KEYS.tmp"
+  mv "$KEYS.tmp" "$KEYS"
+  chmod 600 "$KEYS"
+}
+
+setup() {
+  [[ -f "$KEYS" ]] || cp "$HERE/keys.example.conf" "$KEYS"
+  chmod 600 "$KEYS"
+  echo "Prism already works without keys. Each key below adds more free models, so you wait less."
+  echo "Every one is free with no card. Press Enter to skip any of them."
+  echo "Note: free AI services may keep what you send them. Don't send passwords or private data."
+  ask_key NVIDIA_API_KEY "NVIDIA: fast Nemotron models, plus GLM-5.3 and GLM-5.3 Flash (Ox Alpha)" "https://build.nvidia.com"
+  ask_key GROQ_API_KEY "Groq: very fast GPT-OSS 120B" "https://console.groq.com/keys"
+  ask_key GEMINI_API_KEY "Google: Gemini Flash" "https://aistudio.google.com/apikey"
+  ask_key MISTRAL_API_KEY "Mistral: Codestral, made for code" "https://console.mistral.ai/api-keys"
+  ask_key OPENROUTER_API_KEY "OpenRouter: free MiniMax and other free models (50 a day)" "https://openrouter.ai/keys"
+  ask_key ZAI_API_KEY "Z.ai: GLM-4.7 Flash" "https://z.ai/manage-apikey/apikey-list"
+  compose up -d --force-recreate router >/dev/null 2>&1
+  echo
+  echo "Saved. Run: prism status"
+}
+
+case "${1:-}" in
+  -h|--help|help) usage ;;
+  setup) setup ;;
+  status) start_router; compose exec -T router wget -qO- "$ROUTER/status?format=text" ;;
+  logs) compose logs -f router ;;
+  stop) compose down ;;
+  install) install ;;
+  continue) run_agent "$(pick_folder "${2:-}")" -continue ;;
+  *) run_agent "$(pick_folder "${1:-}")" ;;
+esac
