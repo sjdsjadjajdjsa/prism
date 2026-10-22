@@ -55,8 +55,6 @@ Now jump to [Your first run](#your-first-run).
 
 ## Mac
 
-No Apple ID or developer account needed.
-
 **1. Install Docker Desktop.** It's free for personal use. Go to [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) and download the Mac version that matches your computer:
 - **Apple chip** (M1, M2, M3, M4 and newer): most Macs from 2021 on
 - **Intel chip:** older Macs

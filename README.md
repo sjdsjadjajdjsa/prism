@@ -34,7 +34,7 @@ The first start takes a few minutes while Docker builds Prism. After that it ope
 | macOS | should work with Docker Desktop, not tested yet |
 | Windows | should work inside WSL (Ubuntu) with Docker Desktop, not tested yet |
 
-No Apple ID, app signing or account is needed: Prism is a terminal script plus Docker. If you try it on a Mac or Windows, please open an issue and say how it went.
+If you try it on a Mac or Windows, please open an issue and say how it went.
 
 <details><summary>Install by hand</summary>
 
