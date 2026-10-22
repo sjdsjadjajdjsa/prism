@@ -66,7 +66,7 @@ Want it faster and smarter? `prism setup` walks you through free keys, about a m
 
 | Provider | What you get | Key |
 | --- | --- | --- |
-| Kilo Gateway | MiniMax M3.1 Flash, Nemotron Ultra, Laguna | none |
+| Kilo Gateway | Nemotron Ultra, Nemotron Lightning, Laguna | none |
 | BlockRun | Nemotron Ultra, Nemotron Lightning | none |
 | LLM7 | Codestral | none |
 | NVIDIA | Nemotron Ultra and Lightning (fastest), GLM-5.3, GLM-5.3 Flash | free |
@@ -178,6 +178,7 @@ Inside the terminal app, `/web` moves the current chat to your browser (same his
 | `prism logs` | watch which model answers each step |
 | `prism stop` | stop the background router |
 | `prism install` | add the `prism` command to your terminal |
+| `prism update` | get the newest version |
 
 | Inside Prism | |
 | --- | --- |

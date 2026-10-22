@@ -53,6 +53,7 @@ Prism: free AI that codes, beautifully. Runs inside Docker.
   prism logs            watch which model answers each message
   prism stop            stop the background AI router
   prism install         add the prism command to your terminal
+  prism update          get the newest version of prism
 
 Except for "prism fix", Prism can only see the folder you give it.
 EOF
@@ -235,6 +236,11 @@ case "${1:-}" in
   logs) compose logs -f router ;;
   stop) compose down ;;
   install) install ;;
+  update)
+    git -C "$HERE" pull --ff-only || { echo "Couldn't update. If you changed files in $HERE, move that folder away and run the install command again." >&2; exit 1; }
+    compose build --quiet router agent && compose up -d router >/dev/null 2>&1
+    echo "Prism is up to date."
+    ;;
   web) web "$(pick_folder "${2:-}")" ;;
   fix) fix ;;
   continue) run_agent "$(pick_folder "${2:-}")" -continue ;;
