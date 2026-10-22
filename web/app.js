@@ -822,6 +822,9 @@ async function runCommand(line) {
       addNote(`shard's lines ${quiet ? 'off' : 'on'}`);
       return;
     case '/help': showHelp(); return;
+    case '/web':
+      addNote("you're already in the browser. to go back to the terminal, close this tab or press enter there");
+      return;
     default: break;
   }
   if (DEMO || !window.PrismCommands) { addNote(`${cmd} needs the prism server`); return; }
@@ -988,9 +991,12 @@ function showClosed() {
   if ($('closed')) return;
   const o = el('div', '', '');
   o.id = 'closed';
-  o.style.cssText = 'position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;'
+  o.style.cssText = 'position:fixed;inset:0;z-index:90;display:flex;flex-direction:column;gap:6px;align-items:center;justify-content:center;text-align:center;'
     + 'background:rgba(0,0,0,.72);backdrop-filter:blur(2px);color:var(--fg);font-size:15px;letter-spacing:.02em';
-  o.appendChild(el('p', '', 'prism was closed in the terminal'));
+  o.appendChild(el('p', '', 'this chat went back to the terminal'));
+  const hint = el('p', '', 'you can close this tab. if you closed the terminal too, run prism continue to pick the chat up again');
+  hint.style.cssText = 'color:var(--muted);font-size:13px;margin:0';
+  o.appendChild(hint);
   document.body.appendChild(o);
 }
 // 3s liveness ping — raw fetch, never the demo stub

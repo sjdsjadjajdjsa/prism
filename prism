@@ -19,6 +19,14 @@ cleanup() {
 trap cleanup EXIT
 ROUTER="http://127.0.0.1:4848"
 
+prism_cmd() {
+  if [[ "$(command -v prism 2>/dev/null)" -ef "$HERE/prism" ]]; then
+    echo prism
+  else
+    echo "${HERE/#$HOME/\~}/prism"
+  fi
+}
+
 network_mode() {
   local file="$HERE/.network" code=0
   if [[ ! -s "$file" ]]; then
@@ -76,7 +84,19 @@ start_router() {
       echo "Couldn't check for updates (Docker Hub may be down). Starting the version you already have." >&2
     else
       echo "$output" >&2
-      echo "Docker couldn't download what Prism needs. Check your internet and try again in a minute." >&2
+      if echo "$output" | grep -q 'docker-credential-desktop\.exe' && echo "$output" | grep -q 'exec format error'; then
+        echo "Docker needs to start a Windows program, and this Linux can't run Windows programs right now." >&2
+        echo "To fix it for good, run this, then reopen this terminal and try again:" >&2
+        echo "  sudo mkdir -p /usr/lib/binfmt.d && echo ':WSLInterop:M::MZ::/init:PF' | sudo tee /usr/lib/binfmt.d/WSLInterop.conf" >&2
+        echo "  Then in Windows PowerShell: wsl --shutdown" >&2
+      elif echo "$output" | grep -q 'error getting credentials'; then
+        echo "Docker couldn't read its login settings. Move them aside and try again:" >&2
+        echo "  mv ~/.docker/config.json ~/.docker/config.json.bak" >&2
+      elif echo "$output" | grep -q 'toomanyrequests'; then
+        echo "Docker Hub is limiting downloads right now. Wait a few minutes and try again." >&2
+      else
+        echo "Docker couldn't download what Prism needs. Check your internet and try again in a minute." >&2
+      fi
       exit 1
     fi
   fi
@@ -85,7 +105,7 @@ start_router() {
     compose exec -T router wget -qO- "$ROUTER/health" >/dev/null 2>&1 && return
     sleep 0.5
   done
-  echo "The AI router did not start. Run: prism logs" >&2
+  echo "The AI router did not start. Run: $(prism_cmd) logs" >&2
   exit 1
 }
 
@@ -105,7 +125,10 @@ free_port() {
 }
 
 open_browser() {
-  if grep -qi microsoft /proc/version 2>/dev/null && command -v wslview >/dev/null 2>&1; then wslview "$1"
+  if grep -qi microsoft /proc/version 2>/dev/null; then
+    if command -v wslview >/dev/null 2>&1; then wslview "$1"
+    else (cd /mnt/c 2>/dev/null; cmd.exe /c start "" "$1" >/dev/null 2>&1) || true
+    fi
   elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$1"
   elif command -v open >/dev/null 2>&1; then open "$1"
   fi
@@ -226,7 +249,7 @@ setup() {
   ask_key ZAI_API_KEY "Z.ai: GLM-4.7 Flash" "https://z.ai/manage-apikey/apikey-list"
   compose up -d --force-recreate router >/dev/null 2>&1
   echo
-  echo "Saved. Run: prism status"
+  echo "Saved. Run: $(prism_cmd) status"
 }
 
 case "${1:-}" in

@@ -89,6 +89,8 @@ Docker Desktop has to be running whenever you use Prism.
 
 ## Windows
 
+> New to Docker on Windows? The [Windows beginner guide](WINDOWS.md) covers every step with more detail.
+
 Prism runs inside **WSL**, which is Linux built into Windows and made by Microsoft. It needs Windows 10 (version 2004 or newer) or Windows 11.
 
 **1. Install WSL.** Right-click the Start button and pick **Terminal (Admin)**. Windows shows a permission prompt asking if the app can make changes to your device; click **Yes**. Then run:

@@ -41,7 +41,9 @@ The first start takes a few minutes while Docker builds Prism; later starts are 
 | --- | --- |
 | Linux (Ubuntu and Ubuntu-based) | tested on Linux Mint 22, which is built on Ubuntu 24.04 |
 | macOS | should work with Docker Desktop, not tested yet |
-| Windows | should work inside WSL (Ubuntu) with Docker Desktop, not tested yet |
+| Windows | tested on Windows 11 inside WSL (Debian) with Docker Desktop |
+
+New to Docker on Windows? See the [Windows beginner guide](docs/WINDOWS.md).
 
 Tried it on Mac or Windows? Please open an issue with how it went.
 

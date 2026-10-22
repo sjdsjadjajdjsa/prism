@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Windows: tested on Windows 11 with WSL (Debian). New step-by-step guide in docs/WINDOWS.md.
+- On Windows, `/web` now opens your normal browser.
+- Clearer Docker errors: a broken Windows link in WSL, broken Docker login settings, and Docker Hub download limits each say how to fix them.
+- Hints like "Run: prism status" show a command that works even before `prism` is on your PATH.
+- Browser: `/web` explains you're already there, unknown commands point to `/help`, and closing the terminal says how to pick the chat back up.
+
 ## 0.2.0
 
 - 3 new themes: gruvbox, nord, everforest.

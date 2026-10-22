@@ -462,6 +462,6 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, map[string]any{"kind": "send", "message": initPrompt})
 	default:
-		writeJSON(w, map[string]any{"kind": "error", "text": fields[0] + " isn't a command"})
+		writeJSON(w, map[string]any{"kind": "error", "headline": "unknown command", "text": fields[0] + " isn't a command. /help lists them"})
 	}
 }
