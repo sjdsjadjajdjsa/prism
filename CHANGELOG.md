@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - 3 new themes: gruvbox, nord, everforest.
 - Fixes: stopping a task no longer makes the next message resume it, tools stay inside the project folder, two Prism windows no longer clash, old chats are trimmed to the newest 50.
