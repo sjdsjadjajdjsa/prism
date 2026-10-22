@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en" data-theme="prism">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>prism</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="splash" class="splash" aria-hidden="true">
+    <canvas id="splash-stars"></canvas>
+    <div class="splash-inner">
+      <div class="splash-row">
+        <div class="splash-beam"></div>
+        <div id="splash-logo" class="pixel-logo" aria-label="PRISM"></div>
+        <div class="splash-rays"><i></i><i></i><i></i><i></i><i></i></div>
+      </div>
+      <p class="splash-tag">free ai that codes, beautifully</p>
+      <p id="splash-motto" class="splash-motto"></p>
+    </div>
+  </div>
+
+  <header class="top">
+    <div class="top-inner">
+      <span class="brand grad">◆ prism</span>
+      <span id="project" class="project muted"></span>
+      <span class="spacer"></span>
+      <span id="top-say" class="top-say muted"></span>
+      <label class="theme-pick">
+        <span class="muted">theme</span>
+        <select id="theme" aria-label="theme">
+          <option value="prism">prism</option>
+          <option value="tokyo-night">tokyo-night</option>
+          <option value="catppuccin">catppuccin</option>
+          <option value="rose-pine">rose-pine</option>
+          <option value="matte-black">matte-black</option>
+        </select>
+      </label>
+    </div>
+  </header>
+
+  <main class="column">
+    <section id="transcript" class="transcript" aria-live="polite">
+      <div id="hello" class="hello">
+        <p class="hello-title">what are we building today?</p>
+        <p class="muted">try:  fix a bug  ·  make a website  ·  /help</p>
+      </div>
+    </section>
+    <div id="live" class="live"></div>
+  </main>
+
+  <footer class="dock">
+    <div class="dock-inner">
+      <div class="buddy-wrap">
+        <div id="bubble" class="bubble" hidden><span id="bubble-text"></span></div>
+        <canvas id="shard" class="shard" width="130" height="90" aria-label="Shard"></canvas>
+        <div id="sparks" class="sparks"></div>
+      </div>
+      <form id="composer" class="composer" autocomplete="off">
+        <div id="inputbox" class="inputbox">
+          <span class="prompt grad">›</span>
+          <textarea id="input" rows="1" placeholder="ask anything…" spellcheck="false"></textarea>
+          <span id="busyhint" class="busyhint muted" hidden>working…  esc to stop</span>
+        </div>
+      </form>
+      <div class="status">
+        <span class="grad">◆ </span><span id="route" class="route">auto</span>
+        <span class="dot faint">  ·  </span><span class="green">free</span>
+        <span class="meter" id="meter"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+        <span id="usage" class="muted">0%</span>
+        <span class="spacer"></span>
+        <span id="models" class="muted"></span>
+        <span class="keys"><b>enter</b> send   <b>shift+enter</b> newline   <b id="key-esc">esc</b> <span id="key-esc-label">clear</span></span>
+      </div>
+    </div>
+  </footer>
+
+  <div id="beam" class="beam" hidden aria-hidden="true">
+    <canvas id="beam-canvas"></canvas>
+  </div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

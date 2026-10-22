@@ -19,6 +19,7 @@ type line struct {
 	segs   []seg
 	fill   *rgb
 	indent int
+	ref    *entry
 }
 
 func wrap(s string, width int) []string {
@@ -117,7 +118,38 @@ func (m model) transcript(t theme, width int) []line {
 	}
 	panel := t.panel
 	red, green := mix(t.panel, t.red, 0.18), mix(t.panel, t.green, 0.15)
+	lastUser := -1
 	for i, e := range m.entries {
+		if e.kind == "user" {
+			lastUser = i
+		}
+	}
+	skip := 0
+	for i, e := range m.entries {
+		if skip > 0 {
+			skip--
+			continue
+		}
+		if e.kind == "tool" && (i == 0 || m.entries[i-1].kind != "tool") {
+			group := m.entries[i:]
+			for k, g := range group {
+				if g.kind != "tool" {
+					group = group[:k]
+					break
+				}
+			}
+			head := group[0]
+			if len(group) >= 2 && i < lastUser && !m.expandAll && !head.open {
+				gap()
+				out = append(out, collapsed(t, group))
+				skip = len(group) - 1
+				continue
+			}
+			if len(group) >= 2 && i < lastUser {
+				gap()
+				out = append(out, line{indent: 2, ref: head, segs: []seg{{text: "▾ ", fg: t.muted}, {text: fmt.Sprintf("%d steps", len(group)), fg: t.muted}, {text: "  click to fold", fg: mix(t.bg, t.muted, 0.6)}}})
+			}
+		}
 		switch e.kind {
 		case "user":
 			gap()
@@ -158,10 +190,13 @@ func (m model) transcript(t theme, width int) []line {
 					case '+':
 						fill, fg = &green, t.green
 					}
-					out = append(out, line{fill: fill, indent: 4, segs: []seg{
-						{text: fmt.Sprintf("%4d %c  ", d.num, d.kind), fg: mix(fg, t.muted, 0.4)},
-						{text: clip(d.text, width-18), fg: fg},
-					}})
+					segs := []seg{{text: fmt.Sprintf("%4d %c  ", d.num, d.kind), fg: mix(fg, t.muted, 0.4)}}
+					if d.kind == ' ' {
+						segs = append(segs, highlight(t, clip(d.text, width-18), t.fg)...)
+					} else {
+						segs = append(segs, tinted(highlight(t, clip(d.text, width-18), fg), fg, 0.45)...)
+					}
+					out = append(out, line{fill: fill, indent: 4, segs: segs})
 				}
 				if extra := len(e.res.diff) - len(shown); extra > 0 {
 					out = append(out, line{fill: &panel, indent: 4, segs: []seg{{text: fmt.Sprintf("       … %d more lines", extra), fg: t.muted}}})
@@ -211,11 +246,24 @@ func (m model) transcript(t theme, width int) []line {
 			gap()
 			out = append(out, line{indent: 2, segs: []seg{
 				{text: "◆ ", grad: true, phase: 0.1},
-				{text: modelName(m.route), fg: t.muted},
+				{text: modelName(e.arg), fg: t.muted},
 				{text: "  ·  " + e.text + "  ·  ", fg: mix(t.bg, t.muted, 0.6)},
 				{text: "free", fg: t.green},
 			}})
 		}
+	}
+	if m.pending != nil {
+		gap()
+		verb := map[string]string{"bash": "run this command", "write": "do this", "edit": "do this"}[m.pending.tool]
+		warn := mix(t.panel, t.at(0.1), 0.12)
+		out = append(out, line{fill: &warn, indent: 2})
+		out = append(out, line{fill: &warn, indent: 2, segs: []seg{{text: " ? ", fg: t.at(0.1), bold: true}, {text: "prism wants to " + verb + ":", fg: t.fg, bold: true}}})
+		for _, row := range wrapAll(m.pending.arg, width-12) {
+			out = append(out, line{fill: &warn, indent: 2, segs: []seg{{text: "     " + row, fg: t.at(0.6)}}})
+		}
+		out = append(out, line{fill: &warn, indent: 2})
+		out = append(out, line{fill: &warn, indent: 2, segs: []seg{{text: "   y", fg: t.green, bold: true}, {text: " allow   ", fg: t.muted}, {text: "n", fg: t.red, bold: true}, {text: " no", fg: t.muted}}})
+		out = append(out, line{fill: &warn, indent: 2})
 	}
 	if m.busy && m.draft != nil {
 		gap()
@@ -267,7 +315,7 @@ func summary(t theme, r toolResult, width int) []seg {
 		return []seg{{text: fmt.Sprintf("  +%d", r.added), fg: t.green}, {text: fmt.Sprintf(" -%d", r.removed), fg: t.red}}
 	}
 	if rest, ok := strings.CutPrefix(r.summary, "→ "); ok {
-		return []seg{{text: "  → ", fg: t.muted}, {text: clip(rest, width), fg: t.green}}
+		return []seg{{text: "  → ", fg: t.muted}, {text: clip(strings.Join(strings.Fields(rest), " "), width), fg: t.green}}
 	}
 	return []seg{{text: "  " + clip(r.summary, width), fg: t.muted}}
 }
@@ -293,7 +341,7 @@ func markdown(t theme, text string, width int) []line {
 			continue
 		}
 		if code {
-			out = append(out, line{fill: &panel, indent: 2, segs: []seg{{text: " " + clip(raw, width-8), fg: t.fg}}})
+			out = append(out, line{fill: &panel, indent: 2, segs: append([]seg{{text: " "}}, highlight(t, clip(raw, width-8), t.fg)...)})
 			continue
 		}
 		if trimmed == "" {
@@ -345,8 +393,7 @@ func drawChat(cv *canvas, t theme, m model) {
 
 	boxH := m.boxHeight()
 	boxY := cv.h - 3 - boxH
-	top, height := 4, m.viewHeight()
-	lines := m.transcript(t, colW)
+	lines, start, end, top, height := m.visible(t)
 	if len(lines) == 0 {
 		hello := []string{"what are we building today?", "", "try:  fix a bug  ·  make a website  ·  /help"}
 		if m.offline || m.ready == 0 {
@@ -363,8 +410,6 @@ func drawChat(cv *canvas, t theme, m model) {
 			cv.text((cv.w-len([]rune(s)))/2, top+height/2-2+i, s, mix(t.bg, col, enter), i == 0)
 		}
 	}
-	end := len(lines) - clamp(m.scroll, 0, max(0, len(lines)-height))
-	start := max(0, end-height)
 	for i, l := range lines[start:end] {
 		y := top + i
 		lx := cx + l.indent
@@ -385,6 +430,17 @@ func drawChat(cv *canvas, t theme, m model) {
 			if c := cv.get(cx+i, y); c != nil && c.bg == t.bg {
 				c.ch = ' '
 			}
+		}
+	}
+	if len(lines) > height {
+		thumb := max(1, height*height/len(lines))
+		pos := (height - thumb) * start / max(1, len(lines)-height)
+		for y := 0; y < height; y++ {
+			ch, col := '│', mix(t.bg, t.faint, 1.3*enter)
+			if y >= pos && y < pos+thumb {
+				ch, col = '┃', mix(t.bg, t.at(float64(y)/float64(height)*0.6+n/12000), 0.7*enter)
+			}
+			cv.set(cx+colW+1, top+y, ch, col, false)
 		}
 	}
 
@@ -511,4 +567,120 @@ func drawSuggestions(cv *canvas, t theme, m model, x, y, w int) {
 			cv.text(x+w-12, row, "tab ↹", t.muted, false)
 		}
 	}
+}
+
+func (m model) visible(t theme) (lines []line, start, end, top, height int) {
+	top, height = 4, m.viewHeight()
+	lines = m.transcript(t, m.column())
+	off := int(math.Round(m.scrollPos))
+	end = len(lines) - clamp(off, 0, max(0, len(lines)-height))
+	start = max(0, end-height)
+	return
+}
+
+func collapsed(t theme, group []*entry) line {
+	added, removed, failed := 0, 0, 0
+	var names []string
+	seen := map[string]bool{}
+	for _, g := range group {
+		added += g.res.added
+		removed += g.res.removed
+		if !g.res.ok {
+			failed++
+		}
+		if !seen[g.tool] {
+			seen[g.tool] = true
+			names = append(names, g.tool)
+		}
+	}
+	segs := []seg{
+		{text: "▸ ", fg: t.at(0.6)},
+		{text: fmt.Sprintf("%d steps  ", len(group)), fg: t.fg},
+		{text: strings.Join(names, " · "), fg: t.muted},
+	}
+	if added+removed > 0 {
+		segs = append(segs, seg{text: fmt.Sprintf("  +%d", added), fg: t.green}, seg{text: fmt.Sprintf(" -%d", removed), fg: t.red})
+	}
+	if failed > 0 {
+		segs = append(segs, seg{text: fmt.Sprintf("  %d failed", failed), fg: t.red})
+	}
+	segs = append(segs, seg{text: "  click to open", fg: mix(t.bg, t.muted, 0.6)})
+	return line{indent: 2, ref: group[0], segs: segs}
+}
+
+var codeWords = map[string]bool{}
+
+func init() {
+	for _, w := range strings.Fields("def class return if elif else for while in not and or import from as with try except finally raise pass break continue lambda yield async await None True False self func package var const type struct interface map range go defer select switch case default nil true false let function new this export extends static public private protected void int string bool float double char long null undefined typeof instanceof delete do of fn impl pub use mod mut match enum trait where echo then fi done esac local") {
+		codeWords[w] = true
+	}
+}
+
+func highlight(t theme, s string, base rgb) []seg {
+	var out []seg
+	keyword, str, num, fn, comment := t.at(0.82), t.at(0.42), t.at(0.12), t.at(0.62), mix(t.muted, t.bg, 0.15)
+	push := func(text string, fg rgb) {
+		if text == "" {
+			return
+		}
+		if n := len(out); n > 0 && out[n-1].fg == fg {
+			out[n-1].text += text
+			return
+		}
+		out = append(out, seg{text: text, fg: fg})
+	}
+	r := []rune(s)
+	for i := 0; i < len(r); {
+		ch := r[i]
+		switch {
+		case ch == '#' && (i == 0 || r[i-1] == ' ' || r[i-1] == '\t') && !strings.HasPrefix(string(r[i:]), "#!") || ch == '/' && i+1 < len(r) && r[i+1] == '/' || ch == '<' && strings.HasPrefix(string(r[i:]), "<!--"):
+			push(string(r[i:]), comment)
+			return out
+		case ch == '"' || ch == '\'' || ch == '`':
+			j := i + 1
+			for j < len(r) && r[j] != ch {
+				if r[j] == '\\' {
+					j++
+				}
+				j++
+			}
+			j = min(j+1, len(r))
+			push(string(r[i:j]), str)
+			i = j
+		case ch >= '0' && ch <= '9':
+			j := i
+			for j < len(r) && (r[j] >= '0' && r[j] <= '9' || r[j] == '.' || r[j] == 'x' || r[j] >= 'a' && r[j] <= 'f') {
+				j++
+			}
+			push(string(r[i:j]), num)
+			i = j
+		case ch == '_' || ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z':
+			j := i
+			for j < len(r) && (r[j] == '_' || r[j] == '-' && i > 0 && r[i-1] == '<' || r[j] >= 'a' && r[j] <= 'z' || r[j] >= 'A' && r[j] <= 'Z' || r[j] >= '0' && r[j] <= '9') {
+				j++
+			}
+			word := string(r[i:j])
+			tag := i > 0 && (r[i-1] == '<' || i > 1 && r[i-1] == '/' && r[i-2] == '<')
+			switch {
+			case codeWords[word] || tag:
+				push(word, keyword)
+			case j < len(r) && r[j] == '(':
+				push(word, fn)
+			default:
+				push(word, base)
+			}
+			i = j
+		default:
+			push(string(ch), base)
+			i++
+		}
+	}
+	return out
+}
+
+func tinted(segs []seg, toward rgb, amount float64) []seg {
+	for i := range segs {
+		segs[i].fg = mix(segs[i].fg, toward, amount)
+	}
+	return segs
 }

@@ -57,7 +57,7 @@ func (m model) pose() buddyPose {
 }
 
 func (m model) animating() bool {
-	return m.now-m.sayAt < 500*time.Millisecond || m.waving() || m.now < m.surprisedUntil ||
+	return math.Abs(float64(m.scroll)-m.scrollPos) > 0.05 || m.now-m.sayAt < 500*time.Millisecond || m.waving() || m.now < m.surprisedUntil ||
 		(m.beamAt > 0 && m.now-m.beamAt < beamFor) ||
 		(m.doneAt > 0 && m.now-m.doneAt < 3*time.Second)
 }

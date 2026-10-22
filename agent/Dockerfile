@@ -2,8 +2,11 @@ FROM golang:1.27 AS build
 WORKDIR /src
 COPY cli/go.mod cli/go.sum ./
 RUN go mod download
-COPY cli/*.go ./
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /prism .
+COPY cli/ ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /prism . \
+ && for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do \
+      CGO_ENABLED=0 GOOS=${target%/*} GOARCH=${target#*/} go build -trimpath -ldflags="-s -w" -o /hosts/prism-${target%/*}-${target#*/} . ; \
+    done
 
 FROM debian:bookworm-slim
 RUN apt-get update \
@@ -11,6 +14,8 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /home/prism/.config/prism && chmod -R 777 /home/prism
 COPY --from=build /prism /usr/local/bin/prism
+COPY --from=build /hosts /opt/prism/hosts
+COPY web /usr/share/prism/web
 ENV HOME=/home/prism
 WORKDIR /workspace
 ENTRYPOINT ["prism"]

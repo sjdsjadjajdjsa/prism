@@ -75,15 +75,17 @@ A small router picks the model for every step:
 - **Skips models that are busy or down**, and tries them again later.
 - **Fast lane:** short questions skip the model's slow thinking step.
 
-Measured on five real coding tasks (fix a bug, build a website, refactor, count functions, make a package), all checked automatically:
+### Benchmarks
 
-| | Time | Tasks passed |
-| --- | --- | --- |
-| First version | 465 s | 5/5 |
-| Now, with a free NVIDIA key | 100–131 s | 5/5 |
-| Now, with no keys at all | 278 s | 5/5 |
+Every number below comes from real runs against free models, with each result checked automatically.
 
-Simple questions like "hi" or "explain a Python list" answer in about a second. Run `bench/run.sh` and `bench/chat.sh` to measure on your machine.
+<p align="center"><img src="docs/bench-coding.svg" alt="Coding benchmark: 465s to 96s" width="820"></p>
+<p align="center"><img src="docs/bench-chat.svg" alt="Simple questions: 10.7s to 0.4s" width="820"></p>
+<p align="center"><img src="docs/bench-website.svg" alt="One website task: 1171s to 24s" width="820"></p>
+
+Times move a bit from run to run because free models are shared with everyone, so the memory row being slower than the one before it is mostly noise. Raw numbers live in [bench/history.json](bench/history.json); `python3 bench/chart.py` redraws the charts.
+
+Run `bench/run.sh` and `bench/chat.sh` to measure on your machine.
 
 ## Meet Shard
 
@@ -94,6 +96,43 @@ Shard is Prism's little crystal. He waves hello, charges up while the AI works, 
 <p align="center"><img src="docs/beam.png" alt="The Last Prism beam" width="820"></p>
 
 `/beam` turns the beam off, `/quiet` keeps Shard from talking.
+
+## Skills
+
+Skills are short playbooks Prism follows for common jobs. It picks the right one by itself.
+
+| Skill | For |
+| --- | --- |
+| `website` | a polished site, checked before it says done |
+| `fix-bug` | reproduce, find the cause, smallest fix, prove it |
+| `python-project` | a new Python project with a venv and tests |
+| `web-app-node` | a small Node app with npm scripts |
+| `explain-code` | a plain-words tour of a codebase, no changes |
+| `git-basics` | safe git: .gitignore, small commits, no secrets |
+| `refactor` | restructure without changing behaviour |
+| `computer-help` | troubleshooting a Linux computer |
+
+`/skills` lists them. Add your own as `.prism/skills/<name>.md` in a project or `~/.config/prism/skills/<name>.md`. See [cli/skills/README.md](cli/skills/README.md) for the format.
+
+## Computer help
+
+```bash
+prism fix
+```
+
+Prism normally lives in a Docker box and can't see your computer. `prism fix` runs it on your computer instead, so it can find out why the Wi-Fi drops, the disk is full or an app won't start. It looks around with read-only commands, explains what it finds in plain words, and **asks you before every command or file change** (`y` allow, `n` no). Linux and Mac.
+
+<p align="center"><img src="docs/fix.png" alt="Prism asking before running a command" width="820"></p>
+
+## In your browser
+
+```bash
+prism web
+```
+
+The same Prism, Shard and beam included, at http://127.0.0.1:4849. It only listens on your own computer.
+
+<p align="center"><img src="docs/web.png" alt="Prism in the browser, firing the Last Prism beam" width="820"></p>
 
 ## Memory
 
@@ -109,6 +148,8 @@ Shard is Prism's little crystal. He waves hello, charges up while the AI works, 
 | `prism` | start in the current folder |
 | `prism <folder>` | start in that folder |
 | `prism continue` | reopen the last chat here |
+| `prism web` | open Prism in your browser |
+| `prism fix` | computer help mode, asks before every change |
 | `prism setup` | add free keys (optional) |
 | `prism status` | which free models are ready |
 | `prism logs` | watch which model answers each step |
@@ -120,13 +161,14 @@ Shard is Prism's little crystal. He waves hello, charges up while the AI works, 
 | `enter` / `shift+enter` | send / new line |
 | `esc` | stop the AI |
 | `ctrl+t` or `/theme` | switch theme (prism, tokyo-night, catppuccin, rose-pine, matte-black) |
-| `pgup` `pgdown`, mouse wheel | scroll |
+| `pgup` `pgdown`, mouse wheel | scroll (smooth, with a scrollbar) |
+| click a `▸ N steps` line, or `ctrl+o` | open folded steps from earlier turns |
 | `/` | list every command, `tab` completes |
-| `/models` `/new` `/resume` `/init` `/memory` `/usage` `/beam` `/quiet` `/help` | |
+| `/models` `/new` `/resume` `/init` `/skills` `/memory` `/usage` `/beam` `/quiet` `/help` | |
 
 ## Safety and privacy
 
-- Prism only sees the folder you start it in. It refuses to run in your home folder or `/`.
+- Prism only sees the folder you start it in. The one exception is `prism fix`, which you start on purpose and which asks before every change. It refuses to run in your home folder or `/`.
 - Commands run inside the Docker box, not on your computer. Files it creates belong to you.
 - Keys live in `keys.conf`, readable only by you and ignored by git.
 - The router is never exposed outside Docker (or only on `127.0.0.1` in host mode, below).
@@ -138,7 +180,8 @@ Shard is Prism's little crystal. He waves hello, charges up while the AI works, 
 | --- | --- |
 | `prism` | the command you run |
 | `install.sh` | the one-line installer |
-| `cli/` | the Prism app, in Go with Charm's Bubble Tea |
+| `cli/` | the Prism app, in Go with Charm's Bubble Tea (`cli/skills/` holds the built-in skills) |
+| `web/` | the browser version (`prism web`) |
 | `router/` | the free-model router (`providers.json` is the model list) |
 | `agent/` | the Docker image Prism runs in |
 | `bench/` | the speed and correctness tests |

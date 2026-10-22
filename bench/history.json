@@ -1,0 +1,98 @@
+{
+  "coding": {
+    "title": "5 real coding tasks, total time",
+    "subtitle": "fix a bug, build a site, refactor, count functions, make a package · all 5 pass in every row",
+    "rows": [
+      {
+        "label": "first version",
+        "note": "fixed model order, GLM first",
+        "value": 465
+      },
+      {
+        "label": "+ fast models first",
+        "note": "Nemotron first, racing, remembers speeds",
+        "value": 100
+      },
+      {
+        "label": "+ memory",
+        "note": "project memory and trimmed history",
+        "value": 162
+      },
+      {
+        "label": "+ fast lane",
+        "note": "short prompts skip slow thinking",
+        "value": 115
+      },
+      {
+        "label": "v0.1.0",
+        "note": "first release",
+        "value": 131
+      },
+      {
+        "label": "now",
+        "note": "skills, folded steps, faster tool runs",
+        "value": 96,
+        "highlight": true
+      },
+      {
+        "label": "now, no keys at all",
+        "note": "only no-sign-up models (Kilo, BlockRun, LLM7)",
+        "value": 168
+      }
+    ]
+  },
+  "chat": {
+    "title": "Simple questions, time to the full answer",
+    "subtitle": "same five questions, before the fast lane vs now",
+    "rows": [
+      {
+        "label": "hi",
+        "before": 10.7,
+        "after": 0.4
+      },
+      {
+        "label": "explain a python list",
+        "before": 5.8,
+        "after": 0.6
+      },
+      {
+        "label": "what is 17 times 23?",
+        "before": 1.1,
+        "after": 0.5
+      },
+      {
+        "label": "three quick focus tips",
+        "before": 1.8,
+        "after": 0.5
+      },
+      {
+        "label": "what do you remember?",
+        "before": 11.3,
+        "after": 7.9
+      }
+    ]
+  },
+  "website": {
+    "title": "One task: build a to-do website",
+    "subtitle": "the very first router vs racing free models",
+    "rows": [
+      {
+        "label": "before racing, run 1",
+        "value": 686
+      },
+      {
+        "label": "before racing, run 2",
+        "value": 1171
+      },
+      {
+        "label": "with racing, run 1",
+        "value": 44
+      },
+      {
+        "label": "with racing, run 2",
+        "value": 24,
+        "highlight": true
+      }
+    ]
+  }
+}

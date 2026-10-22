@@ -4,3 +4,4 @@ cli/bin/
 bench/*.txt
 .empryo/
 .network
+.bin/

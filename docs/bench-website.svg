@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="324" viewBox="0 0 900 324" font-family="ui-monospace, 'JetBrains Mono', 'SFMono-Regular', Menlo, monospace">
+<defs><linearGradient id="rainbow" x1="0" x2="1" y1="0" y2="0"><stop offset="0.000" stop-color="#ff5f6d"/><stop offset="0.167" stop-color="#ffa25f"/><stop offset="0.333" stop-color="#f9e27d"/><stop offset="0.500" stop-color="#7ee2a8"/><stop offset="0.667" stop-color="#6fd3ff"/><stop offset="0.833" stop-color="#8a9bff"/><stop offset="1.000" stop-color="#c69bff"/></linearGradient></defs>
+<rect width="900" height="324" rx="14" fill="#0b0b10"/>
+<rect x="0.5" y="0.5" width="899" height="323" rx="14" fill="none" stroke="#1d1c29"/>
+<text x="32" y="44" fill="#e8e6f0" font-size="20" font-weight="700">One task: build a to-do website</text>
+<text x="32" y="68" fill="#6e6a86" font-size="13">the very first router vs racing free models</text>
+<rect x="32" y="80" width="56" height="3" rx="1.5" fill="url(#rainbow)"/>
+<text x="32" y="130" fill="#6e6a86" font-size="14">before racing, run 1</text>
+<rect x="230" y="116" width="530" height="20" rx="4" fill="#14141c"/>
+<rect x="230" y="116" width="310.5" height="20" rx="4" fill="#ff5f6d" opacity="0.85"/>
+<text x="774" y="131" fill="#e8e6f0" font-size="14" font-weight="700">686s</text>
+<text x="32" y="176" fill="#6e6a86" font-size="14">before racing, run 2</text>
+<rect x="230" y="162" width="530" height="20" rx="4" fill="#14141c"/>
+<rect x="230" y="162" width="530.0" height="20" rx="4" fill="#ffa25f" opacity="0.85"/>
+<text x="774" y="177" fill="#e8e6f0" font-size="14" font-weight="700">1171s</text>
+<text x="32" y="222" fill="#6e6a86" font-size="14">with racing, run 1</text>
+<rect x="230" y="208" width="530" height="20" rx="4" fill="#14141c"/>
+<rect x="230" y="208" width="19.9" height="20" rx="4" fill="#f9e27d" opacity="0.85"/>
+<text x="774" y="223" fill="#e8e6f0" font-size="14" font-weight="700">44s</text>
+<text x="32" y="268" fill="#e8e6f0" font-size="14" font-weight="700">with racing, run 2</text>
+<rect x="230" y="254" width="530" height="20" rx="4" fill="#14141c"/>
+<rect x="230" y="254" width="10.9" height="20" rx="4" fill="url(#rainbow)" opacity="1"/>
+<text x="774" y="269" fill="#e8e6f0" font-size="14" font-weight="700">24s</text>
+</svg>

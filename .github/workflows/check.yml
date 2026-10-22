@@ -18,9 +18,11 @@ jobs:
           test -z "$(gofmt -l .)"
           go vet ./...
           go build ./...
+      - name: Web
+        run: node --check web/app.js
       - name: Router
         run: node --check router/server.mjs && node -e "JSON.parse(require('fs').readFileSync('router/providers.json','utf8'))"
       - name: Scripts
-        run: bash -n prism install.sh bench/run.sh bench/chat.sh
+        run: bash -n prism install.sh bench/run.sh bench/chat.sh && python3 bench/chart.py && git diff --exit-code docs/*.svg
       - name: Images
         run: docker build -q router && docker build -q -f agent/Dockerfile .

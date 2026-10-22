@@ -1,3 +1,5 @@
 *
 !agent
 !cli
+!web
+cli/bin

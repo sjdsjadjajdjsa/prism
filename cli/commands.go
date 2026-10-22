@@ -20,12 +20,13 @@ var commands = []command{
 	{"/new", "start a fresh chat"},
 	{"/resume", "reopen an earlier chat in this folder"},
 	{"/init", "write PRISM.md, the rules prism always follows here"},
+	{"/skills", "playbooks prism can follow · add your own in .prism/skills/"},
 	{"/memory", "see what prism remembers · /memory forget"},
 	{"/usage", "free AI used today"},
 	{"/theme", "switch theme, or /theme <name>"},
 	{"/beam", "turn the finish beam on or off"},
 	{"/quiet", "turn Shard's lines on or off"},
-	{"/help", "show these commands"},
+	{"/help", "show these commands · keys: ctrl+o open all steps, ctrl+t theme, esc stop"},
 	{"/quit", "close prism"},
 }
 
@@ -115,6 +116,16 @@ func (m *model) command(text string) tea.Cmd {
 		}
 		lines = append(lines, "", "/memory forget clears it")
 		m.entries = append(m.entries, &entry{kind: "info", text: "what prism remembers here", lines: lines})
+	case "/skills":
+		var lines []string
+		for _, s := range m.agent.skills {
+			lines = append(lines, fmt.Sprintf("%-15s %s  (%s)", s.name, s.description, s.source))
+		}
+		if len(lines) == 0 {
+			lines = []string{"no skills found"}
+		}
+		lines = append(lines, "", "prism picks the right one by itself · add your own: .prism/skills/<name>.md in a project, or ~/.config/prism/skills/")
+		m.entries = append(m.entries, &entry{kind: "info", text: "skills", lines: lines})
 	case "/usage":
 		u := todayUsage()
 		lines := []string{

@@ -5,6 +5,7 @@ services:
     build:
       network: host
     network_mode: host
+    ports: !reset []
     environment:
       HOST: 127.0.0.1
     extra_hosts: !reset []
@@ -15,3 +16,4 @@ services:
     network_mode: host
     environment:
       PRISM_API: http://127.0.0.1:4848/v1
+      PRISM_LISTEN: 127.0.0.1:4849

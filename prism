@@ -37,6 +37,8 @@ Prism: free AI that codes, running safely inside Docker.
   prism                 code in the current folder
   prism <folder>        code in that folder
   prism continue        pick up the last chat in the current folder
+  prism web [folder]    the same, in your browser at http://127.0.0.1:4849
+  prism fix             computer help: looks at THIS computer, asks before every change
   prism setup           add free keys for more models (optional, never a card)
   prism status          see which free AI models are ready
   prism logs            watch which model answers each message
@@ -76,6 +78,36 @@ run_agent() {
   local folder="$1"; shift
   start_router
   PRISM_PROJECT="${folder/#$HOME/\~}" PROJECT_DIR="$folder" HOST_UID="$(id -u)" HOST_GID="$(id -g)" compose run --rm agent "$@"
+}
+
+web() {
+  local folder="$1"
+  start_router
+  ( sleep 4; command -v xdg-open >/dev/null && xdg-open http://127.0.0.1:4849 >/dev/null 2>&1 || command -v open >/dev/null && open http://127.0.0.1:4849 ) >/dev/null 2>&1 &
+  PRISM_PROJECT="${folder/#$HOME/\~}" PROJECT_DIR="$folder" HOST_UID="$(id -u)" HOST_GID="$(id -g)" compose run --rm -p 127.0.0.1:4849:4849 agent serve
+}
+
+fix() {
+  local os arch bin
+  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  case "$(uname -m)" in
+    x86_64|amd64) arch=amd64 ;;
+    arm64|aarch64) arch=arm64 ;;
+    *) echo "Computer help isn't available for $(uname -m) yet." >&2; exit 1 ;;
+  esac
+  start_router
+  bin="$HERE/.bin/prism-$os-$arch"
+  mkdir -p "$HERE/.bin"
+  local id
+  id="$(docker create prism-agent)"
+  docker cp "$id:/opt/prism/hosts/prism-$os-$arch" "$bin" >/dev/null
+  docker rm "$id" >/dev/null
+  chmod +x "$bin"
+  echo "Computer help mode: Prism runs on this computer (not in the Docker box)."
+  echo "It can look around, and asks you before every command or file change."
+  echo
+  cd "$HOME"
+  PRISM_API="$ROUTER/v1" PRISM_PROJECT="this computer" "$bin" -system
 }
 
 install() {
@@ -136,6 +168,8 @@ case "${1:-}" in
   logs) compose logs -f router ;;
   stop) compose down ;;
   install) install ;;
+  web) web "$(pick_folder "${2:-}")" ;;
+  fix) fix ;;
   continue) run_agent "$(pick_folder "${2:-}")" -continue ;;
   *) run_agent "$(pick_folder "${1:-}")" ;;
 esac

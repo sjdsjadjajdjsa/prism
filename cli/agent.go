@@ -91,7 +91,17 @@ type Agent struct {
 	memMark    int
 	quick      bool
 	light      bool
+	skills     []skill
+	system     bool
+	approve    func(ctx context.Context, tool, arg string) bool
 }
+
+type evApprove struct {
+	tool, arg string
+	reply     chan bool
+}
+
+var needsApproval = map[string]bool{"bash": true, "write": true, "edit": true}
 
 func newAgent(api, dir, project string) *Agent {
 	a := &Agent{api: strings.TrimSuffix(api, "/"), dir: dir, window: contextLimit, store: openStore(project)}
@@ -103,6 +113,13 @@ func newAgent(api, dir, project string) *Agent {
 	return a
 }
 
+func (a *Agent) tools() []any {
+	if len(a.skills) == 0 {
+		return toolSpecs
+	}
+	return append(append([]any{}, toolSpecs...), skillSpec)
+}
+
 func (a *Agent) reset() {
 	a.messages = []Message{{Role: "system", Content: a.systemPrompt()}}
 	a.tokens, a.memMark = 0, 0
@@ -111,6 +128,10 @@ func (a *Agent) reset() {
 
 func (a *Agent) systemPrompt() string {
 	prompt := basePrompt(a.dir)
+	if a.system {
+		prompt += systemHelpPrompt
+	}
+	prompt += skillIndex(a.skills)
 	if name, rules := projectRules(a.dir); rules != "" {
 		prompt += "\n\nProject rules from " + name + " (always follow these):\n" + rules
 	}
@@ -174,7 +195,15 @@ func (a *Agent) loop(ctx context.Context, emit func(any)) error {
 				continue
 			}
 			emit(evToolStart{call.ID, call.Function.Name, strings.TrimPrefix(describe(call.Function.Arguments), a.dir+"/")})
-			result := runTool(ctx, a.dir, call.Function.Name, call.Function.Arguments)
+			var result toolResult
+			switch {
+			case call.Function.Name == "skill":
+				result = a.useSkill(call.Function.Arguments)
+			case a.approve != nil && needsApproval[call.Function.Name] && !a.approve(ctx, call.Function.Name, approvalText(call.Function.Name, call.Function.Arguments)):
+				result = toolResult{output: "The user said no to this. Do not try it again another way; explain what you wanted to do and ask what they prefer.", summary: "you said no"}
+			default:
+				result = runTool(ctx, a.dir, call.Function.Name, call.Function.Arguments)
+			}
 			emit(evToolDone{call.ID, result})
 			a.messages = append(a.messages, Message{Role: "tool", ToolCallID: call.ID, Content: result.output})
 		}
@@ -233,7 +262,7 @@ func (a *Agent) complete(ctx context.Context, messages []Message, extra map[stri
 	body := map[string]any{
 		"model":          "auto",
 		"messages":       messages,
-		"tools":          toolSpecs,
+		"tools":          a.tools(),
 		"stream":         true,
 		"stream_options": map[string]any{"include_usage": true},
 		"max_tokens":     maxReply,
@@ -463,4 +492,26 @@ func draftArg(args string) string {
 		return m[1]
 	}
 	return ""
+}
+
+const systemHelpPrompt = `
+
+COMPUTER HELP MODE: you are running directly on the user's own computer (not in a sandbox) to help troubleshoot it. The user is probably not technical.
+- Start with read-only checks (uname -a, cat /etc/os-release, df -h, free -h, ip a, systemctl --failed, journalctl -p 3 -b --no-pager | tail -40, dmesg | tail).
+- Every bash, write and edit call is shown to the user, who must approve it first. Run one clear command at a time and say in plain words what it does and why.
+- Never run destructive commands (rm -rf, dd, mkfs, chmod -R on system folders, editing boot files) unless the user explicitly asks and understands the risk.
+- Commands that need sudo will ask the user for their password in their own terminal; keep them to a minimum.
+- Explain what you found in plain words, then the fix.`
+
+func approvalText(tool, raw string) string {
+	args := argsOf(raw)
+	switch tool {
+	case "bash":
+		return sarg(args, "command")
+	case "write":
+		return "write the file " + sarg(args, "path")
+	case "edit":
+		return "change the file " + sarg(args, "path")
+	}
+	return tool
 }

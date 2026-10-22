@@ -36,6 +36,7 @@ type entry struct {
 	arg   string
 	done  bool
 	res   toolResult
+	open  bool
 	rows  []routeRow
 	lines []string
 }
@@ -81,6 +82,9 @@ type model struct {
 	surprisedUntil time.Duration
 	draft          *evDraft
 	answering      bool
+	scrollPos      float64
+	expandAll      bool
+	pending        *evApprove
 }
 
 func tick(d time.Duration) tea.Cmd {
@@ -100,6 +104,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.w, m.h = msg.Width, msg.Height
 	case tickMsg:
 		m.now = time.Since(m.start)
+		if d := float64(m.scroll) - m.scrollPos; math.Abs(d) > 0.05 {
+			m.scrollPos += d * 0.35
+		} else {
+			m.scrollPos = float64(m.scroll)
+		}
 		frame := slowFrame
 		if m.gallery != "" || (!m.chat && m.now < 4*time.Second) || m.busy || m.now-m.chatAt < time.Second || m.animating() {
 			frame = fastFrame
@@ -118,6 +127,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.PasteMsg:
 		if m.chat {
 			m.input = append(m.input, []rune(strings.ReplaceAll(msg.Content, "\r\n", "\n"))...)
+		}
+	case tea.MouseClickMsg:
+		if mouse := tea.Mouse(msg); m.chat && mouse.Button == tea.MouseLeft {
+			lines, start, end, top, _ := m.visible(themes[m.theme])
+			if idx := start + mouse.Y - top; mouse.Y >= top && idx < end {
+				if ref := lines[idx].ref; ref != nil {
+					ref.open = !ref.open
+				}
+			}
 		}
 	case tea.MouseWheelMsg:
 		switch tea.Mouse(msg).Button {
@@ -150,6 +168,17 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.openChat()
 		return m, nil
 	}
+	if m.pending != nil {
+		switch k {
+		case "y", "Y", "enter":
+			m.pending.reply <- true
+			m.pending = nil
+		case "n", "N", "esc":
+			m.pending.reply <- false
+			m.pending = nil
+		}
+		return m, nil
+	}
 	switch k {
 	case "esc":
 		if m.cancel != nil {
@@ -172,6 +201,8 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "ctrl+u":
 		m.input = nil
+	case "ctrl+o":
+		m.expandAll = !m.expandAll
 	case "pgup":
 		m.scrollBy(m.page())
 	case "pgdown":
@@ -222,6 +253,9 @@ func (m *model) handle(event any) {
 		}
 	case evThinking:
 		m.thinking = true
+	case evApprove:
+		m.pending, m.thinking = &e, false
+		m.speak("may I?")
 	case evDraft:
 		m.thinking, m.reasoning, m.draft = false, "", &e
 	case evText:
@@ -265,10 +299,10 @@ func (m *model) handle(event any) {
 			m.speak("noted.")
 		}
 	case evDone:
-		m.busy, m.thinking, m.cancel, m.reasoning, m.draft = false, false, nil, "", nil
+		m.busy, m.thinking, m.cancel, m.reasoning, m.draft, m.pending = false, false, nil, "", nil, nil
 		switch {
 		case e.err == nil:
-			m.entries = append(m.entries, &entry{kind: "meta", text: fmt.Sprintf("%.1fs", (m.now - m.busySince).Seconds())})
+			m.entries = append(m.entries, &entry{kind: "meta", text: fmt.Sprintf("%.1fs", (m.now - m.busySince).Seconds()), arg: m.route})
 			m.finish(true, false)
 			if job := m.agent.memoryJob(); job != nil {
 				events := m.events
@@ -460,6 +494,7 @@ func main() {
 	for i, t := range themes {
 		names[i] = t.name
 	}
+	system := flag.Bool("system", false, "computer help mode: runs on this computer and asks before every change")
 	resume := flag.Bool("continue", false, "continue the last chat in this folder")
 	themeName := flag.String("theme", "", "color theme: "+strings.Join(names, ", "))
 	gallery := flag.String("gallery", "", "")
@@ -478,18 +513,58 @@ func main() {
 		project = dir
 	}
 	agent := newAgent(*api, dir, project)
+	agent.skills = loadSkills(dir)
+	agent.system = *system
+	agent.messages[0].Content = agent.systemPrompt()
 	if *resume {
 		if list := agent.store.sessions(); len(list) > 0 {
 			agent.resume(list[0])
 		}
 	}
+	if args := flag.Args(); len(args) > 0 && args[0] == "serve" {
+		dir := webDir()
+		if dir == "" {
+			fmt.Fprintln(os.Stderr, "the web page files were not found")
+			os.Exit(1)
+		}
+		addr := os.Getenv("PRISM_LISTEN")
+		if addr == "" {
+			addr = "127.0.0.1:4849"
+		}
+		if err := serve(agent, addr, dir, loadTheme()); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if args := flag.Args(); len(args) > 0 && args[0] == "run" {
+		if agent.system {
+			agent.approve = askOnTerminal
+		}
 		os.Exit(runPlain(agent, strings.Join(args[1:], " ")))
 	}
 	if *themeName == "" {
 		*themeName = loadTheme()
 	}
-	m := model{start: time.Now(), events: make(chan any, 256), agent: agent, ready: -1, window: agent.window, project: projectName(dir), lastTextAt: -time.Hour, entries: entriesFrom(agent.messages), theme: themeIndex(*themeName), gallery: *gallery,
+	if agent.system {
+		events := make(chan any, 256)
+		agent.approve = func(ctx context.Context, tool, arg string) bool {
+			reply := make(chan bool, 1)
+			select {
+			case events <- evApprove{tool, arg, reply}:
+			case <-ctx.Done():
+				return false
+			}
+			select {
+			case ok := <-reply:
+				return ok
+			case <-ctx.Done():
+				return false
+			}
+		}
+		systemEvents = events
+	}
+	m := model{start: time.Now(), events: eventsChannel(), agent: agent, ready: -1, window: agent.window, project: projectName(dir), lastTextAt: -time.Hour, entries: entriesFrom(agent.messages), theme: themeIndex(*themeName), gallery: *gallery,
 		beamOn: loadSetting("beam") != "off", quiet: loadSetting("quiet") == "on", sayAt: -time.Hour}
 	var options []tea.ProgramOption
 	if os.Getenv("COLORTERM") == "" && os.Getenv("TERM") != "linux" {
@@ -531,12 +606,49 @@ func entriesFrom(messages []Message) []*entry {
 			}
 			for _, c := range msg.ToolCalls {
 				output := outputs[c.ID]
-				first, _, _ := strings.Cut(strings.TrimSpace(output), "\n")
 				ok := !strings.HasPrefix(output, "Error:")
 				out = append(out, &entry{kind: "tool", id: c.ID, tool: c.Function.Name, arg: describe(c.Function.Arguments), done: true,
-					res: toolResult{ok: ok, summary: strings.TrimPrefix(first, "Error: ")}})
+					res: toolResult{ok: ok, summary: pastSummary(c.Function.Name, output, ok)}})
 			}
 		}
 	}
 	return out
+}
+
+var systemEvents chan any
+
+func eventsChannel() chan any {
+	if systemEvents != nil {
+		return systemEvents
+	}
+	return make(chan any, 256)
+}
+
+func askOnTerminal(ctx context.Context, tool, arg string) bool {
+	fmt.Printf("\n? prism wants to %s:\n    %s\n  allow? [y/N] ", map[string]string{"bash": "run", "write": "write", "edit": "edit"}[tool], arg)
+	var answer string
+	fmt.Scanln(&answer)
+	return strings.EqualFold(strings.TrimSpace(answer), "y")
+}
+
+func pastSummary(tool, output string, ok bool) string {
+	lines := splitLines(strings.TrimSpace(output))
+	switch {
+	case len(lines) == 0:
+		return ""
+	case !ok:
+		return strings.TrimPrefix(lines[0], "Error: ")
+	case tool == "read":
+		return fmt.Sprintf("%d lines", len(lines))
+	case tool == "edit", tool == "write":
+		return "done"
+	case tool == "bash":
+		for i := len(lines) - 1; i >= 0; i-- {
+			if l := strings.TrimSpace(lines[i]); l != "" && !strings.HasPrefix(l, "[") {
+				return "→ " + l
+			}
+		}
+		return lines[len(lines)-1]
+	}
+	return lines[0]
 }

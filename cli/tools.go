@@ -95,6 +95,12 @@ func fail(message string) toolResult {
 	return toolResult{output: "Error: " + message, summary: message}
 }
 
+func argsOf(raw string) map[string]any {
+	args := map[string]any{}
+	json.Unmarshal([]byte(raw), &args)
+	return args
+}
+
 func sarg(args map[string]any, key string) string {
 	s, _ := args[key].(string)
 	return s
@@ -117,7 +123,7 @@ func iarg(args map[string]any, key string, fallback int) int {
 func describe(raw string) string {
 	args := map[string]any{}
 	json.Unmarshal([]byte(raw), &args)
-	for _, key := range []string{"path", "command", "pattern"} {
+	for _, key := range []string{"path", "command", "pattern", "name"} {
 		if s := sarg(args, key); s != "" {
 			first, _, _ := strings.Cut(s, "\n")
 			return first
@@ -364,6 +370,14 @@ func bashTool(ctx context.Context, dir string, args map[string]any) toolResult {
 	out := &tailBuffer{limit: 30000}
 	cmd.Stdout, cmd.Stderr = out, out
 	err := cmd.Run()
+	leftover := false
+	if errors.Is(err, exec.ErrWaitDelay) {
+		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		leftover, err = true, nil
+		if cmd.ProcessState != nil && cmd.ProcessState.ExitCode() > 0 {
+			err = &exec.ExitError{ProcessState: cmd.ProcessState}
+		}
+	}
 	text := string(out.data)
 	if len(text) > out.limit {
 		text = "…" + text[len(text)-out.limit:]
@@ -382,6 +396,9 @@ func bashTool(ctx context.Context, dir string, args map[string]any) toolResult {
 		note = "[stopped by the user]"
 	case runCtx.Err() != nil:
 		note = fmt.Sprintf("[stopped after %s timeout]", timeout)
+	}
+	if leftover {
+		note += " [a background process was stopped: commands can't keep running after they finish, so don't start servers]"
 	}
 	summary := note
 	if lines := splitLines(strings.TrimSpace(text)); len(lines) > 0 {

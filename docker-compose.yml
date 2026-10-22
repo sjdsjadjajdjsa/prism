@@ -6,6 +6,8 @@ services:
     env_file:
       - path: keys.conf
         required: false
+    ports:
+      - "127.0.0.1:4848:4848"
     environment:
       HOST: 0.0.0.0
     extra_hosts:
@@ -24,6 +26,7 @@ services:
     working_dir: /workspace
     environment:
       PRISM_API: http://router:4848/v1
+      PRISM_LISTEN: 0.0.0.0:4849
       PRISM_PROJECT: ${PRISM_PROJECT:-}
       TERM: ${TERM:-xterm-256color}
       COLORTERM: ${COLORTERM:-truecolor}
