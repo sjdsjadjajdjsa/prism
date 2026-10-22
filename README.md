@@ -11,6 +11,8 @@ It runs inside Docker, so it can only touch the one folder you give it.
 
 ## Quick start
 
+> **New to Docker?** Follow the [step-by-step setup guide](docs/SETUP.md) for Linux, Mac or Windows. It takes about 10 minutes, and each step shows what you should see.
+
 You only need **Docker** (free). Then one command:
 
 ```bash

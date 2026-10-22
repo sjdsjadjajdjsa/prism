@@ -5,6 +5,8 @@ set -euo pipefail
 REPO="https://github.com/sjdsjadjajdjsa/prism.git"
 DIR="${PRISM_HOME:-$HOME/.prism}"
 
+GUIDE="https://github.com/sjdsjadjajdjsa/prism/blob/main/docs/SETUP.md"
+
 say() { printf '\033[1;35m◆\033[0m %s\n' "$*"; }
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -18,11 +20,13 @@ if ! command -v docker >/dev/null 2>&1; then
       ;;
     *) echo "  https://docs.docker.com/get-docker/" ;;
   esac
+  echo "  Step-by-step help: $GUIDE"
   exit 1
 fi
 if ! docker info >/dev/null 2>&1; then
   say "Docker is installed but not running, or you don't have permission to use it."
   echo "  Mac/Windows: open Docker Desktop.  Linux: sudo usermod -aG docker \$USER, then log in again."
+  echo "  Step-by-step help: $GUIDE"
   exit 1
 fi
 docker compose version >/dev/null 2>&1 || { say "Docker Compose is missing. Linux: sudo apt install docker-compose-v2"; exit 1; }
