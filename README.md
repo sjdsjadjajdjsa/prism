@@ -267,7 +267,13 @@ Shard is Prism's mascot. He reacts to what the AI is doing: thinking, working, d
 
 ## Thanks
 
-Prism borrows ideas from OpenCode, Crush, jcode, Claude Code and Codex. Its look is built on [Charm](https://charm.land)'s open-source libraries and inspired by [Omarchy](https://omarchy.org). The beam is named after the Last Prism from Terraria; the art and lines are original.
+Prism was built with [Empryo](https://empryo.com), whose live map of the code inspired Prism's project tree. It borrows ideas from [OpenCode](https://opencode.ai), [Crush](https://github.com/charmbracelet/crush), [jcode](https://jcode.sh), [Claude Code](https://www.anthropic.com/claude-code) and [Codex](https://github.com/openai/codex), and is measured against [Aider](https://aider.chat) and [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent).
+
+Its look is built on [Charm](https://charm.land)'s [Bubble Tea](https://github.com/charmbracelet/bubbletea) and inspired by [Omarchy](https://omarchy.org). It runs in [Docker](https://www.docker.com), searches with [DuckDuckGo](https://duckduckgo.com) and checks web pages in [Chromium](https://www.chromium.org).
+
+It is free because of the free plans from [NVIDIA](https://build.nvidia.com), [Groq](https://groq.com), [Mistral](https://mistral.ai), [Google Gemini](https://ai.google.dev), [OpenRouter](https://openrouter.ai), [Kilo](https://kilo.ai), [LLM7](https://llm7.io) and [Z.ai](https://z.ai), and local models through [Ollama](https://ollama.com).
+
+The beam is named after the [Last Prism](https://terraria.wiki.gg/wiki/Last_Prism) from [Terraria](https://terraria.org); the art and lines are original.
 
 ## License
 
