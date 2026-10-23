@@ -200,6 +200,21 @@ test('prism_exclude_families drops routes hard, prism_avoid only reorders', asyn
   assert.equal((await lone.ask({ prism_avoid: ['pa/alpha'] })).status, 200)
 })
 
+test('prism_prefer puts the cached route first, but not ahead of prism_avoid', async () => {
+  const a = await upstream(echo())
+  const b = await upstream(echo())
+  const r = await startRouter([
+    { name: 'pa', baseURL: a, models: [model('alpha', { family: 'glm' })] },
+    { name: 'pb', baseURL: b, models: [model('beta', { family: 'qwen' })] },
+  ])
+  assert.equal((await r.ask({})).headers.get('x-free-route'), 'pa/alpha')
+  const sticky = await r.ask({ prism_prefer: 'pb/beta' })
+  assert.equal(sticky.headers.get('x-free-route'), 'pb/beta')
+  assert.deepEqual(Object.keys((await sticky.json()).received).filter(key => key.startsWith('prism_')), [])
+  assert.equal((await r.ask({ prism_prefer: 'pb/beta', prism_avoid: ['pb/beta'] })).headers.get('x-free-route'), 'pa/alpha')
+  assert.equal((await r.ask({ prism_prefer: 'gone/model' })).headers.get('x-free-route'), 'pa/alpha')
+})
+
 test('hedging is capped by ready providers and off for x-prism-crew', async () => {
   const hits = { two: 0, crew: 0 }
   const slow = () => upstream((req, res) => setTimeout(() => streamOK('slow')(req, res), 2600))

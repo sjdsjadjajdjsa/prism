@@ -368,7 +368,7 @@ func TestMCPHTTP(t *testing.T) {
 	if st.kind != "url" {
 		t.Errorf("kind = %q, want url", st.kind)
 	}
-	if got := strings.Join(specNames(hub), ","); got != "web__json-tool,web__sse-tool,web__sse-multi" {
+	if got := strings.Join(specNames(hub), ","); got != "web__json-tool,web__sse-multi,web__sse-tool" {
 		t.Errorf("spec names = %q", got)
 	}
 

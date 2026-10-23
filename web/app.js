@@ -71,7 +71,7 @@ function el(tag, cls, text) {
 }
 function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
 
-const TOOL_COLOR = { read: '--x4', edit: '--s3', write: '--s3', bash: '--x6', search: '--s2', grep: '--s2', ls: '--s1', list: '--s1' };
+const TOOL_COLOR = { read: '--x4', edit: '--s3', write: '--s3', bash: '--x6', search: '--s2', grep: '--s2', ls: '--s1', list: '--s1', browse: '--x4', screenshot: '--x5' };
 function toolColor(tool) { return `var(${TOOL_COLOR[tool] || '--x5'})`; }
 
 // ---------- transcript ----------

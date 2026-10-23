@@ -96,7 +96,6 @@ func (m *model) endWeb() tea.Cmd {
 	if err := w.srv.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		w.srv.Close()
 	}
-	m.agent.messages[0].Content = m.agent.systemPrompt()
 	m.entries = append(entriesFrom(m.agent.messages), &entry{kind: "note", text: "back in the terminal · everything you did in the browser is here"})
 	m.tokens, m.scroll, m.scrollPos = estimate(m.agent.messages), 0, 0
 	m.speak("welcome back.")

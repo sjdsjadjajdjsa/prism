@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func tool(t *testing.T, dir, name, args string) toolResult {
@@ -316,5 +318,148 @@ func TestToolsBashBackgroundCases(t *testing.T) {
 				t.Fatalf("plain command should not mention background: %q", r.output)
 			}
 		})
+	}
+}
+
+func TestToolOutputCaps(t *testing.T) {
+	dir := t.TempDir()
+	var py strings.Builder
+	for i := 1; i <= 1200; i++ {
+		switch {
+		case i%100 == 1:
+			fmt.Fprintf(&py, "class C%d:\n", i)
+		case i%50 == 2:
+			fmt.Fprintf(&py, "    def f%d(self):\n", i)
+		default:
+			fmt.Fprintf(&py, "        x = %d\n", i)
+		}
+	}
+	os.WriteFile(filepath.Join(dir, "big.py"), []byte(py.String()), 0o644)
+	long := strings.Repeat("y", 400)
+	for f := 0; f < 10; f++ {
+		var b strings.Builder
+		for i := 0; i < 30; i++ {
+			fmt.Fprintf(&b, "needle %d %s\n", i, long)
+		}
+		os.WriteFile(filepath.Join(dir, fmt.Sprintf("g%d.txt", f)), []byte(b.String()), 0o644)
+	}
+
+	cases := []struct {
+		name, tool, args string
+		ok               bool
+		has, hasNot      []string
+		check            func(t *testing.T, out string)
+	}{
+		{
+			name: "bash keeps head and tail", tool: "bash",
+			args: `{"command":"echo STAR; yes é | head -n 15000 | tr -d '\\n'; echo; echo END"}`,
+			ok:   true, has: []string{"STAR\n", "END", "bytes omitted]", "[exit code 0]"},
+			check: func(t *testing.T, out string) {
+				if len(out) > 12500 {
+					t.Fatalf("output %d bytes, want about 12000", len(out))
+				}
+				if !utf8.ValidString(out) {
+					t.Fatal("output is not valid UTF-8")
+				}
+			},
+		},
+		{
+			name: "bash short untouched", tool: "bash", args: `{"command":"echo hi; exit 2"}`,
+			ok: false, has: []string{"hi", "[exit code 2]"}, hasNot: []string{"omitted"},
+		},
+		{
+			name: "read long python shows outline", tool: "read", args: `{"path":"big.py"}`,
+			ok: true, has: []string{"Outline", "class C1101", "def f1152(self)", "   500\t", "Read again with offset=501"},
+			hasNot: []string{"   501\t        x"},
+		},
+		{
+			name: "read with offset has no outline", tool: "read", args: `{"path":"big.py","offset":3}`,
+			ok: true, has: []string{"     3\t", "offset=503"}, hasNot: []string{"Outline"},
+		},
+		{
+			name: "read with limit has no outline", tool: "read", args: `{"path":"big.py","limit":10}`,
+			ok: true, has: []string{"offset=11"}, hasNot: []string{"Outline"},
+		},
+		{
+			name: "grep caps lines and columns", tool: "grep", args: `{"pattern":"needle"}`,
+			ok: true, has: []string{"more matches not shown"},
+			check: func(t *testing.T, out string) {
+				lines := strings.Split(out, "\n")
+				if len(lines) != 101 {
+					t.Fatalf("got %d lines, want 100 + note", len(lines))
+				}
+				for _, l := range lines {
+					if utf8.RuneCountInString(l) > 161+len("g0.txt:30:") {
+						t.Fatalf("line too long (%d): %q", utf8.RuneCountInString(l), l)
+					}
+				}
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := tool(t, dir, c.tool, c.args)
+			if r.ok != c.ok {
+				t.Fatalf("ok=%v want %v: %.500q", r.ok, c.ok, r.output)
+			}
+			for _, h := range c.has {
+				if !strings.Contains(r.output, h) {
+					t.Fatalf("output should contain %q: %.2000q", h, r.output)
+				}
+			}
+			for _, h := range c.hasNot {
+				if strings.Contains(r.output, h) {
+					t.Fatalf("output should not contain %q", h)
+				}
+			}
+			if c.check != nil {
+				c.check(t, r.output)
+			}
+		})
+	}
+}
+
+func TestCapGrepPerFile(t *testing.T) {
+	var lines []string
+	for f := 0; f < 3; f++ {
+		for i := 1; i <= 30; i++ {
+			lines = append(lines, fmt.Sprintf("f%d.go:%d:%s", f, i, strings.Repeat("é", 300)))
+		}
+	}
+	cases := []struct {
+		name    string
+		perFile int
+		kept    int
+		dropped int
+	}{
+		{"fallback per file 20", 20, 60, 30},
+		{"no per-file cap", 0, 90, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			out := capGrep(lines, c.perFile)
+			kept := len(out)
+			if c.dropped > 0 {
+				kept--
+				if want := fmt.Sprintf("… %d more matches", c.dropped); !strings.HasPrefix(out[len(out)-1], want) {
+					t.Fatalf("note %q, want prefix %q", out[len(out)-1], want)
+				}
+			}
+			if kept != c.kept {
+				t.Fatalf("kept %d, want %d", kept, c.kept)
+			}
+			for _, l := range out[:kept] {
+				if n := utf8.RuneCountInString(l); n > grepMaxCols+1 || !utf8.ValidString(l) {
+					t.Fatalf("bad line (%d runes)", n)
+				}
+			}
+		})
+	}
+	big := make([]string, 250)
+	for i := range big {
+		big[i] = fmt.Sprintf("a.go:%d:x", i+1)
+	}
+	if out := capGrep(big, 0); len(out) != 101 || !strings.Contains(out[100], "150 more") {
+		t.Fatalf("total cap: %d lines, last %q", len(out), out[len(out)-1])
 	}
 }

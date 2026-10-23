@@ -402,6 +402,10 @@ func TestCrewWorkerToolsAndPrompt(t *testing.T) {
 	lead := c.lead
 	lead.skills = []skill{{name: "demo", description: "a skill"}}
 	lead.reset()
+	if slices.Contains(toolNames(lead.tools()), "crew") || strings.Contains(lead.systemPrompt(), "CREW:") {
+		t.Error("crew tool and guidance must stay out until the chat asks for agents")
+	}
+	lead.crewOn = true
 	if !slices.Contains(toolNames(lead.tools()), "crew") || !slices.Contains(toolNames(lead.tools()), "bash") {
 		t.Errorf("lead tools = %v", toolNames(lead.tools()))
 	}
@@ -785,6 +789,7 @@ func TestLeadRequestsUseAutoAndNoCrewHeader(t *testing.T) {
 	fake := &crewFake{script: func(w http.ResponseWriter, r crewReq) { replyText(w, "r", "fam", "hi") }}
 	c := newCrewRun(t, fake)
 	c.lead.reset()
+	c.lead.crewOn = true
 	if _, err := c.lead.complete(context.Background(), c.lead.messages, nil, func(any) {}); err != nil {
 		t.Fatal(err)
 	}

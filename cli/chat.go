@@ -82,7 +82,7 @@ func modelName(route string) string {
 	return name
 }
 
-var toolHue = map[string]float64{"list": 0.5, "grep": 0.45, "read": 0.55, "edit": 0.7, "write": 0.75, "bash": 0.85}
+var toolHue = map[string]float64{"list": 0.5, "grep": 0.45, "read": 0.55, "edit": 0.7, "write": 0.75, "bash": 0.85, "browse": 0.6, "screenshot": 0.65}
 
 func (m model) column() int { return min(m.w-6, 100) }
 
@@ -175,10 +175,16 @@ func (m model) transcript(t theme, width int) []line {
 			} else if !e.res.ok {
 				gc = t.red
 			}
-			segs := []seg{{text: glyph, fg: gc}, {text: pad(e.tool+" ", 6), fg: t.muted}, {text: clip(e.arg, width-34), fg: t.fg}}
+			var tail []seg
+			used := 0
 			if e.done {
-				segs = append(segs, summary(t, e.res, 26)...)
+				tail = summary(t, e.res, max(26, width/3))
+				for _, s := range tail {
+					used += len([]rune(s.text))
+				}
 			}
+			name := pad(e.tool+" ", 6)
+			segs := append([]seg{{text: glyph, fg: gc}, {text: name, fg: t.muted}, {text: clip(e.arg, max(8, width-4-len([]rune(name))-used)), fg: t.fg}}, tail...)
 			out = append(out, line{segs: segs, indent: 2})
 			if e.done && e.res.ok && len(e.res.diff) > 0 {
 				out = append(out, line{fill: &panel, indent: 4})
@@ -261,6 +267,9 @@ func (m model) transcript(t theme, width int) []line {
 	if m.pending != nil {
 		gap()
 		verb := map[string]string{"bash": "run this command", "write": "do this", "edit": "do this"}[m.pending.tool]
+		if verb == "" {
+			verb = "use " + m.pending.tool
+		}
 		warn := mix(t.panel, t.at(0.1), 0.12)
 		who, arg := approvalWorker(m.pending.arg)
 		out = append(out, line{fill: &warn, indent: 2})

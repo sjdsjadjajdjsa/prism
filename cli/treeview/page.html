@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>{{TITLE}} · project tree</title>
+<style>
+:root{--bg:#0b0b10;--panel:#14141c;--fg:#e8e6f0;--muted:#6e6a86;--faint:#1d1c29;--red:#ff6b81;--green:#7ee2a8;
+  --s0:#ff5f6d;--s1:#ffa25f;--s2:#f9e27d;--s3:#7ee2a8;--s4:#6fd3ff;--s5:#8a9bff;--s6:#c69bff;
+  --rainbow:linear-gradient(90deg,var(--s0),var(--s1),var(--s2),var(--s3),var(--s4),var(--s5),var(--s6))}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:radial-gradient(1200px 600px at 10% -10%,#1a1530 0%,transparent 60%),var(--bg);color:var(--fg);font:14px/1.45 ui-sans-serif,system-ui,sans-serif;display:flex;flex-direction:column;padding:22px 24px 14px;gap:14px}
+.top{display:flex;align-items:center;gap:12px}
+.top h1{margin:0;font-size:20px;letter-spacing:.01em;display:flex;align-items:center;gap:10px}
+.top h1 svg{width:22px;height:22px;color:#f5c862;flex:none}
+.top .bar{height:3px;width:72px;border-radius:2px;background:var(--rainbow);align-self:center}
+#tree{flex:1;min-height:0}
+#tree .ptree-root{display:none}
+footer{color:var(--muted);font-size:12px;text-align:center}
+@media (max-width:760px){body{padding:14px}#tree{min-height:80vh}}
+{{CSS}}
+</style>
+</head>
+<body>
+<div class="top"><h1 title="project folder"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M1.5 3.5A1.5 1.5 0 0 1 3 2h3.2l1.6 1.6H13A1.5 1.5 0 0 1 14.5 5v1H4.4a1.5 1.5 0 0 0-1.4 1L1.5 11.6z" opacity=".55"/><path fill="currentColor" d="M3.1 7.4A1 1 0 0 1 4 6.8h10.6a.6.6 0 0 1 .6.8l-1.8 5.2a1 1 0 0 1-.9.7H2.3a.5.5 0 0 1-.5-.7z"/></svg>{{TITLE}}</h1><span class="bar"></span></div>
+<div id="tree"></div>
+<footer id="foot">prism tree</footer>
+<script id="tree-data" type="application/json">{{DATA}}</script>
+<script>
+{{JS}}
+const data = JSON.parse(document.getElementById('tree-data').textContent)
+PrismTree.mount(document.getElementById('tree'), data)
+document.getElementById('foot').textContent = 'generated ' + new Date(data.generated).toLocaleString() + ' · prism tree'
+</script>
+</body>
+</html>

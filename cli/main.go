@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -89,7 +90,13 @@ type model struct {
 	web            *webSession
 	pending        *evApprove
 	queued         []*evApprove
+	ticking        bool
+	active         time.Duration
 }
+
+// idleAfter is how long the screen keeps animating after the last key, event or resize.
+// After that the frame loop stops completely (no redraws, no CPU) until something happens.
+const idleAfter = 3 * time.Second
 
 func tick(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(t time.Time) tea.Msg { return tickMsg(t) })
@@ -103,6 +110,31 @@ func (m model) wait() tea.Cmd {
 func (m model) Init() tea.Cmd { return tea.Batch(tick(fastFrame), m.wait(), fetchStatus(m.agent.api)) }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if _, isTick := msg.(tickMsg); !isTick && !m.ticking {
+		m.now = time.Since(m.start) // the clock stood still while idle
+	}
+	next, cmd := m.update(msg)
+	nm, ok := next.(model)
+	if _, isTick := msg.(tickMsg); !ok || isTick {
+		return next, cmd
+	}
+	nm.now = time.Since(nm.start)
+	nm.active = nm.now
+	if !nm.ticking {
+		nm.ticking = true
+		cmd = tea.Batch(cmd, tick(fastFrame))
+	}
+	return nm, cmd
+}
+
+// idle reports whether nothing on screen is moving and nothing is waiting on a timer.
+func (m model) idle() bool {
+	return m.web == nil && m.gallery == "" && !m.busy && !m.animating() && m.now-m.active > idleAfter &&
+		m.now-m.sayAt > 5*time.Second && m.now >= m.sleepyUntil &&
+		(m.chat || m.now > 15*time.Second) && m.scrollPos == float64(m.scroll)
+}
+
+func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
@@ -114,6 +146,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scrollPos = float64(m.scroll)
 		}
 		m.checkWeb()
+		if m.idle() {
+			m.ticking = false
+			// Nothing will draw until the next key or event: hand freed memory back to the system.
+			go debug.FreeOSMemory()
+			return m, nil
+		}
 		frame := slowFrame
 		if m.gallery != "" || (!m.chat && m.now < 4*time.Second) || m.busy || m.now-m.chatAt < time.Second || m.animating() {
 			frame = fastFrame
@@ -339,9 +377,6 @@ func (m *model) handle(event any) {
 	case evRemembered:
 		if e.changed {
 			m.speak("noted.")
-			if !m.busy && m.web == nil {
-				m.agent.messages[0].Content = m.agent.systemPrompt()
-			}
 		}
 	case evDone:
 		m.busy, m.thinking, m.cancel, m.reasoning, m.draft, m.pending, m.queued = false, false, nil, "", nil, nil, nil
@@ -575,7 +610,11 @@ func runPlain(agent *Agent, prompt string) int {
 	})
 	// The answer is done: report the run first, then (only if the memory can be
 	// saved) update it, waiting at most plainMemoryWait.
-	fmt.Printf("· %d requests · %d tokens sent · first word %.1fs · total %.1fs\n", agent.requests, agent.sent, first.Seconds(), time.Since(start).Seconds())
+	cached := ""
+	if agent.cached > 0 {
+		cached = fmt.Sprintf(" (%d cached)", agent.cached)
+	}
+	fmt.Printf("· %d requests · %d tokens sent%s · first word %.1fs · total %.1fs\n", agent.requests, agent.sent, cached, first.Seconds(), time.Since(start).Seconds())
 	if job := agent.memoryJob(); job != nil {
 		mctx, cancel := context.WithTimeout(context.Background(), plainMemoryWait)
 		changed, err := job.run(mctx)
@@ -625,6 +664,9 @@ func main() {
 			agent.resume(list[0])
 		}
 	}
+	if args := flag.Args(); len(args) > 0 && args[0] == "tree" {
+		os.Exit(treeMain(agent, args[1:]))
+	}
 	if args := flag.Args(); len(args) > 0 && args[0] == "serve" {
 		dir := webDir()
 		if dir == "" {
@@ -669,7 +711,7 @@ func main() {
 		}
 		systemEvents = events
 	}
-	m := model{start: time.Now(), events: eventsChannel(), agent: agent, ready: -1, window: agent.window, project: projectName(dir), lastTextAt: -time.Hour, entries: entriesFrom(agent.messages), theme: themeIndex(*themeName), gallery: *gallery,
+	m := model{ticking: true, start: time.Now(), events: eventsChannel(), agent: agent, ready: -1, window: agent.window, project: projectName(dir), lastTextAt: -time.Hour, entries: entriesFrom(agent.messages), theme: themeIndex(*themeName), gallery: *gallery,
 		beamOn: loadSetting("beam") != "off", quiet: loadSetting("quiet") == "on", sayAt: -time.Hour}
 	var options []tea.ProgramOption
 	if os.Getenv("COLORTERM") == "" && os.Getenv("TERM") != "linux" {
@@ -712,6 +754,9 @@ func entriesFrom(messages []Message) []*entry {
 			for _, c := range msg.ToolCalls {
 				output := outputs[c.ID]
 				ok := !strings.HasPrefix(output, "Error:")
+				if c.Function.Name == "browse" && strings.Contains(output, "\nRESULT: ") {
+					ok = !strings.Contains(output, "steps failed")
+				}
 				if c.Function.Name == "crew" && ok {
 					if block := crewFromHistory(c.Function.Arguments, output); block != nil {
 						out = append(out, &entry{kind: "crew", id: c.ID, tool: "crew", done: true, crew: block, res: toolResult{ok: true}})
@@ -736,7 +781,11 @@ func eventsChannel() chan any {
 }
 
 func askOnTerminal(ctx context.Context, tool, arg string) bool {
-	fmt.Printf("\n? prism wants to %s:\n    %s\n  allow? [y/N] ", map[string]string{"bash": "run", "write": "write", "edit": "edit"}[tool], arg)
+	verb := map[string]string{"bash": "run", "write": "write", "edit": "edit"}[tool]
+	if verb == "" {
+		verb = "use " + tool
+	}
+	fmt.Printf("\n? prism wants to %s:\n    %s\n  allow? [y/N] ", verb, arg)
 	var answer string
 	fmt.Scanln(&answer)
 	return strings.EqualFold(strings.TrimSpace(answer), "y")
@@ -747,6 +796,14 @@ func pastSummary(tool, output string, ok bool) string {
 	switch {
 	case len(lines) == 0:
 		return ""
+	case tool == "browse":
+		if result := lines[len(lines)-1]; strings.HasPrefix(result, "RESULT: ") {
+			return strings.TrimSuffix(strings.SplitN(strings.TrimPrefix(result, "RESULT: "), ". ", 2)[0], ".")
+		}
+		if !ok {
+			return strings.TrimPrefix(lines[0], "Error: ")
+		}
+		return "page outline"
 	case !ok:
 		return strings.TrimPrefix(lines[0], "Error: ")
 	case tool == "read":

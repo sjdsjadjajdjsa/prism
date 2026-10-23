@@ -26,6 +26,13 @@ Use this when the user wants a page or app checked for accessibility. Read only.
 - Check focus order follows the DOM. Require a visible `:focus-visible` outline.
 - Flag `tabindex` greater than 0, and handlers that trap Tab or remove focus with no escape.
 
+## Roles and names in the browser
+
+- If a `browse` tool is in your tool list, open the page (`file` or `url`) with no steps and read the outline. Every control shows a role and a name, for example `button "Add"`.
+- Findings: a control with no name (an unnamed checkbox, input, or icon button), a button named only `×` or `X`, a clickable thing with no role, a name that repeats (`button "Delete"` six times with no context).
+- Run steps `[{"press":"Tab"}]` one at a time and read the outline after each. Focus must reach every control in reading order, and `Escape` must close dialogs. Report any control Tab never reaches.
+- Map each finding back to `file:line` in the source and give the fix (`aria-label`, a `<label for>`, visible text).
+
 ## Colour contrast (WCAG AA 4.5:1)
 
 - Read colour pairs from CSS. Compute the ratio with python3:
@@ -51,7 +58,7 @@ EOF
 ## Motion and a look at the page
 
 - Animations and transitions must sit inside `@media (prefers-reduced-motion: no-preference)`, or honour `prefers-reduced-motion: reduce`.
-- If a `screenshot` tool is in your tool list, capture the page and look for clipped text, tiny targets, and low-contrast regions.
+- If a `screenshot` tool is in your tool list, capture the page and look for clipped text, tiny targets, and low-contrast regions. The outline has no colours, so use the screenshot for contrast.
 
 ## Report
 

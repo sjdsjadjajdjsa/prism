@@ -2,7 +2,6 @@ package main
 
 import (
 	"archive/zip"
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -21,7 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
+	"slices"
 	"strings"
 	"time"
 )
@@ -79,6 +78,7 @@ func screenshotTool(ctx context.Context, env screenshotEnv, raw string) toolResu
 	parent := ctx
 	desktop, _ := args["desktop"].(bool)
 	target, file := sarg(args, "url"), sarg(args, "file")
+	only := ""
 	count := 0
 	for _, set := range []bool{desktop, target != "", file != ""} {
 		if set {
@@ -129,25 +129,12 @@ func screenshotTool(ctx context.Context, env screenshotEnv, raw string) toolResu
 		return fail(err.Error())
 	}
 	if file != "" {
-		path, err := screenshotPath(root, file)
+		served, stop, err := serveProjectFile(root, file)
 		if err != nil {
 			return fail(err.Error())
 		}
-		if ext := strings.ToLower(filepath.Ext(path)); ext != ".html" && ext != ".htm" {
-			return fail("file must be a project .html file")
-		}
-		if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
-			return fail("HTML file does not exist or is not a regular file")
-		}
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			return fail(err.Error())
-		}
-		server := &http.Server{Handler: screenshotFiles(root), ReadHeaderTimeout: 5 * time.Second}
-		go server.Serve(listener)
-		defer server.Close()
-		rel, _ := filepath.Rel(root, path)
-		target = "http://" + listener.Addr().String() + (&url.URL{Path: "/" + filepath.ToSlash(rel)}).EscapedPath()
+		defer stop()
+		target, only = served, hostOf(served)
 	}
 	outDir, err := screenshotPath(root, ".prism/screenshots")
 	if err != nil {
@@ -173,7 +160,7 @@ func screenshotTool(ctx context.Context, env screenshotEnv, raw string) toolResu
 	if desktop {
 		err = screenshotDesktop(captureCtx, output)
 	} else {
-		err = screenshotChromium(captureCtx, browser, target, output, width, height, full, public)
+		err = screenshotChromium(captureCtx, browser, target, only, output, width, height, full, public)
 	}
 	if err != nil {
 		os.Remove(output)
@@ -204,6 +191,62 @@ func screenshotTool(ctx context.Context, env screenshotEnv, raw string) toolResu
 	return toolResult{ok: true, summary: rel, output: saved + "Vision model's description:\n" + description}
 }
 
+// hostOf is the host:port of a URL.
+func hostOf(target string) string {
+	if u, err := url.Parse(target); err == nil {
+		return u.Host
+	}
+	return ""
+}
+
+// routerAddrs are the addresses of the AI router (PRISM_API or the default), which pages must never reach.
+func routerAddrs(ctx context.Context) []string {
+	api := os.Getenv("PRISM_API")
+	if api == "" {
+		api = "http://127.0.0.1:4848/v1"
+	}
+	u, err := url.Parse(api)
+	if err != nil || u.Hostname() == "" {
+		return nil
+	}
+	port := u.Port()
+	if port == "" {
+		port = map[string]string{"https": "443"}[u.Scheme]
+		if port == "" {
+			port = "80"
+		}
+	}
+	out := []string{net.JoinHostPort(u.Hostname(), port)}
+	if ips, err := net.DefaultResolver.LookupIPAddr(ctx, u.Hostname()); err == nil {
+		for _, ip := range ips {
+			out = append(out, net.JoinHostPort(ip.IP.String(), port))
+		}
+	}
+	return out
+}
+
+// serveProjectFile serves the project on a local port and returns the URL of one .html file in it.
+func serveProjectFile(root, file string) (string, func(), error) {
+	path, err := screenshotPath(root, file)
+	if err != nil {
+		return "", nil, err
+	}
+	if ext := strings.ToLower(filepath.Ext(path)); ext != ".html" && ext != ".htm" {
+		return "", nil, errors.New("file must be a project .html file")
+	}
+	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
+		return "", nil, errors.New("HTML file does not exist or is not a regular file")
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", nil, err
+	}
+	server := &http.Server{Handler: screenshotFiles(root), ReadHeaderTimeout: 5 * time.Second}
+	go server.Serve(listener)
+	rel, _ := filepath.Rel(root, path)
+	return "http://" + listener.Addr().String() + (&url.URL{Path: "/" + filepath.ToSlash(rel)}).EscapedPath(), func() { server.Close() }, nil
+}
+
 func screenshotPath(root, path string) (string, error) {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(root, path)
@@ -230,6 +273,10 @@ func screenshotFiles(root string) http.Handler {
 		path, err := screenshotPath(root, filepath.FromSlash(rel))
 		if err != nil {
 			http.Error(w, "outside the project", http.StatusForbidden)
+			return
+		}
+		if real, err := filepath.Rel(root, path); err == nil && slices.ContainsFunc(strings.Split(filepath.ToSlash(real), "/"), func(part string) bool { return strings.HasPrefix(part, ".") && part != "." }) {
+			http.Error(w, "hidden files are not served", http.StatusForbidden)
 			return
 		}
 		f, err := os.Open(path)
@@ -279,7 +326,12 @@ func screenshotURL(ctx context.Context, target string, public bool) error {
 // screenshotProxy is a tiny forward proxy Chromium is forced through. Every connection,
 // including redirects and subresources, is pinned to an address that was checked here, so
 // a private page cannot pull in public content (or the reverse) behind the user's back.
-func screenshotProxy(ctx context.Context, public bool) (string, func(), error) {
+//
+// only, when set, is the one private host:port the page may use (the local file server for a
+// project file); deny lists addresses no page may reach (the AI router). Link-local addresses
+// such as cloud metadata are always blocked, and an approved public page still cannot reach
+// private addresses.
+func screenshotProxy(ctx context.Context, public bool, only string, deny ...string) (string, func(), error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return "", nil, err
@@ -294,7 +346,17 @@ func screenshotProxy(ctx context.Context, public bool) (string, func(), error) {
 			return nil, err
 		}
 		for _, ip := range ips {
-			if !public && !screenshotPrivate(ip.IP) {
+			target := net.JoinHostPort(ip.IP.String(), port)
+			switch {
+			case slices.Contains(deny, target) || slices.Contains(deny, address):
+				return nil, errors.New("pages may not talk to the AI router")
+			case ip.IP.IsLinkLocalUnicast() || ip.IP.IsLinkLocalMulticast():
+				return nil, errors.New("link-local network request blocked")
+			case screenshotPrivate(ip.IP) && only != "" && target != only && address != only:
+				return nil, errors.New("a project page may only load files from the project")
+			case screenshotPrivate(ip.IP) && only == "" && public:
+				return nil, errors.New("an approved public page may not reach private addresses")
+			case !screenshotPrivate(ip.IP) && !public:
 				return nil, errors.New("public network request blocked; approval required")
 			}
 		}
@@ -356,25 +418,18 @@ func screenshotProxy(ctx context.Context, public bool) (string, func(), error) {
 	return "http://" + listener.Addr().String(), func() { server.Close(); transport.CloseIdleConnections() }, nil
 }
 
-func screenshotChromium(ctx context.Context, binary, target, output string, width, height int, full, public bool) error {
+func screenshotChromium(ctx context.Context, binary, target, only, output string, width, height int, full, public bool) error {
 	profile, err := os.MkdirTemp("", "prism-chromium-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(profile)
-	proxy, stop, err := screenshotProxy(ctx, public)
+	proxy, stop, err := screenshotProxy(ctx, public, only, routerAddrs(ctx)...)
 	if err != nil {
 		return err
 	}
 	defer stop()
-	args := []string{"--headless=new", "--disable-gpu", "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
-		"--disable-background-networking", "--disable-extensions", "--disable-quic", "--disable-crash-reporter", "--force-device-scale-factor=1",
-		"--user-data-dir=" + profile, "--proxy-server=" + proxy, "--proxy-bypass-list=<-loopback>",
-		"--window-size=" + strconv.Itoa(width) + "," + strconv.Itoa(height)}
-	// Chromium's own sandbox needs privileges a container does not give it; the container is the sandbox.
-	if os.Geteuid() == 0 || inScreenshotContainer() {
-		args = append(args, "--no-sandbox")
-	}
+	args := browserArgs(profile, proxy, width, height)
 	if full {
 		return screenshotFullPage(ctx, binary, args, target, output, width, height)
 	}
@@ -390,116 +445,34 @@ func screenshotChromium(ctx context.Context, binary, target, output string, widt
 
 // screenshotFullPage drives Chromium over the DevTools pipe to capture the whole scrollable page.
 func screenshotFullPage(ctx context.Context, binary string, args []string, target, output string, width, height int) error {
-	inR, inW, err := os.Pipe()
+	c, stop, err := startCDP(ctx, binary, args)
 	if err != nil {
 		return err
 	}
-	defer inR.Close()
-	defer inW.Close()
-	outR, outW, err := os.Pipe()
-	if err != nil {
-		return err
-	}
-	defer outR.Close()
-	defer outW.Close()
-	cmd := exec.CommandContext(ctx, binary, append(args, "--remote-debugging-pipe", "about:blank")...)
-	cmd.ExtraFiles = []*os.File{inR, outW}
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	defer func() { cmd.Process.Kill(); cmd.Wait() }()
-	inR.Close()
-	outW.Close()
-	go func() { <-ctx.Done(); outR.Close(); inW.Close() }()
-	reader := bufio.NewReader(outR)
-	id := 0
-	session := ""
-	call := func(method string, params any, result any) error {
-		id++
-		msg := map[string]any{"id": id, "method": method, "params": params}
-		if session != "" {
-			msg["sessionId"] = session
-		}
-		data, _ := json.Marshal(msg)
-		if _, err := inW.Write(append(data, 0)); err != nil {
-			return err
-		}
-		for {
-			raw, err := reader.ReadBytes(0)
-			if err != nil {
-				return err
-			}
-			var response struct {
-				ID     int             `json:"id"`
-				Result json.RawMessage `json:"result"`
-				Error  json.RawMessage `json:"error"`
-			}
-			if err := json.Unmarshal(bytes.TrimSuffix(raw, []byte{0}), &response); err != nil {
-				return err
-			}
-			if response.ID != id {
-				continue
-			}
-			if len(response.Error) != 0 {
-				return fmt.Errorf("Chromium %s: %s", method, response.Error)
-			}
-			if result != nil {
-				return json.Unmarshal(response.Result, result)
-			}
-			return nil
-		}
-	}
-	var created struct {
-		TargetID string `json:"targetId"`
-	}
-	if err := call("Target.createTarget", map[string]any{"url": "about:blank"}, &created); err != nil {
-		return err
-	}
-	var attached struct {
-		SessionID string `json:"sessionId"`
-	}
-	if err := call("Target.attachToTarget", map[string]any{"targetId": created.TargetID, "flatten": true}, &attached); err != nil {
-		return err
-	}
-	session = attached.SessionID
+	defer stop()
 	metrics := map[string]any{"width": width, "height": height, "deviceScaleFactor": 1, "mobile": false}
-	if err := call("Emulation.setDeviceMetricsOverride", metrics, nil); err != nil {
+	if err := c.call("Emulation.setDeviceMetricsOverride", metrics, nil); err != nil {
 		return err
 	}
 	var navigation struct {
 		ErrorText string `json:"errorText"`
 	}
-	if err := call("Page.navigate", map[string]any{"url": target}, &navigation); err != nil {
+	if err := c.call("Page.navigate", map[string]any{"url": target}, &navigation); err != nil {
 		return err
 	}
 	if navigation.ErrorText != "" {
 		return errors.New(navigation.ErrorText)
 	}
-	for range 100 {
-		var state struct {
-			Result struct {
-				Value string `json:"value"`
-			} `json:"result"`
-		}
-		if err := call("Runtime.evaluate", map[string]any{"expression": "document.readyState", "returnByValue": true}, &state); err != nil {
-			return err
-		}
-		if state.Result.Value == "complete" {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(100 * time.Millisecond):
-		}
+	if err := c.settle(ctx); err != nil {
+		return err
 	}
-	if err := call("Runtime.evaluate", map[string]any{"expression": "Promise.all([document.fonts.ready,new Promise(r=>setTimeout(r,500))])", "awaitPromise": true}, nil); err != nil {
+	if err := c.eval("new Promise(r=>setTimeout(r,350)).then(()=>true)", nil); err != nil {
 		return err
 	}
 	var layout struct {
 		CSSContentSize struct{ Width, Height float64 } `json:"cssContentSize"`
 	}
-	if err := call("Page.getLayoutMetrics", map[string]any{}, &layout); err != nil {
+	if err := c.call("Page.getLayoutMetrics", map[string]any{}, &layout); err != nil {
 		return err
 	}
 	w, h := layout.CSSContentSize.Width, layout.CSSContentSize.Height
@@ -510,7 +483,7 @@ func screenshotFullPage(ctx context.Context, binary string, args []string, targe
 		Data string `json:"data"`
 	}
 	clip := map[string]any{"x": 0, "y": 0, "width": w, "height": h, "scale": 1}
-	if err := call("Page.captureScreenshot", map[string]any{"format": "png", "captureBeyondViewport": true, "clip": clip}, &shot); err != nil {
+	if err := c.call("Page.captureScreenshot", map[string]any{"format": "png", "captureBeyondViewport": true, "clip": clip}, &shot); err != nil {
 		return err
 	}
 	data, err := base64.StdEncoding.DecodeString(shot.Data)

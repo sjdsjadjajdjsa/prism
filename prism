@@ -56,6 +56,7 @@ Prism: free AI that codes, beautifully. Runs inside Docker.
   prism                 code in the current folder
   prism <folder>        code in that folder
   prism continue        pick up the last chat in the current folder
+  prism tree            the project's files, changes and links (--html for a page)
   prism web [folder]    the same, in your browser at http://127.0.0.1:4849
   prism fix             computer help: looks at THIS computer, asks before every change
   prism setup           add free keys for more models (optional, never a card)
@@ -79,9 +80,30 @@ pick_folder() {
   echo "$folder"
 }
 
+# images_current: the images exist and no source they are built from changed since the last
+# successful build. A cached build still costs ~10s of BuildKit context work, so skip it.
+images_current() {
+  [[ -f "$HERE/.built" ]] && [[ "$(cat "$HERE/.built")" == "$(build_id)" ]] &&
+    docker image inspect prism-agent prism-router >/dev/null 2>&1 &&
+    [[ -z "$(find "$HERE/cli" "$HERE/router" "$HERE/web" "$HERE/agent" "$HERE"/docker-compose*.yml -newer "$HERE/.built" -print -quit 2>/dev/null)" ]]
+}
+
+# build_id is the checked-out commit, so a git checkout of older files (older mtimes) still rebuilds.
+build_id() { git -C "$HERE" rev-parse HEAD 2>/dev/null || echo none; }
+mark_built() { build_id > "$HERE/.built"; }
+
+router_ready() { curl -fsS -m 2 "$ROUTER/health" >/dev/null 2>&1; }
+
 start_router() {
   local output
-  if ! output="$(compose build --quiet router agent 2>&1)"; then
+  if images_current && router_ready; then
+    return
+  fi
+  if images_current; then
+    :
+  elif output="$(compose build --quiet router agent 2>&1)"; then
+    mark_built
+  else
     if docker image inspect prism-agent prism-router >/dev/null 2>&1; then
       echo "Couldn't check for updates (Docker Hub may be down). Starting the version you already have." >&2
     else
@@ -103,9 +125,11 @@ start_router() {
     fi
   fi
   compose up -d router >/dev/null 2>&1
-  for _ in $(seq 1 30); do
-    compose exec -T router wget -qO- "$ROUTER/health" >/dev/null 2>&1 && return
-    sleep 0.5
+  for _ in $(seq 1 60); do
+    if command -v curl >/dev/null 2>&1; then router_ready && return
+    else compose exec -T router wget -qO- "$ROUTER/health" >/dev/null 2>&1 && return
+    fi
+    sleep 0.25
   done
   echo "The AI router did not start. Run: $(prism_cmd) logs" >&2
   exit 1
@@ -472,8 +496,20 @@ keys_cmd() {
   esac
 }
 
+# tree_cmd is `prism tree [text] [--html [file]] [--watch] [--json]` for the current folder.
+tree_cmd() {
+  local folder
+  folder="$(pick_folder "")"
+  if ! images_current; then
+    compose build --quiet router agent >/dev/null && mark_built || { echo "Couldn't build Prism. Run: $(prism_cmd) update" >&2; exit 1; }
+  fi
+  PROJECT_DIR="$folder" HOST_UID="$(id -u)" HOST_GID="$(id -g)" compose run --rm --no-deps -T agent tree "$@" 2> >(grep -v 'level=warning' >&2) |
+    sed "s#^\(wrote\|updated\) \([^/]\)#\1 $folder/\2#"
+}
+
 case "${1:-}" in
   -h|--help|help) usage ;;
+  tree) shift; tree_cmd "$@" ;;
   setup) setup ;;
   keys) keys_cmd "${2:-}" "${3:-}" ;;
   status) start_router; compose exec -T router wget -qO- "$ROUTER/status?format=text" ;;
@@ -482,7 +518,7 @@ case "${1:-}" in
   install) install ;;
   update)
     git -C "$HERE" pull --ff-only || { echo "Couldn't update. If you changed files in $HERE, move that folder away and run the install command again." >&2; exit 1; }
-    compose build --quiet router agent && compose up -d router >/dev/null 2>&1
+    compose build --quiet router agent && mark_built && compose up -d router >/dev/null 2>&1
     echo "Prism is up to date."
     ;;
   web) web "$(pick_folder "${2:-}")" ;;

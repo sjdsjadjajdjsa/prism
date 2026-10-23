@@ -281,7 +281,7 @@ func TestScreenshotProxyPinsAddresses(t *testing.T) {
 	defer backend.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	addr, stop, err := screenshotProxy(ctx, false)
+	addr, stop, err := screenshotProxy(ctx, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,6 +303,55 @@ func TestScreenshotProxyPinsAddresses(t *testing.T) {
 		if res.StatusCode != http.StatusForbidden {
 			t.Fatalf("public request must be blocked, got %d", res.StatusCode)
 		}
+	}
+}
+
+func TestScreenshotProxyOnlyAndDeny(t *testing.T) {
+	ok := func(name string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, name) }))
+	}
+	page, other, router := ok("page"), ok("other"), ok("router")
+	defer page.Close()
+	defer other.Close()
+	defer router.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	addr, stop, err := screenshotProxy(ctx, false, hostOf(page.URL), hostOf(router.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	proxy, _ := url.Parse(addr)
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy)}, Timeout: 10 * time.Second}
+	get := func(u string) string {
+		res, err := client.Get(u)
+		if err != nil {
+			return "error"
+		}
+		defer res.Body.Close()
+		body, _ := io.ReadAll(res.Body)
+		return string(body)
+	}
+	if got := get(page.URL); got != "page" {
+		t.Errorf("the page's own server: %q", got)
+	}
+	for _, u := range []string{other.URL, router.URL, "http://169.254.169.254/latest/meta-data/"} {
+		if got := get(u); got == "other" || got == "router" || !strings.Contains(got, "may") && !strings.Contains(got, "blocked") && got != "error" {
+			t.Errorf("%s reachable from a project page: %q", u, got)
+		}
+	}
+	open, stopOpen, err := screenshotProxy(ctx, false, "", hostOf(router.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stopOpen()
+	proxy, _ = url.Parse(open)
+	client = &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy)}, Timeout: 10 * time.Second}
+	if got := get(other.URL); got != "other" {
+		t.Errorf("a localhost URL page must still reach its own network: %q", got)
+	}
+	if got := get(router.URL); got == "router" {
+		t.Error("the router must never be reachable")
 	}
 }
 

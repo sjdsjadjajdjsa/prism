@@ -143,7 +143,7 @@ const complete = async (req, res) => {
     }
     return send(res, 400, { error: { message: 'Request body must be JSON', type: 'invalid_request' } })
   }
-  const { prism_quick: quick, prism_avoid: avoid, prism_exclude_families: exclude } = payload
+  const { prism_quick: quick, prism_avoid: avoid, prism_exclude_families: exclude, prism_prefer: prefer } = payload
   const rest = Object.fromEntries(Object.entries(payload).filter(([key]) => !key.startsWith('prism_')))
   const avoided = new Set(Array.isArray(avoid) ? avoid : [])
   const excluded = new Set(Array.isArray(exclude) ? exclude : [])
@@ -154,7 +154,9 @@ const complete = async (req, res) => {
   const matches = route => route.id === payload.model || (route.paid !== true && route.model === payload.model)
   const pinned = head !== 'auto' && routes().some(matches)
   const queue = ordered(route => (pinned ? matches(route) : eligible(route)) && (!wantsVision || route.vision) && !excluded.has(route.family)).sort(
-    (a, b) => avoided.has(a.id) - avoided.has(b.id) || (role ? b.roles.includes(role) - a.roles.includes(role) : 0),
+    // prism_prefer is the route that served this conversation last: the provider still holds its
+    // prompt in cache, so it goes first (unless avoided); slow answers are still hedged as usual.
+    (a, b) => avoided.has(a.id) - avoided.has(b.id) || (role ? b.roles.includes(role) - a.roles.includes(role) : 0) || (b.id === prefer) - (a.id === prefer),
   )
   if (!queue.length) {
     if (wantsVision && !routes().some(route => route.vision && !excluded.has(route.family))) return send(res, 503, { error: { message: 'no free model that can see images is available right now', type: 'no_route_available', failures: [] } })
@@ -245,6 +247,7 @@ const complete = async (req, res) => {
       'x-free-route': attempt.route.id,
       'x-prism-family': attempt.route.family,
       'x-free-wait': String(wait),
+      'x-prism-prefer': '1',
     })
     res.write(first)
     try {

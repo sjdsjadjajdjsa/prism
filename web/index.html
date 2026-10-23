@@ -29,6 +29,7 @@
       <span id="project" class="project muted"></span>
       <span class="spacer"></span>
       <span id="top-say" class="top-say muted"></span>
+      <button id="files-toggle" class="files-toggle" type="button" aria-expanded="false" aria-controls="files-panel">Files</button>
       <label class="theme-pick">
         <span class="muted">theme</span>
         <select id="theme" aria-label="Select theme">
@@ -44,6 +45,11 @@
       </label>
     </div>
   </header>
+
+  <aside id="files-panel" class="files-panel" hidden aria-label="Project files">
+    <div class="files-panel-head"><span class="grad">project files</span><span class="muted" id="files-live">live</span><button id="files-close" class="files-close" type="button" aria-label="Close files">×</button></div>
+    <div id="files-tree" class="files-tree"></div>
+  </aside>
 
   <main class="column">
     <section id="transcript" class="transcript" aria-live="polite">
@@ -89,5 +95,6 @@
   <script src="beam.js" defer></script>
   <script src="commands.js" defer></script>
   <script src="app.js" defer></script>
+  <script src="files.js" defer></script>
 </body>
 </html>

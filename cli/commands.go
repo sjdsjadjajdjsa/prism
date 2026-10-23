@@ -28,6 +28,7 @@ var commands = []command{
 	{"/mcp", "connected tools · /mcp add picks a free one · /mcp remove <name> · /mcp test <name>"},
 	{"/memory", "see what prism remembers · /memory forget 2 removes one"},
 	{"/usage", "free AI used today"},
+	{"/tree", "project files · /tree changed · /tree <text>"},
 	{"/theme", "switch theme, or /theme <name>"},
 	{"/beam", "turn the finish beam on or off"},
 	{"/quiet", "turn Shard's lines on or off"},
@@ -165,11 +166,14 @@ func (m *model) command(text string) tea.Cmd {
 		}
 		lines = append(lines, "", "prism picks the right one by itself · add your own: .prism/skills/<name>.md in a project, or ~/.config/prism/skills/")
 		m.entries = append(m.entries, &entry{kind: "info", text: "skills", lines: lines})
+	case "/tree":
+		title, lines := treeCommand(m.agent, strings.Join(fields[1:], " "))
+		m.entries = append(m.entries, &entry{kind: "info", text: title, lines: lines})
 	case "/usage":
 		u := todayUsage()
 		lines := []string{
 			fmt.Sprintf("today       %d requests · %s tokens sent", u.Requests, short(u.Tokens)),
-			fmt.Sprintf("this chat   %d requests · %s tokens sent", m.agent.requests, short(m.agent.sent)),
+			fmt.Sprintf("this chat   %d requests · %s tokens sent · %s cached", m.agent.requests, short(m.agent.sent), short(m.agent.cached)),
 			"",
 			"all free · limits reset daily · more keys mean more room: prism setup",
 		}

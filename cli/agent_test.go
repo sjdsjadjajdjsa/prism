@@ -343,6 +343,96 @@ func TestRateLimitWaitsAndRetries(t *testing.T) {
 	}
 }
 
+func TestPreferAndCachedTokens(t *testing.T) {
+	for _, oldRouter := range []bool{false, true} {
+		t.Run(fmt.Sprintf("old router %v", oldRouter), func(t *testing.T) {
+			var mu sync.Mutex
+			var bodies []map[string]any
+			step := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				json.NewDecoder(r.Body).Decode(&body)
+				mu.Lock()
+				bodies = append(bodies, body)
+				step++
+				n := step
+				mu.Unlock()
+				w.Header().Set("content-type", "text/event-stream")
+				w.Header().Set("x-free-route", fmt.Sprintf("route-%d", n))
+				if !oldRouter {
+					w.Header().Set("x-prism-prefer", "1")
+				}
+				if n == 1 {
+					fmt.Fprintln(w, delta(`{"tool_calls":[{"index":0,"id":"c1","function":{"name":"list","arguments":"{}"}}]}`))
+				} else {
+					fmt.Fprintln(w, delta(`{"content":"done"}`))
+				}
+				fmt.Fprintf(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1000,\"total_tokens\":1010,\"prompt_tokens_details\":{\"cached_tokens\":%d}}}\n", 100*n)
+				fmt.Fprintln(w, sseDone)
+			}))
+			defer srv.Close()
+			a := newTestAgent(t, srv.URL, t.TempDir())
+			if _, err := collect(a, "please look at the files in this folder and tell me which ones matter, in detail, thanks"); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := bodies[0]["prism_prefer"]; ok {
+				t.Errorf("first request has prism_prefer: %v", bodies[0]["prism_prefer"])
+			}
+			got, sent := bodies[1]["prism_prefer"]
+			switch {
+			case oldRouter && sent:
+				t.Errorf("sent prism_prefer %v to a router that did not announce it", got)
+			case !oldRouter && got != "route-1":
+				t.Errorf("second request prism_prefer = %v, want route-1", got)
+			}
+			if a.cached != 300 || a.sent != 2000 {
+				t.Errorf("cached = %d, sent = %d; want 300 and 2000", a.cached, a.sent)
+			}
+		})
+	}
+}
+
+func TestLightFirstStepDoesNotSetPrefer(t *testing.T) {
+	fake := &fakeRouter{mu: &sync.Mutex{}, replies: []func(http.ResponseWriter) string{
+		func(w http.ResponseWriter) string {
+			route := routeHeader(w, "small-route")
+			w.Header().Set("content-type", "text/event-stream")
+			fmt.Fprintln(w, delta(`{"content":"hi"}`))
+			fmt.Fprintln(w, sseDone)
+			return route
+		},
+	}}
+	srv := httptest.NewServer(fake.handler())
+	defer srv.Close()
+	a := newTestAgent(t, srv.URL, t.TempDir())
+	if _, err := collect(a, "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if a.prefer != "" {
+		t.Errorf("prefer = %q after a quick first step; the big model's cache is what to keep", a.prefer)
+	}
+}
+
+func TestPruneWaitsUntilQuarterWindow(t *testing.T) {
+	long := strings.Repeat("x", pruneOver+100)
+	msgs := []Message{{Role: "system", Content: "sys"}}
+	for range 20 + keepRecent {
+		msgs = append(msgs, Message{Role: "tool", Content: long})
+	}
+	a := &Agent{messages: append([]Message(nil), msgs...), window: contextLimit}
+	a.prune()
+	for i, m := range a.messages {
+		if m.Content != msgs[i].Content {
+			t.Fatalf("message %d trimmed while the chat is far below a quarter of the window", i)
+		}
+	}
+	a.window = 2 * estimate(msgs)
+	a.prune()
+	if !strings.Contains(a.messages[1].Content, prunedNote) {
+		t.Error("old tool output not trimmed past a quarter of the window")
+	}
+}
+
 func TestReadStreamCutOff(t *testing.T) {
 	a := newTestAgent(t, "http://unused", t.TempDir())
 	_, err := a.readStream(strings.NewReader(delta(`{"content":"x"}`)+"\n"), func(any) {})

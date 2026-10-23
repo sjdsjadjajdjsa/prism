@@ -10,6 +10,7 @@
     { name: "/mcp", help: "connected tools (MCP servers) · see docs/MCP.md" },
     { name: "/memory", help: "see what prism remembers · /memory forget" },
     { name: "/usage", help: "free AI used today" },
+    { name: "/tree", help: "project files · /tree changed · /tree <text>" },
     { name: "/theme", help: "switch theme, or /theme <name>" },
     { name: "/beam", help: "turn the finish beam on or off" },
     { name: "/quiet", help: "turn Shard's lines on or off" },

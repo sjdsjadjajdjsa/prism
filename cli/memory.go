@@ -505,8 +505,14 @@ func projectRules(dir string) (string, string) {
 	return "", ""
 }
 
+// prune trims old tool outputs in one batch once the conversation passes a quarter of the
+// window. Trimming changes earlier messages, which throws away the provider's prompt cache from
+// that point on, so short tasks are never touched and long ones only now and then.
 func (a *Agent) prune() {
 	if os.Getenv("PRISM_PRUNE") == "off" {
+		return
+	}
+	if a.window > 0 && estimate(a.messages) <= a.window/4 {
 		return
 	}
 	for i := 1; i < len(a.messages)-keepRecent; i++ {

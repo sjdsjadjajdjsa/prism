@@ -22,7 +22,7 @@ Use this when the user asks whether an app actually works, not just whether it b
 ## Act like a user
 - For a CLI, invoke its help and main commands with realistic arguments and actual input files; inspect exit codes, output, and resulting files.
 - For a web app, request the landing page and main routes with `curl -i http://127.0.0.1:PORT/`; follow links and exercise forms or actions with representative requests.
-- If a `screenshot` tool is available in your tool list, use it to look at important pages and check visible content, layout, and errors; otherwise say visual checks were unavailable.
+- For web pages, use the `browse` tool to do the main user actions (add, toggle, filter, submit, reload) and expect the results; it also reports page errors. Use `screenshot` only to judge layout and looks. If neither tool is available, say the page was not checked in a browser.
 - For an API, call documented endpoints with `curl -i`, including a valid JSON request using `-H 'Content-Type: application/json' -d '{"example":"value"}'` when applicable.
 - Check responses and side effects against the README or UI promises, not merely HTTP status codes or process survival.
 - Try an empty input, malformed or unsupported input, and a reasonably large input for each important flow; avoid destructive data and excessive load.

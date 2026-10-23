@@ -1,6 +1,6 @@
 ---
 name: website
-description: Build a polished single-page website with modern responsive CSS, verified by parsing the HTML.
+description: Build a polished single-page website with modern responsive CSS, checked by clicking through it with browse.
 ---
 
 # Skill: build a website
@@ -56,5 +56,8 @@ Use this when the user wants a landing page, portfolio, or small site.
   ```
 
 - If there is a `script.js`, run `node --check script.js` to catch syntax errors.
+- Use the `browse` tool on `index.html` (`file`) to check it works like a person would use it. List the main user actions as `steps` from a fresh page: click the nav link or button, type into a form field, press Enter, then `expect` the visible result (new text, opened menu, success message). Use `expect_not` for things that must disappear, and `reload` for anything meant to persist.
+  - Name targets as the returned outline shows them, e.g. `button "Send"` or `textbox`. If the outline shows a control with no name, fix the page (add a `<label>` or text).
+  - Page errors in the result are bugs. If any step fails, fix the page (or the step, if it named the wrong thing) and run `browse` again until every step passes and there are no page errors.
 - Check anchors: every `href="#x"` should match an `id="x"` in the page.
 - Report to the user which files you made and how to open the site (open `index.html` in a browser).

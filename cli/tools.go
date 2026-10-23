@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -56,14 +57,16 @@ func integer(description string) map[string]any {
 }
 
 var toolSpecs = []any{
-	spec("screenshot", "Take a screenshot of a web page or a project HTML file with headless Chromium, save it under .prism/screenshots, and ask an image-capable free model what it shows. Give exactly one of url, file or desktop. If the result says no vision model was available, say so; never describe a screenshot you could not look at. The whole desktop can only be captured in host system mode and the user is asked every time.",
-		map[string]any{"url": str("http(s) address. localhost and private network addresses work freely; a public address needs the user's approval, which only exists in host system mode"), "file": str("A .html file inside the project, served locally"), "desktop": map[string]any{"type": "boolean", "description": "Capture the user's whole desktop (host system mode only, asks every time, not available in the container)"}, "width": integer("Viewport width (default 1280, max 3840)"), "height": integer("Viewport height (default 800, max 2160)"), "full_page": map[string]any{"type": "boolean", "description": "Capture the whole scrollable page; tall pages are shrunk to 1280 px before the model sees them"}, "question": str("What to check in the image, e.g. is the button visible, does the layout break")}),
+	browseSpec,
+	webSpec,
+	spec("screenshot", "Screenshot a web page, project HTML file or (host system mode only, asks every time) the desktop, and ask a free vision model what it shows. Give exactly one of url, file or desktop. If no vision model was available, say so; never describe a screenshot you could not see.",
+		map[string]any{"url": str("localhost or private-network address; public ones need approval"), "file": str("Project .html file"), "desktop": map[string]any{"type": "boolean", "description": "whole desktop"}, "width": integer("default 1280, max 3840"), "height": integer("default 800, max 2160"), "full_page": map[string]any{"type": "boolean", "description": "whole scrollable page"}, "question": str("what to check, e.g. does the layout break")}),
 	spec("list", "List files and folders in the project, up to 4 levels deep.",
 		map[string]any{"path": str("Folder to list, relative to the project. Defaults to the project root.")}),
 	spec("grep", "Search file contents with a regular expression. Returns matching lines with file and line number.",
 		map[string]any{"pattern": str("Regular expression to search for"), "path": str("File or folder to search. Defaults to the project root.")}, "pattern"),
-	spec("read", "Read a text file. Returns numbered lines.",
-		map[string]any{"path": str("File path, relative to the project"), "offset": integer("First line to read, starting at 1"), "limit": integer("How many lines to read (default 2000)")}, "path"),
+	spec("read", "Read a text file. Returns numbered lines. A long file read without offset/limit starts with an outline of its symbols.",
+		map[string]any{"path": str("File path, relative to the project"), "offset": integer("First line to read, starting at 1"), "limit": integer("How many lines to read (default 500)")}, "path"),
 	spec("edit", "Replace an exact piece of text in a file. old_string must match the file exactly, including spaces, and be unique unless replace_all is true.",
 		map[string]any{"path": str("File path, relative to the project"), "old_string": str("Exact text to replace"), "new_string": str("Text to put in its place"), "replace_all": map[string]any{"type": "boolean", "description": "Replace every match"}}, "path", "old_string", "new_string"),
 	spec("write", "Create a file or replace its whole content. Creates missing folders.",
@@ -92,6 +95,10 @@ func runTool(ctx context.Context, dir, name, raw string) toolResult {
 		return writeTool(dir, args)
 	case "bash":
 		return bashTool(ctx, dir, args)
+	case "web":
+		return webTool(ctx, raw)
+	case "browse":
+		return browseTool(ctx, screenshotFallbackEnv(dir), raw)
 	case "screenshot":
 		// The agent loop routes screenshot to (*Agent).screenshot so it keeps its system flag and approve
 		// callback. Reaching this line means there is no agent: no approvals, so no desktop or public URLs.
@@ -288,10 +295,12 @@ func grepTool(ctx context.Context, dir string, args map[string]any) toolResult {
 		return fail(outsideMsg)
 	}
 	var cmd *exec.Cmd
+	perFile := 0
 	if _, err := exec.LookPath("rg"); err == nil {
-		cmd = exec.CommandContext(ctx, "rg", "--line-number", "--no-heading", "--color=never", "--max-count=50", "--max-columns=300", "--", pattern, target)
+		cmd = exec.CommandContext(ctx, "rg", "--line-number", "--no-heading", "--color=never", "--max-count=50", "--max-columns=300", "--max-columns-preview", "--", pattern, target)
 	} else {
 		cmd = exec.CommandContext(ctx, "grep", "-rnE", "--exclude-dir=.git", "--exclude-dir=node_modules", "--", pattern, target)
+		perFile = grepPerFile
 	}
 	cmd.Dir = dir
 	out, err := cmd.Output()
@@ -308,10 +317,90 @@ func grepTool(ctx context.Context, dir string, args map[string]any) toolResult {
 	}
 	lines := splitLines(strings.ReplaceAll(string(out), dir+"/", ""))
 	total := len(lines)
-	if total > 200 {
-		lines = append(lines[:200], fmt.Sprintf("… %d more matches. Narrow the search.", total-200))
-	}
+	lines = capGrep(lines, perFile)
 	return toolResult{ok: true, output: strings.Join(lines, "\n"), summary: fmt.Sprintf("%d matches", total)}
+}
+
+const (
+	grepMaxLines = 100
+	grepMaxCols  = 160
+	grepPerFile  = 20
+)
+
+var grepPrefix = regexp.MustCompile(`^(.*?):\d+:`)
+
+// capGrep keeps at most perFile matches per file (0 = no per-file cap),
+// grepMaxLines lines in total and grepMaxCols runes per line, and ends with a
+// note saying how many matches were dropped.
+func capGrep(lines []string, perFile int) []string {
+	var kept []string
+	perCount := map[string]int{}
+	dropped := 0
+	for _, line := range lines {
+		if perFile > 0 {
+			if m := grepPrefix.FindStringSubmatch(line); m != nil {
+				perCount[m[1]]++
+				if perCount[m[1]] > perFile {
+					dropped++
+					continue
+				}
+			}
+		}
+		if len(kept) >= grepMaxLines {
+			dropped++
+			continue
+		}
+		kept = append(kept, clipRunes(line, grepMaxCols))
+	}
+	if dropped > 0 {
+		kept = append(kept, fmt.Sprintf("… %d more matches not shown. Narrow the search.", dropped))
+	}
+	return kept
+}
+
+// clipRunes cuts s to at most n runes, marking the cut with "…".
+func clipRunes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	count := 0
+	for i := range s {
+		if count == n {
+			return s[:i] + "…"
+		}
+		count++
+	}
+	return s
+}
+
+const (
+	readDefaultLimit = 500
+	outlineMax       = 60
+)
+
+var outlineRe = regexp.MustCompile(`^ {0,4}(?:async def|def|class|func|function|export function|export class|type|interface)\s`)
+
+// outline lists the symbol-looking lines of a file with their line numbers.
+func outline(lines []string) string {
+	var b strings.Builder
+	n := 0
+	for i, line := range lines {
+		if !outlineRe.MatchString(line) {
+			continue
+		}
+		n++
+		if n <= outlineMax {
+			fmt.Fprintf(&b, "%6d\t%s\n", i+1, clipRunes(strings.TrimRight(line, " \t{:"), grepMaxCols))
+		}
+	}
+	if n == 0 {
+		return ""
+	}
+	head := fmt.Sprintf("Outline (%d lines in file, %d symbols):\n", len(lines), n)
+	if n > outlineMax {
+		fmt.Fprintf(&b, "… %d more symbols\n", n-outlineMax)
+	}
+	return head + b.String() + "\n"
 }
 
 func readTool(dir string, args map[string]any) toolResult {
@@ -346,8 +435,13 @@ func readTool(dir string, args map[string]any) toolResult {
 	if start >= len(lines) {
 		return fail(fmt.Sprintf("offset %d is past the end: the file has %d lines", start+1, len(lines)))
 	}
-	end := min(len(lines), start+iarg(args, "limit", 2000))
+	end := min(len(lines), start+iarg(args, "limit", readDefaultLimit))
 	var b strings.Builder
+	_, hasOffset := args["offset"]
+	_, hasLimit := args["limit"]
+	if !hasOffset && !hasLimit && len(lines) > readDefaultLimit {
+		b.WriteString(outline(lines))
+	}
 	for i := start; i < end; i++ {
 		line := lines[i]
 		if len(line) > 2000 {
@@ -489,6 +583,59 @@ func (t *tailBuffer) tail() string {
 	return "…" + string(t.data[start:])
 }
 
+// headTailBuffer keeps the first head bytes and roughly the last tail bytes
+// written to it, counting everything in between as omitted.
+type headTailBuffer struct {
+	mu         sync.Mutex
+	head, tail []byte
+	headLimit  int
+	tailLimit  int
+	total      int
+}
+
+func (h *headTailBuffer) Write(p []byte) (int, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.total += len(p)
+	rest := p
+	if room := h.headLimit - len(h.head); room > 0 {
+		n := min(room, len(rest))
+		h.head = append(h.head, rest[:n]...)
+		rest = rest[n:]
+	}
+	h.tail = append(h.tail, rest...)
+	if len(h.tail) > 2*h.tailLimit {
+		h.tail = append([]byte(nil), h.tail[len(h.tail)-h.tailLimit:]...)
+	}
+	return len(p), nil
+}
+
+// String returns the kept head and tail, cut on rune boundaries, with a
+// marker saying how many bytes in the middle were left out.
+func (h *headTailBuffer) String() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.total <= h.headLimit+h.tailLimit {
+		return string(h.head) + string(h.tail)
+	}
+	head := h.head
+	// Drop a rune cut in half at the end of the head.
+	s := len(head)
+	for s > 0 && len(head)-s < utf8.UTFMax && !utf8.RuneStart(head[s-1]) {
+		s--
+	}
+	if s > 0 && !utf8.FullRune(head[s-1:]) {
+		head = head[:s-1]
+	}
+	start := max(0, len(h.tail)-h.tailLimit)
+	for start < len(h.tail) && !utf8.RuneStart(h.tail[start]) {
+		start++
+	}
+	tail := h.tail[start:]
+	omitted := h.total - len(head) - len(tail)
+	return fmt.Sprintf("%s\n… [%d bytes omitted] …\n%s", head, omitted, tail)
+}
+
 func bashTool(ctx context.Context, dir string, args map[string]any) toolResult {
 	command := sarg(args, "command")
 	if strings.TrimSpace(command) == "" {
@@ -502,7 +649,7 @@ func bashTool(ctx context.Context, dir string, args map[string]any) toolResult {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 2 * time.Second
-	out := &tailBuffer{limit: 30000}
+	out := &headTailBuffer{headLimit: 3000, tailLimit: 9000}
 	cmd.Stdout, cmd.Stderr = out, out
 	err := cmd.Run()
 	leftover := false
@@ -521,7 +668,7 @@ func bashTool(ctx context.Context, dir string, args map[string]any) toolResult {
 			leftover = true
 		}
 	}
-	text := out.tail()
+	text := out.String()
 	code := 0
 	var exitErr *exec.ExitError
 	switch {

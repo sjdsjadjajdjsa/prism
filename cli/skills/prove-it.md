@@ -11,6 +11,7 @@ Use at the verification stage of work, not as a reason to load a playbook for ev
 - Identify what changed and which existing check exercises it.
 - Prefer the repository's test, lint, typecheck, build, or documented validation command.
 - For a running app or UI, exercise the real behavior when a usable environment exists.
+- For a web page, the proof is the `browse` tool: steps that click and type like a user, with `expect` checks on visible results, all passing. A screenshot or grep of the HTML is not proof.
 - Include a focused regression check when a bug needs one and the project supports it.
 - Match the check to the claim: a successful build does not prove runtime behavior.
 
@@ -28,6 +29,7 @@ Use at the verification stage of work, not as a reason to load a playbook for ev
 - Do not invent a check or claim a check passed when it was not run.
 - If dependencies, credentials, or an environment are missing, say what prevented running it.
 - Keep unverified behavior distinct from observed behavior.
+- If the UI was not exercised with `browse` (no Chromium, or not a web page), say so as untested.
 
 ## Report
 - Give the exact checks run and outcomes, including failures or partial coverage.

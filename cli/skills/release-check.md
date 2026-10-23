@@ -35,6 +35,10 @@ Use before tagging, publishing, or shipping a release. Read-only verification: n
   Report any non-2xx/3xx link.
 - Confirm screenshots/images referenced in the README exist and still show the current UI;
   retake them if the app changed. If a `screenshot` tool is available, use it.
+- If the project has a web UI, start it from the clean clone and click through the main flows with
+  the `browse` tool (`url` for a local server, `file` for static HTML): open the page, then steps
+  such as click, type, press, with `expect` / `expect_not` / `expect_count` on the visible result.
+  Any failed step is a NO-GO; stop the server afterwards.
 
 ## Go / no-go report
 - End with a plain checklist: each item above marked GO or NO-GO, with file:line or command

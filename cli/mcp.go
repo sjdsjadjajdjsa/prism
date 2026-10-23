@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -262,7 +263,11 @@ func (h *mcpHub) specs() []any {
 		if s.state != "ready" {
 			continue
 		}
-		for _, t := range s.tools {
+		tools := slices.Clone(s.tools)
+		// Sorted, so the tool list (part of every request's cached prefix) is the same
+		// whatever order the server lists its tools in.
+		slices.SortFunc(tools, func(a, b mcpTool) int { return strings.Compare(a.wire, b.wire) })
+		for _, t := range tools {
 			desc := t.description
 			if len(desc) > 900 {
 				desc = cutUTF8(desc, 900) + "…"

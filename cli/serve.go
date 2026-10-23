@@ -91,6 +91,9 @@ func (s *server) handler(port string) http.Handler {
 	mux.HandleFunc("POST /api/command", s.command)
 	mux.HandleFunc("GET /api/ping", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.HandleFunc("GET /api/info", s.info)
+	mux.HandleFunc("GET /api/tree", s.tree)
+	mux.HandleFunc("GET /tree.js", treeAsset("tree.js", "text/javascript"))
+	mux.HandleFunc("GET /tree.css", treeAsset("tree.css", "text/css"))
 	mux.HandleFunc("GET /api/history", s.history)
 	mux.HandleFunc("POST /api/chat", s.chat)
 	mux.HandleFunc("POST /api/stop", s.stop)
@@ -170,6 +173,29 @@ func noDirListing(root string, next http.Handler) http.Handler {
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("content-type", "application/json")
 	json.NewEncoder(w).Encode(v)
+}
+
+// tree serves the live project map; ?wait=<version> holds the request until it changes (~25s).
+func (s *server) tree(w http.ResponseWriter, r *http.Request) {
+	a := s.agent
+	if a.mapReady != nil {
+		<-a.mapReady
+	}
+	if a.tree == nil {
+		http.NotFound(w, r)
+		return
+	}
+	a.tree.startWatching()
+	if v := r.URL.Query().Get("wait"); v != "" {
+		version, _ := strconv.Atoi(v)
+		if !a.tree.wait(r.Context(), version, 25*time.Second) {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+	}
+	w.Header().Set("content-type", "application/json")
+	w.Header().Set("cache-control", "no-store")
+	w.Write(a.tree.json())
 }
 
 func (s *server) info(w http.ResponseWriter, r *http.Request) {
@@ -298,10 +324,10 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 			send(map[string]any{"type": "draft", "tool": e.name, "arg": e.arg, "chars": e.chars})
 		case evToolStart:
 			tools++
-			pending[e.id] = e.arg
+			pending[e.id] = e.name + " " + e.arg
 			send(map[string]any{"type": "tool_start", "id": e.id, "tool": e.name, "arg": e.arg})
 		case evToolDone:
-			if strings.Contains(pending[e.id], "test") && e.result.ok {
+			if strings.HasPrefix(pending[e.id], "bash ") && strings.Contains(pending[e.id], "test") && e.result.ok {
 				tests = true
 			}
 			send(map[string]any{"type": "tool_done", "id": e.id, "ok": e.result.ok, "summary": e.result.summary, "added": e.result.added, "removed": e.result.removed, "diff": wire(e.result.diff)})
@@ -408,11 +434,14 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		info(res.title, res.lines)
+	case "/tree":
+		title, lines := treeCommand(a, strings.Join(fields[1:], " "))
+		info(title, lines)
 	case "/usage":
 		u := todayUsage()
 		info("free AI usage", []string{
 			fmt.Sprintf("today: %d requests, %s tokens sent", u.Requests, short(u.Tokens)),
-			fmt.Sprintf("this chat: %d requests, %s tokens sent", s.requests, short(s.sent)),
+			fmt.Sprintf("this chat: %d requests, %s tokens sent, %s cached", s.requests, short(s.sent), short(s.agent.cached)),
 		})
 	case "/memory", "/forget":
 		if busy {

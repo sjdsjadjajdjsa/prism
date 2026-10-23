@@ -52,4 +52,5 @@ Use this when the user wants a small 2D game like snake, pong, breakout, or a do
   ```
 
 - If node exists, run `node --check /tmp/game.js` to catch JS syntax errors.
+- Play it with the `browse` tool on `{"file":"index.html"}`. Press the start key (Space, Enter, or an arrow key) or click the start button, then `expect` the score text. If the game can end, hold a direction with repeated `press` steps and `expect` the "Game over" text. The result lists page errors: any error is a bug, so fix it and run the steps again until they pass. `press` cannot send letter keys, so make restart also work with Enter or Space.
 - Tell the user to open `index.html` in a browser and describe the controls.
