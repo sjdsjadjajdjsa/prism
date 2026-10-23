@@ -25,8 +25,8 @@ var commands = []command{
 	{"/init", "write PRISM.md, the rules prism always follows here"},
 	{"/skills", "playbooks prism can follow · /skills new <name> to write your own"},
 	{"/web", "open this chat in your browser · press enter here to come back"},
-	{"/mcp", "connected tools (MCP servers) · see docs/MCP.md"},
-	{"/memory", "see what prism remembers · /memory forget"},
+	{"/mcp", "connected tools · /mcp add picks a free one · /mcp remove <name> · /mcp test <name>"},
+	{"/memory", "see what prism remembers · /memory forget 2 removes one"},
 	{"/usage", "free AI used today"},
 	{"/theme", "switch theme, or /theme <name>"},
 	{"/beam", "turn the finish beam on or off"},
@@ -116,29 +116,41 @@ func (m *model) command(text string) tea.Cmd {
 		m.input = nil // never leave the long prompt sitting in the box
 		return cmd
 	case "/memory", "/forget":
-		if name == "/forget" || (len(fields) > 1 && fields[1] == "forget") {
-			if err := m.agent.store.forget(); err != nil {
-				m.entries = append(m.entries, &entry{kind: "error", text: err.Error()})
-				return nil
-			}
-			m.agent.messages[0].Content = m.agent.systemPrompt()
-			m.entries = append(m.entries, &entry{kind: "note", text: "memory cleared for this folder"})
+		title, lines, changed, err := m.agent.store.memoryCommand(fields)
+		if err != nil {
+			m.entries = append(m.entries, &entry{kind: "help", text: err.Error()})
 			return nil
 		}
-		mem := m.agent.store.memory()
-		lines := strings.Split(mem, "\n")
-		if mem == "" {
-			lines = []string{"nothing yet · prism saves what it learns after each task"}
+		if changed {
+			m.agent.messages[0].Content = m.agent.systemPrompt()
+			m.entries = append(m.entries, &entry{kind: "note", text: title})
+			return nil
 		}
 		if file, _ := projectRules(m.agent.dir); file != "" {
 			lines = append(lines, "", "also following the rules in "+file)
 		}
-		lines = append(lines, "", "/memory forget clears it")
-		m.entries = append(m.entries, &entry{kind: "info", text: "what prism remembers here", lines: lines})
+		m.entries = append(m.entries, &entry{kind: "info", text: title, lines: lines})
 	case "/web":
 		m.startWeb()
 	case "/mcp":
-		m.entries = append(m.entries, &entry{kind: "info", text: "connected tools (MCP)", lines: mcpLines(m.agent.mcp.status())})
+		res, follow := mcpCommand(m.agent, fields)
+		if follow != nil {
+			quick, done := follow(400 * time.Millisecond)
+			res.lines = append(res.lines, quick.lines...)
+			if !done {
+				events := m.events
+				go func() {
+					late, _ := follow(100 * time.Second)
+					events <- evNote{late.oneLine()}
+				}()
+				res.lines = append(res.lines, "still connecting, the result will show up here")
+			}
+		}
+		if res.failed {
+			m.entries = append(m.entries, &entry{kind: "error", text: res.title, arg: strings.Join(res.lines, " · ")})
+			return nil
+		}
+		m.entries = append(m.entries, &entry{kind: "info", text: res.title, lines: res.lines})
 	case "/skills":
 		if len(fields) > 2 && fields[1] == "new" {
 			m.entries = append(m.entries, &entry{kind: "note", text: newSkill(m.agent, fields[2])})
@@ -307,7 +319,7 @@ func short(n int) string {
 
 func mcpLines(list []mcpStatus) []string {
 	if len(list) == 0 {
-		return []string{"none yet · add servers to .prism/mcp.json or ~/.config/prism/mcp.json", "", "guide: docs/MCP.md in the prism repo"}
+		return []string{"none yet · /mcp add sets one up in a single step (or edit .prism/mcp.json)", "", "guide: docs/MCP.md in the prism repo"}
 	}
 	var lines []string
 	for _, s := range list {
@@ -315,12 +327,12 @@ func mcpLines(list []mcpStatus) []string {
 		case "ready":
 			lines = append(lines, fmt.Sprintf("● %-14s %d tools: %s", s.name, len(s.tools), clipText(strings.Join(s.tools, ", "), 70)))
 		case "error":
-			lines = append(lines, fmt.Sprintf("✕ %-14s %s", s.name, clipText(s.err, 90)))
+			lines = append(lines, fmt.Sprintf("✕ %-14s %s", s.name, clipText(mcpExplain(s.name, s.err), 220)))
 		default:
 			lines = append(lines, fmt.Sprintf("◌ %-14s %s", s.name, s.state))
 		}
 	}
-	return append(lines, "", "the AI uses these tools by itself when they fit the task")
+	return append(lines, "", "the AI uses these tools by itself when they fit the task", "add more: /mcp add · remove: /mcp remove <name> · recheck: /mcp test <name>")
 }
 
 var skillName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,40}$`)

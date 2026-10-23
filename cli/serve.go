@@ -42,6 +42,7 @@ type wireEntry struct {
 	Added   int        `json:"added,omitempty"`
 	Removed int        `json:"removed,omitempty"`
 	Diff    []wireDiff `json:"diff,omitempty"`
+	Crew    *wireCrew  `json:"crew,omitempty"`
 }
 
 type wireDiff struct {
@@ -190,7 +191,11 @@ func (s *server) info(w http.ResponseWriter, r *http.Request) {
 func (s *server) snapshot() []wireEntry {
 	out := []wireEntry{}
 	for _, e := range entriesFrom(s.agent.messages) {
-		out = append(out, wireEntry{Kind: e.kind, Text: e.text, Tool: e.tool, Arg: e.arg, OK: e.res.ok, Summary: e.res.summary})
+		w := wireEntry{Kind: e.kind, Text: e.text, Tool: e.tool, Arg: e.arg, OK: e.res.ok, Summary: e.res.summary}
+		if e.crew != nil {
+			w.Crew = e.crew.wire()
+		}
+		out = append(out, w)
 	}
 	return out
 }
@@ -275,6 +280,10 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 	start, route, tools, tests := time.Now(), "", 0, false
 	pending := map[string]string{}
 	s.agent.Run(ctx, strings.TrimSpace(body.Message), func(event any) {
+		if v, ok := crewWire(event); ok {
+			send(v)
+			return
+		}
 		switch e := event.(type) {
 		case evRoute:
 			route = e.route
@@ -389,7 +398,16 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 		}
 		info("skills", append(lines, "", "add your own: /skills new <name> in the terminal, or .prism/skills/<name>.md"))
 	case "/mcp":
-		info("connected tools (MCP)", mcpLines(a.mcp.status()))
+		res, follow := mcpCommand(a, fields)
+		if follow != nil {
+			late, _ := follow(15 * time.Second)
+			res.lines = append(res.lines, late.lines...)
+		}
+		if res.failed {
+			writeJSON(w, map[string]any{"kind": "error", "headline": res.title, "text": strings.Join(res.lines, "\n")})
+			return
+		}
+		info(res.title, res.lines)
 	case "/usage":
 		u := todayUsage()
 		info("free AI usage", []string{
@@ -401,21 +419,15 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, map[string]any{"kind": "error", "text": "wait until prism finishes"})
 			return
 		}
-		if fields[0] == "/forget" || (len(fields) > 1 && fields[1] == "forget") {
-			if err := a.store.forget(); err != nil {
-				writeJSON(w, map[string]any{"kind": "error", "text": err.Error()})
-				return
-			}
-			a.messages[0].Content = a.systemPrompt()
-			info("memory cleared for this folder", []string{})
+		title, lines, changed, err := a.store.memoryCommand(fields)
+		if err != nil {
+			writeJSON(w, map[string]any{"kind": "error", "headline": "memory", "text": err.Error()})
 			return
 		}
-		mem := a.store.memory()
-		lines := strings.Split(mem, "\n")
-		if mem == "" {
-			lines = []string{"nothing yet: prism saves what it learns after each task"}
+		if changed {
+			a.messages[0].Content = a.systemPrompt()
 		}
-		info("what prism remembers here", lines)
+		info(title, lines)
 	case "/resume", "/continue":
 		if busy {
 			writeJSON(w, map[string]any{"kind": "error", "text": "wait until prism finishes"})

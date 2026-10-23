@@ -5,8 +5,20 @@
       "requires": "NVIDIA_API_KEY",
       "baseURL": "https://integrate.api.nvidia.com/v1",
       "models": [
-        "nvidia/nemotron-3-ultra-550b-a55b",
-        "nvidia/nemotron-3.5-lightning-30b-a3b"
+        {
+          "name": "nvidia/nemotron-3-ultra-550b-a55b",
+          "family": "nemotron",
+          "roles": [
+            "review"
+          ]
+        },
+        {
+          "name": "nvidia/nemotron-3.5-lightning-30b-a3b",
+          "family": "nemotron",
+          "roles": [
+            "fast"
+          ]
+        }
       ],
       "quick": {
         "chat_template_kwargs": {
@@ -19,16 +31,40 @@
       "requires": "GROQ_API_KEY",
       "baseURL": "https://api.groq.com/openai/v1",
       "models": [
-        "openai/gpt-oss-120b"
+        {
+          "name": "openai/gpt-oss-120b",
+          "family": "gpt-oss",
+          "roles": [
+            "fast"
+          ]
+        }
       ]
     },
     {
       "name": "kilo",
       "baseURL": "https://api.kilo.ai/api/gateway",
       "models": [
-        "nvidia/nemotron-3.5-lightning:free",
-        "nvidia/nemotron-3-ultra-550b-a55b:free",
-        "poolside/laguna-s-2.1:free"
+        {
+          "name": "nvidia/nemotron-3.5-lightning:free",
+          "family": "nemotron",
+          "roles": [
+            "fast"
+          ]
+        },
+        {
+          "name": "nvidia/nemotron-3-ultra-550b-a55b:free",
+          "family": "nemotron",
+          "roles": [
+            "review"
+          ]
+        },
+        {
+          "name": "poolside/laguna-s-2.1:free",
+          "family": "poolside",
+          "roles": [
+            "code"
+          ]
+        }
       ]
     },
     {
@@ -36,7 +72,14 @@
       "requires": "GEMINI_API_KEY",
       "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai",
       "models": [
-        "gemini-flash-latest"
+        {
+          "name": "gemini-flash-latest",
+          "family": "gemini",
+          "roles": [
+            "fast"
+          ],
+          "vision": true
+        }
       ]
     },
     {
@@ -44,7 +87,13 @@
       "requires": "MISTRAL_API_KEY",
       "baseURL": "https://api.mistral.ai/v1",
       "models": [
-        "codestral-latest"
+        {
+          "name": "codestral-latest",
+          "family": "mistral",
+          "roles": [
+            "code"
+          ]
+        }
       ]
     },
     {
@@ -52,8 +101,15 @@
       "requires": "OPENROUTER_API_KEY",
       "baseURL": "https://openrouter.ai/api/v1",
       "models": [
-        "minimax/minimax-m3.1-flash:free",
-        "openrouter/free"
+        {
+          "name": "minimax/minimax-m3.1-flash:free",
+          "family": "minimax"
+        },
+        {
+          "name": "openrouter/free",
+          "family": "openrouter",
+          "vision": true
+        }
       ]
     },
     {
@@ -62,7 +118,10 @@
       "auth": false,
       "baseURL": "${OLLAMA_URL:-http://host.docker.internal:11434/v1}",
       "models": [
-        "${OLLAMA_MODEL}"
+        {
+          "name": "${OLLAMA_MODEL}",
+          "family": "ollama"
+        }
       ]
     },
     {
@@ -70,8 +129,21 @@
       "requires": "NVIDIA_API_KEY",
       "baseURL": "https://integrate.api.nvidia.com/v1",
       "models": [
-        "z-ai/glm-5.3",
-        "z-ai/glm-5.3-flash"
+        {
+          "name": "z-ai/glm-5.3",
+          "family": "glm",
+          "roles": [
+            "review"
+          ]
+        },
+        {
+          "name": "z-ai/glm-5.3-flash",
+          "family": "glm",
+          "roles": [
+            "fast"
+          ],
+          "vision": true
+        }
       ]
     },
     {
@@ -79,22 +151,46 @@
       "requires": "ZAI_API_KEY",
       "baseURL": "https://api.z.ai/api/paas/v4",
       "models": [
-        "glm-4.7-flash"
+        {
+          "name": "glm-4.7-flash",
+          "family": "glm",
+          "roles": [
+            "fast"
+          ]
+        }
       ]
     },
     {
       "name": "blockrun",
       "baseURL": "https://blockrun.ai/api/v1",
       "models": [
-        "nvidia/nemotron-3-ultra-550b",
-        "nvidia/nemotron-3.5-lightning"
+        {
+          "name": "nvidia/nemotron-3-ultra-550b",
+          "family": "nemotron",
+          "roles": [
+            "review"
+          ]
+        },
+        {
+          "name": "nvidia/nemotron-3.5-lightning",
+          "family": "nemotron",
+          "roles": [
+            "fast"
+          ]
+        }
       ]
     },
     {
       "name": "llm7",
       "baseURL": "https://api.llm7.io/v1",
       "models": [
-        "codestral-latest"
+        {
+          "name": "codestral-latest",
+          "family": "mistral",
+          "roles": [
+            "code"
+          ]
+        }
       ]
     }
   ]

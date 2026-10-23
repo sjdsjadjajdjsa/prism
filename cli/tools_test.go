@@ -128,3 +128,193 @@ func TestBashRedirectedBackground(t *testing.T) {
 		t.Fatalf("expected background-stopped note, got: %q", r.output)
 	}
 }
+
+// TestToolsPathEscapeRejected checks every file tool refuses paths that leave
+// the project, including look-alike sibling folders and dotdot tricks, and
+// still accepts paths that only appear to leave but resolve back inside.
+func TestToolsPathEscapeRejected(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "in.txt"), []byte("inside\n"), 0o644)
+	sibling := dir + "-evil"
+	if err := os.MkdirAll(sibling, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(sibling) })
+	os.WriteFile(filepath.Join(sibling, "s.txt"), []byte("secret\n"), 0o644)
+	siblingRel := "../" + filepath.Base(sibling) + "/s.txt"
+	siblingAbs := filepath.Join(sibling, "s.txt")
+	inAbs := filepath.Join(dir, "in.txt")
+
+	cases := []struct {
+		name, tool, args string
+		ok               bool
+		has              string
+	}{
+		{"read sibling prefix", "read", `{"path":"` + siblingRel + `"}`, false, "outside"},
+		{"read sibling absolute", "read", `{"path":"` + siblingAbs + `"}`, false, "outside"},
+		{"read parent", "read", `{"path":".."}`, false, "outside"},
+		{"read dotdot inside", "read", `{"path":"sub/../in.txt"}`, true, "inside"},
+		{"read absolute inside", "read", `{"path":"` + inAbs + `"}`, true, "inside"},
+		{"edit outside", "edit", `{"path":"` + siblingRel + `","old_string":"secret","new_string":"x"}`, false, "outside"},
+		{"edit absolute outside", "edit", `{"path":"` + siblingAbs + `","old_string":"secret","new_string":"x"}`, false, "outside"},
+		{"write absolute outside", "write", `{"path":"` + filepath.Join(sibling, "w.txt") + `","content":"no"}`, false, "outside"},
+		{"write deep dotdot", "write", `{"path":"a/b/../../../w.txt","content":"no"}`, false, "outside"},
+		{"list parent", "list", `{"path":".."}`, false, "outside"},
+		{"list root", "list", `{"path":"/"}`, false, "outside"},
+		{"grep outside", "grep", `{"pattern":"secret","path":"` + siblingRel + `"}`, false, "outside"},
+		{"grep parent", "grep", `{"pattern":"secret","path":".."}`, false, "outside"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := tool(t, dir, c.tool, c.args)
+			if r.ok != c.ok || !strings.Contains(strings.ToLower(r.output), strings.ToLower(c.has)) {
+				t.Fatalf("ok=%v want %v, output %q should contain %q", r.ok, c.ok, r.output, c.has)
+			}
+		})
+	}
+	if data, _ := os.ReadFile(siblingAbs); string(data) != "secret\n" {
+		t.Fatalf("file outside the project was changed: %q", data)
+	}
+	for _, p := range []string{filepath.Join(sibling, "w.txt"), filepath.Join(filepath.Dir(dir), "w.txt")} {
+		if _, err := os.Stat(p); err == nil {
+			t.Fatalf("write escaped the project: %s exists", p)
+		}
+	}
+}
+
+// TestToolsPathEscapeAnyPath checks the anyPath switch lifts the restriction.
+func TestToolsPathEscapeAnyPath(t *testing.T) {
+	dir, other := t.TempDir(), t.TempDir()
+	os.WriteFile(filepath.Join(other, "o.txt"), []byte("other\n"), 0o644)
+	if !outside(dir, filepath.Join(other, "o.txt")) {
+		t.Fatal("outside should be true for another temp dir")
+	}
+	anyPath = true
+	t.Cleanup(func() { anyPath = false })
+	r := tool(t, dir, "read", `{"path":"`+filepath.Join(other, "o.txt")+`"}`)
+	if !r.ok || !strings.Contains(r.output, "other") {
+		t.Fatalf("anyPath read: ok=%v output=%q", r.ok, r.output)
+	}
+}
+
+// TestToolsEditReplaceAllCases covers replace_all on multi-line text, CRLF
+// files, deletions, single matches and the error branches around it.
+func TestToolsEditReplaceAllCases(t *testing.T) {
+	cases := []struct {
+		name, content, args string
+		ok                  bool
+		has, want           string
+	}{
+		{"multi-line", "x\ny\nmid\nx\ny\n", `{"path":"f","old_string":"x\ny","new_string":"z","replace_all":true}`, true, "Edited", "z\nmid\nz\n"},
+		{"crlf", "k = 1\r\nk = 1\r\n", `{"path":"f","old_string":"k = 1\n","new_string":"k = 2\n","replace_all":true}`, true, "Edited", "k = 2\r\nk = 2\r\n"},
+		{"delete every match", "a-b-c", `{"path":"f","old_string":"-","new_string":"","replace_all":true}`, true, "Edited", "abc"},
+		{"single match", "only once\n", `{"path":"f","old_string":"once","new_string":"twice","replace_all":true}`, true, "Edited", "only twice\n"},
+		{"explicit false ambiguous", "a a\n", `{"path":"f","old_string":"a","new_string":"b","replace_all":false}`, false, "appears 2 times", "a a\n"},
+		{"non-bool ignored", "a a\n", `{"path":"f","old_string":"a","new_string":"b","replace_all":"yes"}`, false, "appears 2 times", "a a\n"},
+		{"not found", "abc\n", `{"path":"f","old_string":"zzz","new_string":"b","replace_all":true}`, false, "not found", "abc\n"},
+		{"empty old_string", "abc\n", `{"path":"f","old_string":"","new_string":"b","replace_all":true}`, false, "old_string is empty", "abc\n"},
+		{"overlapping", "aaaa", `{"path":"f","old_string":"aa","new_string":"b","replace_all":true}`, true, "Edited", "bb"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			os.WriteFile(filepath.Join(dir, "f"), []byte(c.content), 0o644)
+			r := tool(t, dir, "edit", c.args)
+			if r.ok != c.ok || !strings.Contains(r.output, c.has) {
+				t.Fatalf("ok=%v want %v, output %q should contain %q", r.ok, c.ok, r.output, c.has)
+			}
+			if data, _ := os.ReadFile(filepath.Join(dir, "f")); string(data) != c.want {
+				t.Fatalf("file is %q, want %q", data, c.want)
+			}
+		})
+	}
+}
+
+func TestToolsEditReplaceAllMissingFile(t *testing.T) {
+	r := tool(t, t.TempDir(), "edit", `{"path":"nope.txt","old_string":"a","new_string":"b","replace_all":true}`)
+	if r.ok || !strings.Contains(r.output, "nope.txt") {
+		t.Fatalf("missing file: ok=%v output=%q", r.ok, r.output)
+	}
+}
+
+// TestToolsBashTimeoutCases covers string timeouts, keeping output produced
+// before the timeout, and the timeout not flagging a non-zero exit summary.
+func TestToolsBashTimeoutCases(t *testing.T) {
+	cases := []struct {
+		name, args string
+		ok         bool
+		has        []string
+	}{
+		{"string timeout", `{"command":"sleep 30","timeout":"1"}`, false, []string{"[stopped after 1s timeout]"}},
+		{"output kept", `{"command":"echo before; sleep 30","timeout":1}`, false, []string{"before", "1s timeout"}},
+		{"fast under timeout", `{"command":"echo quick","timeout":1}`, true, []string{"quick", "[exit code 0]"}},
+		{"bad timeout falls back", `{"command":"echo ok","timeout":-5}`, true, []string{"ok", "[exit code 0]"}},
+		{"empty command", `{"command":"   "}`, false, []string{"command is empty"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			start := time.Now()
+			r := tool(t, t.TempDir(), "bash", c.args)
+			if elapsed := time.Since(start); elapsed > 6*time.Second {
+				t.Fatalf("took %v", elapsed)
+			}
+			if r.ok != c.ok {
+				t.Fatalf("ok=%v want %v, output %q", r.ok, c.ok, r.output)
+			}
+			for _, h := range c.has {
+				if !strings.Contains(r.output, h) {
+					t.Fatalf("output %q should contain %q", r.output, h)
+				}
+			}
+			if strings.Contains(r.output, "timeout]") && strings.HasPrefix(r.summary, "exit ") {
+				t.Fatalf("timeout summary should not report an exit code: %q", r.summary)
+			}
+		})
+	}
+}
+
+func TestToolsBashStoppedByUser(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(300*time.Millisecond, cancel)
+	start := time.Now()
+	r := runTool(ctx, t.TempDir(), "bash", `{"command":"sleep 30","timeout":20}`)
+	if r.ok || time.Since(start) > 6*time.Second || !strings.Contains(r.output, "[stopped by the user]") {
+		t.Fatalf("cancel: ok=%v took %v output=%q", r.ok, time.Since(start), r.output)
+	}
+}
+
+// TestToolsBashBackgroundCases covers background processes that keep the
+// output pipe open (WaitDelay path) and those that do not, with exit codes.
+func TestToolsBashBackgroundCases(t *testing.T) {
+	cases := []struct {
+		name, command string
+		ok            bool
+		has           []string
+	}{
+		{"pipe held open", "echo hi; sleep 30 &", true, []string{"hi", "[exit code 0]", "background process was stopped"}},
+		// A non-zero exit wins over ErrWaitDelay in cmd.Run, so no background note here.
+		{"pipe held, non-zero exit", "sleep 30 & exit 4", false, []string{"[exit code 4]"}},
+		{"redirected, non-zero exit", "sleep 30 >/dev/null 2>&1 & exit 5", false, []string{"[exit code 5]"}},
+		{"no background", "echo plain", true, []string{"plain", "[exit code 0]"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			start := time.Now()
+			r := tool(t, t.TempDir(), "bash", `{"command":"`+c.command+`","timeout":20}`)
+			if elapsed := time.Since(start); elapsed > 6*time.Second {
+				t.Fatalf("took %v", elapsed)
+			}
+			if r.ok != c.ok {
+				t.Fatalf("ok=%v want %v, output %q", r.ok, c.ok, r.output)
+			}
+			for _, h := range c.has {
+				if !strings.Contains(r.output, h) {
+					t.Fatalf("output %q should contain %q", r.output, h)
+				}
+			}
+			if c.name == "no background" && strings.Contains(r.output, "background") {
+				t.Fatalf("plain command should not mention background: %q", r.output)
+			}
+		})
+	}
+}

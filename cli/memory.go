@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,23 +21,47 @@ import (
 )
 
 const (
-	keepRecent     = 10
-	pruneOver      = 600
-	pruneKeepLines = 6
-	rulesLimit     = 8000
-	memoryLimit    = 4000
-	keepSessions   = 50
+	keepRecent      = 10
+	pruneOver       = 600
+	pruneKeepLines  = 6
+	rulesLimit      = 8000
+	memoryLimit     = 4000
+	keepSessions    = 50
+	memoryMaxTokens = 1200
 )
 
 const memoryPrompt = `You keep a short memory file for a coding assistant that works on one project. Below is the current memory and a log of the latest work.
 
-Return the updated memory file: plain bullet lines ("- ..."), at most 25, only durable facts that will help in future sessions: what the project is, how it is laid out, how to run and test it, conventions, the user's stated preferences, and decisions made. Drop anything outdated or one-off. No headings, no commentary.
+Return the updated memory file: one fact per line as a plain bullet ("- ..."), at most 25 lines, only durable facts that will help in future sessions: what the project is, how it is laid out, how to run and test it, conventions, the user's stated preferences, and decisions made. Drop anything outdated or one-off. No headings, no commentary.
 If nothing worth keeping changed, reply with exactly: UNCHANGED`
 
 type store struct {
 	dir string
 	mu  sync.Mutex
-	gen uint64 // bumped by forget(); a memory job started before the bump must not write
+	gen uint64 // bumped by every memory write; a memory job started before the bump must not write
+
+	// The numbered list last shown by /memory, and the generation it was shown at.
+	// A numbered forget is refused when the memory changed since then.
+	listed    []string
+	listedGen uint64
+	hasListed bool
+}
+
+// usageError is a mistake in how a /memory command was typed or a request that
+// no longer fits the memory (as opposed to a disk failure).
+type usageError struct{ msg string }
+
+func (e *usageError) Error() string { return e.msg }
+
+func usageErrorf(format string, args ...any) error {
+	return &usageError{msg: fmt.Sprintf(format, args...)}
+}
+
+// isUsageError reports whether err came from a bad /memory command (show it as a
+// note); any other error from memoryCommand is a real disk failure (show it as an error).
+func isUsageError(err error) bool {
+	var u *usageError
+	return errors.As(err, &u)
 }
 
 type session struct {
@@ -98,17 +125,26 @@ func (s *store) memory() string {
 func (s *store) setMemory(text string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer lockFile(s.path("memory.lock"))()
+	s.gen++
 	return writeAtomic(s.path("memory.md"), []byte(strings.TrimSpace(text)+"\n"))
 }
 
-// setMemoryIf writes the memory only if no forget() happened since generation gen.
-// It reports whether the write was made.
-func (s *store) setMemoryIf(text string, gen uint64) (bool, error) {
+// setMemoryIf writes the memory only if nothing wrote it since generation gen and
+// the memory on disk (checked under the file lock, so another prism process counts)
+// still equals base, the content the caller started from. It reports whether the
+// write was made.
+func (s *store) setMemoryIf(text string, gen uint64, base string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.gen != gen {
 		return false, nil
 	}
+	defer lockFile(s.path("memory.lock"))()
+	if strings.TrimSpace(s.memory()) != strings.TrimSpace(base) {
+		return false, nil
+	}
+	s.gen++
 	return true, writeAtomic(s.path("memory.md"), []byte(strings.TrimSpace(text)+"\n"))
 }
 
@@ -118,14 +154,130 @@ func (s *store) generation() uint64 {
 	return s.gen
 }
 
+func (s *store) snapshot() (string, uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.memory(), s.gen
+}
+
 func (s *store) forget() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	defer lockFile(s.path("memory.lock"))()
 	s.gen++
 	if err := os.Remove(s.path("memory.md")); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return nil
+}
+
+var memoryBullet = regexp.MustCompile(`^(?:[-*•]\s+|[0-9]+[.)]\s+)`)
+
+func memoryItems(text string) []string {
+	var items []string
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(memoryBullet.ReplaceAllString(strings.TrimSpace(line), ""))
+		if line != "" {
+			items = append(items, line)
+		}
+	}
+	return items
+}
+
+func (s *store) forgetItems(args []string) ([]string, error) {
+	if len(args) == 0 {
+		return nil, usageErrorf("use /memory forget <n> or /memory forget all")
+	}
+	if len(args) == 1 && args[0] == "all" {
+		return nil, s.forget()
+	}
+	for _, arg := range args {
+		if arg == "all" {
+			return nil, usageErrorf("\"all\" can't be mixed with numbers")
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	defer lockFile(s.path("memory.lock"))()
+	text := strings.TrimSpace(s.memory())
+	items := memoryItems(text)
+	if s.hasListed && (s.listedGen != s.gen || !slices.Equal(s.listed, items)) {
+		return nil, usageErrorf("memory just changed · run /memory again for the new numbers")
+	}
+	if len(items) == 0 {
+		return nil, usageErrorf("nothing to forget yet")
+	}
+	selected := make(map[int]bool)
+	for _, arg := range args {
+		n, err := strconv.Atoi(arg)
+		if err != nil || n < 1 || n > len(items) {
+			return nil, usageErrorf("there's no memory number %s · /memory shows the list", arg)
+		}
+		selected[n-1] = true
+	}
+	// Remove only the selected item lines; headings, wrapped lines and blank
+	// lines stay exactly as they were.
+	var kept, removed []string
+	i := 0
+	for _, line := range strings.Split(text, "\n") {
+		if strings.TrimSpace(line) == "" {
+			kept = append(kept, line)
+			continue
+		}
+		if selected[i] {
+			removed = append(removed, items[i])
+		} else {
+			kept = append(kept, line)
+		}
+		i++
+	}
+	if err := writeAtomic(s.path("memory.md"), []byte(strings.TrimSpace(strings.Join(kept, "\n"))+"\n")); err != nil {
+		return nil, err
+	}
+	s.gen++
+	return removed, nil
+}
+
+// showList records the items being shown so a later numbered forget can tell
+// whether the numbers still match.
+func (s *store) showList() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := memoryItems(strings.TrimSpace(s.memory()))
+	s.listed, s.listedGen, s.hasListed = items, s.gen, true
+	return items
+}
+
+// memoryCommand runs /memory and /forget. Errors for which isUsageError is true
+// are mistakes in the command (show as a note); any other error is a disk failure.
+func (s *store) memoryCommand(fields []string) (string, []string, bool, error) {
+	args := fields[1:]
+	if fields[0] == "/memory" && len(args) > 0 {
+		if args[0] != "forget" {
+			return "", nil, false, usageErrorf("use /memory forget <n> or /memory forget all")
+		}
+		args = args[1:]
+	}
+	if len(args) > 0 {
+		removed, err := s.forgetItems(args)
+		if err != nil {
+			return "", nil, false, err
+		}
+		title := "memory cleared for this folder"
+		if len(removed) > 0 {
+			title = "forgot: " + strings.Join(removed, " · ")
+		}
+		return title, []string{}, true, nil
+	}
+	var lines []string
+	for i, item := range s.showList() {
+		lines = append(lines, fmt.Sprintf("%d  %s", i+1, item))
+	}
+	if len(lines) == 0 {
+		lines = []string{"nothing yet · prism saves what it learns after each task"}
+	}
+	lines = append(lines, "", "/memory forget 2 removes one · /memory forget 2 5 removes several · /memory forget all clears it")
+	return "what prism remembers here", lines, false, nil
 }
 
 func writeAtomic(path string, data []byte) error {
@@ -476,20 +628,47 @@ type memoryJob struct {
 	gen                   uint64 // store generation when the job was created
 }
 
+// persists reports whether a memory write could be saved: the store has a
+// directory, a file can be created in it, and it is kept somewhere: either the
+// launcher says so (PRISM_MEMORY_KEEP=1, it mounts the persistent config
+// volume) or we run outside a container. A throwaway container loses the file
+// on exit, so the memory request is skipped there. When nothing can be saved,
+// a memory update would be wasted work, so callers skip the job.
+func (s *store) persists() bool {
+	if s == nil || s.dir == "" {
+		return false
+	}
+	if os.Getenv("PRISM_MEMORY_KEEP") != "1" {
+		if _, err := os.Stat("/.dockerenv"); err == nil {
+			return false
+		}
+	}
+	if err := os.MkdirAll(s.dir, 0o755); err != nil {
+		return false
+	}
+	f, err := os.CreateTemp(s.dir, ".probe-*")
+	if err != nil {
+		return false
+	}
+	f.Close()
+	os.Remove(f.Name())
+	return true
+}
+
 func (a *Agent) memoryJob() *memoryJob {
-	if a.store == nil || a.store.dir == "" || os.Getenv("PRISM_MEMORY") == "off" || !a.worthRemembering() {
+	if a.store == nil || a.store.dir == "" || os.Getenv("PRISM_MEMORY") == "off" || !a.worthRemembering() || !a.store.persists() {
 		return nil
 	}
-	// Read the generation first: a forget() between the two reads must not let
-	// this job pass setMemoryIf and resurrect the facts it just deleted.
-	gen := a.store.generation()
-	job := &memoryJob{api: a.api, journal: a.journal(), current: a.store.memory(), store: a.store, gen: gen}
+	current, gen := a.store.snapshot()
+	job := &memoryJob{api: a.api, journal: a.journal(), current: current, store: a.store, gen: gen}
 	a.memMark = len(a.messages)
 	return job
 }
 
 func (j *memoryJob) run(ctx context.Context) (bool, error) {
-	helper := &Agent{api: j.api, window: contextLimit}
+	// The helper's answer is a few bullets: ask the router for the cheap,
+	// no-thinking route and the lowest reasoning effort.
+	helper := &Agent{api: j.api, window: contextLimit, quick: true}
 	current := j.current
 	if current == "" {
 		current = "(empty)"
@@ -498,7 +677,7 @@ func (j *memoryJob) run(ctx context.Context) (bool, error) {
 		{Role: "system", Content: memoryPrompt},
 		{Role: "user", Content: "CURRENT MEMORY:\n" + current + "\n\nLATEST WORK:\n" + j.journal},
 	}
-	reply, err := helper.complete(ctx, request, map[string]any{"tool_choice": "none", "max_tokens": 1200}, func(any) {})
+	reply, err := helper.complete(ctx, request, map[string]any{"tool_choice": "none", "max_tokens": memoryMaxTokens, "reasoning_effort": "low"}, func(any) {})
 	if err != nil {
 		return false, err
 	}
@@ -506,13 +685,7 @@ func (j *memoryJob) run(ctx context.Context) (bool, error) {
 	if text == "" || strings.HasPrefix(text, "UNCHANGED") || text == strings.TrimSpace(j.current) {
 		return false, nil
 	}
-	var kept []string
-	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") {
-			kept = append(kept, "- "+strings.TrimSpace(line[2:]))
-		}
-	}
+	kept := memoryLines(text, memoryCutOff(reply))
 	if len(kept) == 0 {
 		return false, nil
 	}
@@ -520,5 +693,57 @@ func (j *memoryJob) run(ctx context.Context) (bool, error) {
 		kept = kept[:25]
 	}
 	// A /memory forget since this job started wins: don't resurrect the old facts.
-	return j.store.setMemoryIf(strings.Join(kept, "\n"), j.gen)
+	return j.store.setMemoryIf(strings.Join(kept, "\n"), j.gen, j.current)
+}
+
+// memoryCutOff reports whether the helper's reply probably hit its token cap.
+// complete() does not surface finish_reason, so a reply that fills nearly all
+// of max_tokens (about 4 characters each) counts as cut off.
+func memoryCutOff(reply Message) bool {
+	return len(reply.Content) >= memoryMaxTokens*4*9/10
+}
+
+// memoryLines turns the model's reply into memory bullets and never returns a
+// fragment: a bullet with unbalanced backticks is dropped, and the last bullet is
+// also dropped when the reply was cut off or it visibly stops mid-thought
+// (open quote or bracket, or ending on a colon, comma, dash or connecting word).
+func memoryLines(text string, cutOff bool) []string {
+	var kept []string
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		var body string
+		switch {
+		case strings.HasPrefix(line, "- "), strings.HasPrefix(line, "* "), strings.HasPrefix(line, "• "):
+			_, body, _ = strings.Cut(line, " ")
+		default:
+			continue
+		}
+		body = strings.TrimSpace(body)
+		if body == "" || strings.Count(body, "`")%2 != 0 {
+			continue
+		}
+		kept = append(kept, "- "+body)
+	}
+	if n := len(kept); n > 0 && (cutOff || looksUnfinished(kept[n-1][2:])) {
+		kept = kept[:n-1]
+	}
+	return kept
+}
+
+var danglingWords = map[string]bool{"a": true, "an": true, "and": true, "as": true, "at": true, "by": true, "for": true, "from": true, "in": true, "of": true, "on": true, "or": true, "the": true, "to": true, "with": true, "via": true, "using": true, "is": true, "are": true}
+
+// looksUnfinished reports whether a bullet reads like it was cut off.
+func looksUnfinished(body string) bool {
+	body = strings.TrimSpace(body)
+	if strings.Count(body, "`")%2 != 0 || strings.Count(body, `"`)%2 != 0 {
+		return true
+	}
+	if strings.Count(body, "(") > strings.Count(body, ")") || strings.Count(body, "[") > strings.Count(body, "]") || strings.Count(body, "{") > strings.Count(body, "}") {
+		return true
+	}
+	if body == "" || strings.ContainsAny(body[len(body)-1:], ":,;-–—(=") {
+		return true
+	}
+	last := strings.ToLower(body[strings.LastIndexAny(body, " \t")+1:])
+	return danglingWords[last]
 }

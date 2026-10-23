@@ -3,8 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +23,22 @@ func tempStore(t *testing.T, project string) *store {
 	// On Linux os.UserConfigDir() uses XDG_CONFIG_HOME; on macOS it uses HOME/Library.
 	// Force HOME too so macOS falls back correctly.
 	t.Setenv("HOME", dir)
+	// Tests may run inside a container; pretend the store is kept.
+	t.Setenv("PRISM_MEMORY_KEEP", "1")
 	return openStore(project)
+}
+
+func TestStorePersistsNeedsKeepInsideContainer(t *testing.T) {
+	s := tempStore(t, "/proj/keep")
+	if !s.persists() {
+		t.Fatal("PRISM_MEMORY_KEEP=1 must keep memory")
+	}
+	t.Setenv("PRISM_MEMORY_KEEP", "")
+	_, err := os.Stat("/.dockerenv")
+	inContainer := err == nil
+	if got := s.persists(); got == inContainer {
+		t.Fatalf("persists() = %v with container=%v and no PRISM_MEMORY_KEEP", got, inContainer)
+	}
 }
 
 // ---- openStore --------------------------------------------------------------
@@ -50,6 +68,100 @@ func TestOpenStorePaths(t *testing.T) {
 }
 
 // ---- setMemory / memory / forget --------------------------------------------
+
+func TestMemoryItems(t *testing.T) {
+	tests := []struct {
+		name, text string
+		want       []string
+	}{
+		{"empty", " \n\t", nil},
+		{"plain", "first fact\nsecond fact", []string{"first fact", "second fact"}},
+		{"bullets", "- first fact\n* second fact\n• third fact", []string{"first fact", "second fact", "third fact"}},
+		{"numbered", "1. first fact\n2) second fact", []string{"first fact", "second fact"}},
+		{"whitespace", "  - first fact  \r\n\n\t* second fact\t\n", []string{"first fact", "second fact"}},
+		{"punctuation", "- use foo-bar\n- *keep emphasis*", []string{"use foo-bar", "*keep emphasis*"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := memoryItems(tc.text); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("memoryItems(%q) = %q, want %q", tc.text, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestForgetItems(t *testing.T) {
+	const initial = "- first fact\n- second fact\n- third fact"
+	tests := []struct {
+		name, args, want string
+		removed          []string
+		wantErr          bool
+	}{
+		{"one", "2", "- first fact\n- third fact", []string{"second fact"}, false},
+		{"several", "3 1", "- second fact", []string{"first fact", "third fact"}, false},
+		{"duplicate", "2 2", "- first fact\n- third fact", []string{"second fact"}, false},
+		{"every number", "1 2 3", "", []string{"first fact", "second fact", "third fact"}, false},
+		{"all", "all", "", nil, false},
+		{"no args", "", initial, nil, true},
+		{"zero", "0", initial, nil, true},
+		{"negative", "-1", initial, nil, true},
+		{"out of range", "4", initial, nil, true},
+		{"invalid after valid", "2 5", initial, nil, true},
+		{"not a number", "two", initial, nil, true},
+		{"mixed all", "all 2", initial, nil, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := tempStore(t, "/proj/items")
+			if err := s.setMemory(initial); err != nil {
+				t.Fatal(err)
+			}
+			job := &memoryJob{store: s, current: initial, gen: s.generation()}
+			removed, err := s.forgetItems(strings.Fields(tc.args))
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("forgetItems(%q): %v", tc.args, err)
+			}
+			if !reflect.DeepEqual(removed, tc.removed) {
+				t.Errorf("removed = %q, want %q", removed, tc.removed)
+			}
+			if got := s.memory(); got != tc.want {
+				t.Fatalf("memory = %q, want %q", got, tc.want)
+			}
+			wantGen := job.gen + 1
+			if tc.wantErr {
+				wantGen = job.gen
+			}
+			if got := s.generation(); got != wantGen {
+				t.Fatalf("generation = %d, want %d", got, wantGen)
+			}
+			if !tc.wantErr {
+				wrote, err := job.store.setMemoryIf(job.current, job.gen, job.current)
+				if err != nil || wrote {
+					t.Fatalf("stale job write = %v, %v", wrote, err)
+				}
+				if got := s.memory(); got != tc.want {
+					t.Fatalf("stale job changed memory to %q", got)
+				}
+				wrote, err = s.setMemoryIf(tc.want, s.generation(), tc.want)
+				if err != nil || !wrote {
+					t.Fatalf("fresh job write = %v, %v", wrote, err)
+				}
+			}
+		})
+	}
+}
+
+func TestForgetItemsEmpty(t *testing.T) {
+	for _, arg := range []string{"1", "all"} {
+		t.Run(arg, func(t *testing.T) {
+			s := tempStore(t, "/proj/empty")
+			_, err := s.forgetItems([]string{arg})
+			if (err != nil) != (arg == "1") {
+				t.Fatalf("forgetItems(%q) on empty memory: %v", arg, err)
+			}
+		})
+	}
+}
 
 func TestSetMemoryAndRead(t *testing.T) {
 	s := tempStore(t, "/proj/alpha")
@@ -94,7 +206,7 @@ func TestGenerationBlocksStaleWrite(t *testing.T) {
 	}
 
 	// setMemoryIf with the old generation must be rejected.
-	wrote, err := s.setMemoryIf("- stale fact", gen)
+	wrote, err := s.setMemoryIf("- stale fact", gen, "- remember this")
 	if err != nil {
 		t.Fatalf("setMemoryIf: %v", err)
 	}
@@ -107,7 +219,7 @@ func TestGenerationBlocksStaleWrite(t *testing.T) {
 
 	// setMemoryIf with the current generation must succeed.
 	newGen := s.generation()
-	wrote, err = s.setMemoryIf("- fresh fact", newGen)
+	wrote, err = s.setMemoryIf("- fresh fact", newGen, "")
 	if err != nil {
 		t.Fatalf("setMemoryIf current gen: %v", err)
 	}
@@ -452,5 +564,625 @@ func TestClipTextMultibyteAtBoundary(t *testing.T) {
 	clipped := clipText(s, 2)
 	if !utf8.ValidString(clipped) {
 		t.Errorf("clipText multibyte boundary: invalid UTF-8: %q", clipped)
+	}
+}
+
+// ---- stale numbers, base check, structure kept ------------------------------
+
+func TestNumberedForgetRefusedAfterMemoryChanged(t *testing.T) {
+	s := tempStore(t, "/proj/stale")
+	if err := s.setMemory("- keep me\n- wrong fact\n- other"); err != nil {
+		t.Fatal(err)
+	}
+	if _, lines, _, err := s.memoryCommand([]string{"/memory"}); err != nil || !strings.Contains(strings.Join(lines, "\n"), "2  wrong fact") {
+		t.Fatalf("list = %q, %v", lines, err)
+	}
+	// A background rewrite shifts the numbers after the list was shown.
+	if err := s.setMemory("- brand new\n- keep me\n- wrong fact\n- other"); err != nil {
+		t.Fatal(err)
+	}
+	_, _, changed, err := s.memoryCommand([]string{"/memory", "forget", "2"})
+	if err == nil || !isUsageError(err) || changed || !strings.Contains(err.Error(), "memory just changed · run /memory again for the new numbers") {
+		t.Fatalf("forget after change: changed=%v err=%v", changed, err)
+	}
+	if got := s.memory(); got != "- brand new\n- keep me\n- wrong fact\n- other" {
+		t.Fatalf("memory modified: %q", got)
+	}
+	// Listing again accepts the new numbers.
+	s.memoryCommand([]string{"/memory"})
+	title, _, changed, err := s.memoryCommand([]string{"/memory", "forget", "3"})
+	if err != nil || !changed || title != "forgot: wrong fact" {
+		t.Fatalf("forget after relist: %q %v %v", title, changed, err)
+	}
+	// After our own forget the numbers moved again, so a second one needs a new list.
+	if _, _, _, err := s.memoryCommand([]string{"/memory", "forget", "3"}); err == nil || !isUsageError(err) {
+		t.Fatalf("forget with stale numbers after own forget: %v", err)
+	}
+}
+
+func TestSetMemoryIfChecksDiskBase(t *testing.T) {
+	s := tempStore(t, "/proj/base")
+	if err := s.setMemory("- a"); err != nil {
+		t.Fatal(err)
+	}
+	gen := s.generation()
+	// Another process rewrites the file without touching this store's generation.
+	if err := writeAtomic(s.path("memory.md"), []byte("- b\n")); err != nil {
+		t.Fatal(err)
+	}
+	wrote, err := s.setMemoryIf("- c", gen, "- a")
+	if err != nil || wrote {
+		t.Fatalf("write over changed disk = %v, %v", wrote, err)
+	}
+	if got := s.memory(); got != "- b" {
+		t.Fatalf("memory = %q", got)
+	}
+	wrote, err = s.setMemoryIf("- c", gen, "- b")
+	if err != nil || !wrote || s.memory() != "- c" {
+		t.Fatalf("matching base: %v %v %q", wrote, err, s.memory())
+	}
+}
+
+func TestForgetKeepsStructure(t *testing.T) {
+	s := tempStore(t, "/proj/structure")
+	if err := s.setMemory("# Notes\n- one\n  wrapped text\n\n* two\n3. three"); err != nil {
+		t.Fatal(err)
+	}
+	// items: 1 "# Notes", 2 "one", 3 "wrapped text", 4 "two", 5 "three"
+	removed, err := s.forgetItems([]string{"2"})
+	if err != nil || !reflect.DeepEqual(removed, []string{"one"}) {
+		t.Fatalf("removed %q, %v", removed, err)
+	}
+	if got, want := s.memory(), "# Notes\n  wrapped text\n\n* two\n3. three"; got != want {
+		t.Fatalf("memory = %q, want %q", got, want)
+	}
+}
+
+func TestForgetMessages(t *testing.T) {
+	s := tempStore(t, "/proj/messages")
+	_, _, _, err := s.memoryCommand([]string{"/memory", "forget", "1"})
+	if err == nil || !isUsageError(err) || err.Error() != "nothing to forget yet" {
+		t.Fatalf("empty forget: %v", err)
+	}
+	s.setMemory("- a\n- b")
+	for _, args := range [][]string{{"all", "2"}, {"2", "all"}} {
+		_, err = s.forgetItems(args)
+		if err == nil || !isUsageError(err) || err.Error() != `"all" can't be mixed with numbers` {
+			t.Fatalf("forgetItems(%v): %v", args, err)
+		}
+	}
+	if isUsageError(fmt.Errorf("disk full")) || isUsageError(nil) {
+		t.Fatal("plain errors are not usage errors")
+	}
+}
+
+// ---- memoryJob.run: never store fragments -------------------------------------
+
+func TestMemoryLinesDropsFragments(t *testing.T) {
+	tests := []struct {
+		name   string
+		text   string
+		cutOff bool
+		want   []string
+	}{
+		{"clean", "- Go project\n- Tests run with: `go test ./...`", false, []string{"- Go project", "- Tests run with: `go test ./...`"}},
+		{"unclosed backtick at end", "- Go project\n- Tests run with: `", false, []string{"- Go project"}},
+		{"unclosed backtick mid-line", "- Go project\n- Run `go te\n- Uses SQLite", false, []string{"- Go project", "- Uses SQLite"}},
+		{"open quote", "- Go project\n- The greeting is \"hello", false, []string{"- Go project"}},
+		{"open paren", "- Go project\n- Entry point (main.go", false, []string{"- Go project"}},
+		{"ends on colon", "- Go project\n- Tests run with:", false, []string{"- Go project"}},
+		{"ends on connecting word", "- Go project\n- Tests are run with", false, []string{"- Go project"}},
+		{"cut off drops last even if it looks fine", "- Go project\n- Uses SQLite", true, []string{"- Go project"}},
+		{"only fragment", "- Tests run with: `", false, nil},
+		{"star and dot bullets", "* Go project\n• Uses SQLite.", false, []string{"- Go project", "- Uses SQLite."}},
+		{"path ending in slash is complete", "- Source lives in src/", false, []string{"- Source lives in src/"}},
+		{"prose ignored", "Here is the memory:\n- Go project", false, []string{"- Go project"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := memoryLines(tc.text, tc.cutOff); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("memoryLines = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func memoryReplyServer(t *testing.T, content string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": content}}}})
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestMemoryJobRunDropsTruncatedLine(t *testing.T) {
+	s := tempStore(t, "/proj/cut")
+	srv := memoryReplyServer(t, "- Project is a FizzBuzz demo.\n- Tests run with: `")
+	job := &memoryJob{api: srv.URL, journal: "USER: hi", store: s, gen: s.generation()}
+	changed, err := job.run(t.Context())
+	if err != nil || !changed {
+		t.Fatalf("run = %v, %v", changed, err)
+	}
+	if got, want := s.memory(), "- Project is a FizzBuzz demo."; got != want {
+		t.Fatalf("memory = %q, want %q", got, want)
+	}
+}
+
+func TestMemoryJobRunStoresNothingFromOnlyFragments(t *testing.T) {
+	s := tempStore(t, "/proj/frag")
+	if err := s.setMemory("- Existing fact"); err != nil {
+		t.Fatal(err)
+	}
+	cur, gen := s.snapshot()
+	srv := memoryReplyServer(t, "- Tests run with: `")
+	job := &memoryJob{api: srv.URL, journal: "USER: hi", current: cur, store: s, gen: gen}
+	changed, err := job.run(t.Context())
+	if err != nil || changed {
+		t.Fatalf("run = %v, %v; want no change", changed, err)
+	}
+	if got := s.memory(); got != "- Existing fact" {
+		t.Fatalf("memory = %q, want it untouched", got)
+	}
+}
+
+func TestMemoryJobRunDropsLastLineWhenReplyFillsTokenCap(t *testing.T) {
+	var b strings.Builder
+	for i := 0; b.Len() < memoryMaxTokens*4; i++ {
+		fmt.Fprintf(&b, "- Fact number %d about the project layout and its conventions.\n", i)
+	}
+	lines := strings.Split(strings.TrimSpace(b.String()), "\n")
+	s := tempStore(t, "/proj/cap")
+	srv := memoryReplyServer(t, strings.Join(lines, "\n"))
+	job := &memoryJob{api: srv.URL, journal: "USER: hi", store: s, gen: s.generation()}
+	if changed, err := job.run(t.Context()); err != nil || !changed {
+		t.Fatalf("run = %v, %v", changed, err)
+	}
+	got := strings.Split(s.memory(), "\n")
+	if len(got) != 25 || got[len(got)-1] != lines[24] {
+		t.Fatalf("stored %d lines, last %q", len(got), got[len(got)-1])
+	}
+}
+
+func TestStorePersists(t *testing.T) {
+	if (&store{}).persists() {
+		t.Fatal("a store without a directory must not persist")
+	}
+	var nilStore *store
+	if nilStore.persists() {
+		t.Fatal("a nil store must not persist")
+	}
+	s := tempStore(t, "/proj/persist")
+	if !s.persists() {
+		t.Fatal("a writable store should persist")
+	}
+	if entries, _ := os.ReadDir(s.dir); len(entries) != 0 {
+		t.Fatalf("probe left files behind: %v", entries)
+	}
+	blocked := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocked, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if (&store{dir: filepath.Join(blocked, "sub")}).persists() {
+		t.Fatal("a store whose directory cannot be created must not persist")
+	}
+}
+
+func TestMemoryJobSkippedWhenStoreCannotPersist(t *testing.T) {
+	blocked := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocked, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := &Agent{store: &store{dir: filepath.Join(blocked, "sub")}, messages: []Message{
+		{Role: "system"}, {Role: "user", Content: "hi"},
+		{Role: "assistant", ToolCalls: []ToolCall{{}}},
+	}}
+	if job := a.memoryJob(); job != nil {
+		t.Fatal("memory job must be skipped when nothing can be saved")
+	}
+	b := &Agent{store: tempStore(t, "/proj/job"), messages: a.messages}
+	if job := b.memoryJob(); job == nil {
+		t.Fatal("memory job expected for a persisting store")
+	}
+}
+
+func TestMemoryJobRequestIsCheap(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": "UNCHANGED"}}}})
+	}))
+	defer srv.Close()
+	s := tempStore(t, "/proj/cheap")
+	job := &memoryJob{api: srv.URL, journal: "USER: hi", store: s, gen: s.generation()}
+	if _, err := job.run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got["prism_quick"] != true || got["reasoning_effort"] != "low" || got["max_tokens"] != float64(memoryMaxTokens) {
+		t.Fatalf("memory request not cheap: quick=%v effort=%v max_tokens=%v", got["prism_quick"], got["reasoning_effort"], got["max_tokens"])
+	}
+}
+
+// ---- generation guards --------------------------------------------------------
+
+func TestStoreWritesBumpGeneration(t *testing.T) {
+	s := tempStore(t, "/proj/genbump")
+	g0 := s.generation()
+
+	if err := s.setMemory("- one"); err != nil {
+		t.Fatal(err)
+	}
+	g1 := s.generation()
+	if g1 != g0+1 {
+		t.Fatalf("setMemory: generation %d -> %d, want +1", g0, g1)
+	}
+
+	wrote, err := s.setMemoryIf("- two", g1, "- one")
+	if err != nil || !wrote {
+		t.Fatalf("setMemoryIf = %v, %v", wrote, err)
+	}
+	g2 := s.generation()
+	if g2 != g1+1 {
+		t.Fatalf("setMemoryIf: generation %d -> %d, want +1", g1, g2)
+	}
+
+	// A rejected conditional write must not bump the generation.
+	if wrote, _ := s.setMemoryIf("- three", g2, "- not the current memory"); wrote {
+		t.Fatal("setMemoryIf wrote although base did not match the disk")
+	}
+	if g := s.generation(); g != g2 {
+		t.Fatalf("rejected write changed generation %d -> %d", g2, g)
+	}
+
+	if err := s.forget(); err != nil {
+		t.Fatal(err)
+	}
+	if g := s.generation(); g != g2+1 {
+		t.Fatalf("forget: generation %d -> %d, want +1", g2, g)
+	}
+	// forget on an already empty memory is fine and still bumps.
+	if err := s.forget(); err != nil {
+		t.Fatalf("forget on empty memory: %v", err)
+	}
+	if g := s.generation(); g != g2+2 {
+		t.Fatalf("second forget: generation %d, want %d", g, g2+2)
+	}
+}
+
+func TestStoreSnapshotMatchesMemoryAndGeneration(t *testing.T) {
+	s := tempStore(t, "/proj/snap")
+	if mem, gen := s.snapshot(); mem != "" || gen != 0 {
+		t.Fatalf("fresh snapshot = %q, %d", mem, gen)
+	}
+	if err := s.setMemory("  - fact  \n\n"); err != nil {
+		t.Fatal(err)
+	}
+	mem, gen := s.snapshot()
+	if mem != "- fact" || gen != s.generation() {
+		t.Fatalf("snapshot = %q, %d; want %q, %d", mem, gen, "- fact", s.generation())
+	}
+}
+
+func TestSetMemoryIfStaleAfterSetMemory(t *testing.T) {
+	s := tempStore(t, "/proj/stale")
+	if err := s.setMemory("- original"); err != nil {
+		t.Fatal(err)
+	}
+	base, gen := s.snapshot()
+	// Someone else writes after the snapshot, even with identical content.
+	if err := s.setMemory(base); err != nil {
+		t.Fatal(err)
+	}
+	wrote, err := s.setMemoryIf("- from old job", gen, base)
+	if err != nil || wrote {
+		t.Fatalf("setMemoryIf = %v, %v; want rejected", wrote, err)
+	}
+	if got := s.memory(); got != "- original" {
+		t.Fatalf("memory = %q, want it untouched", got)
+	}
+}
+
+func TestSetMemoryIfComparesTrimmedBase(t *testing.T) {
+	s := tempStore(t, "/proj/trim")
+	if err := s.setMemory("- fact"); err != nil {
+		t.Fatal(err)
+	}
+	gen := s.generation()
+	wrote, err := s.setMemoryIf("- new", gen, "\n  - fact \n")
+	if err != nil || !wrote {
+		t.Fatalf("setMemoryIf = %v, %v; want write", wrote, err)
+	}
+	data, err := os.ReadFile(s.path("memory.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "- new\n" {
+		t.Fatalf("memory.md = %q, want trailing newline and no padding", data)
+	}
+}
+
+func TestMemoryJobRunRefusedAfterForget(t *testing.T) {
+	s := tempStore(t, "/proj/jobforget")
+	if err := s.setMemory("- Old fact."); err != nil {
+		t.Fatal(err)
+	}
+	cur, gen := s.snapshot()
+	srv := memoryReplyServer(t, "- Old fact.\n- Resurrected fact.")
+	job := &memoryJob{api: srv.URL, journal: "USER: hi", current: cur, store: s, gen: gen}
+
+	// The user runs /memory forget while the job is in flight.
+	if err := s.forget(); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := job.run(t.Context())
+	if err != nil || changed {
+		t.Fatalf("run = %v, %v; want no write", changed, err)
+	}
+	if got := s.memory(); got != "" {
+		t.Fatalf("memory = %q, forgotten facts must stay forgotten", got)
+	}
+}
+
+func TestMemoryJobRunUnchangedReplyKeepsGeneration(t *testing.T) {
+	s := tempStore(t, "/proj/jobsame")
+	if err := s.setMemory("- Fact."); err != nil {
+		t.Fatal(err)
+	}
+	cur, gen := s.snapshot()
+	for _, reply := range []string{"UNCHANGED", "- Fact.", "UNCHANGED because nothing new"} {
+		srv := memoryReplyServer(t, reply)
+		job := &memoryJob{api: srv.URL, journal: "USER: hi", current: cur, store: s, gen: gen}
+		changed, err := job.run(t.Context())
+		if err != nil || changed {
+			t.Fatalf("reply %q: run = %v, %v; want no change", reply, changed, err)
+		}
+	}
+	if g := s.generation(); g != gen {
+		t.Fatalf("generation moved %d -> %d without a write", gen, g)
+	}
+}
+
+func TestMemoryJobRunStoresUpdateWhenFresh(t *testing.T) {
+	s := tempStore(t, "/proj/jobfresh")
+	if err := s.setMemory("- Old fact."); err != nil {
+		t.Fatal(err)
+	}
+	cur, gen := s.snapshot()
+	srv := memoryReplyServer(t, "- Old fact.\n- New fact.")
+	job := &memoryJob{api: srv.URL, journal: "USER: hi", current: cur, store: s, gen: gen}
+	changed, err := job.run(t.Context())
+	if err != nil || !changed {
+		t.Fatalf("run = %v, %v; want write", changed, err)
+	}
+	if got, want := s.memory(), "- Old fact.\n- New fact."; got != want {
+		t.Fatalf("memory = %q, want %q", got, want)
+	}
+}
+
+func TestStoreWithoutDirIsInert(t *testing.T) {
+	s := &store{}
+	if s.path("memory.md") != "" {
+		t.Fatal("path of a dir-less store must be empty")
+	}
+	if s.memory() != "" {
+		t.Fatal("dir-less store has no memory")
+	}
+	s.pruneSessions(0) // must not panic or touch the working directory
+	if list := s.sessions(); len(list) != 0 {
+		t.Fatalf("dir-less store listed sessions: %v", list)
+	}
+	if _, err := s.loadSession("anything"); err == nil {
+		t.Fatal("loadSession on a dir-less store must fail")
+	}
+}
+
+// ---- session pruning and listing ----------------------------------------------
+
+func TestPruneSessionsRemovesHeaderSidecars(t *testing.T) {
+	s := tempStore(t, "/proj/prunehdr")
+	base := time.Now().Add(-time.Hour)
+	const total, keep = 8, 3
+	for i := 0; i < total; i++ {
+		id := fmt.Sprintf("s%02d", i)
+		ts := base.Add(time.Duration(i) * time.Minute)
+		for _, name := range []string{id + ".json", id + ".hdr"} {
+			p := s.path("sessions", name)
+			if err := writeAtomic(p, []byte("{}")); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chtimes(p, ts, ts); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	s.pruneSessions(keep)
+
+	for i := 0; i < total; i++ {
+		id := fmt.Sprintf("s%02d", i)
+		wantKept := i >= total-keep
+		for _, name := range []string{id + ".json", id + ".hdr"} {
+			_, err := os.Stat(s.path("sessions", name))
+			if wantKept && err != nil {
+				t.Errorf("%s should have been kept: %v", name, err)
+			}
+			if !wantKept && err == nil {
+				t.Errorf("%s should have been pruned", name)
+			}
+		}
+	}
+}
+
+func TestPruneSessionsAtOrUnderLimitKeepsAll(t *testing.T) {
+	s := tempStore(t, "/proj/pruneunder")
+	for i := 0; i < 4; i++ {
+		if err := writeAtomic(s.path("sessions", fmt.Sprintf("s%d.json", i)), []byte("{}")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, keep := range []int{4, 5, 100} {
+		s.pruneSessions(keep)
+		if files, _ := filepath.Glob(s.path("sessions", "*.json")); len(files) != 4 {
+			t.Fatalf("pruneSessions(%d) left %d files, want 4", keep, len(files))
+		}
+	}
+	// A store that never saved anything has no sessions dir; pruning is a no-op.
+	empty := tempStore(t, "/proj/pruneempty")
+	empty.pruneSessions(1)
+}
+
+func TestPruneSessionsIgnoresNonSessionFiles(t *testing.T) {
+	s := tempStore(t, "/proj/pruneother")
+	base := time.Now().Add(-time.Hour)
+	for i := 0; i < 3; i++ {
+		p := s.path("sessions", fmt.Sprintf("s%d.json", i))
+		if err := writeAtomic(p, []byte("{}")); err != nil {
+			t.Fatal(err)
+		}
+		ts := base.Add(time.Duration(i) * time.Minute)
+		os.Chtimes(p, ts, ts)
+	}
+	other := s.path("sessions", "notes.txt")
+	if err := writeAtomic(other, []byte("keep me")); err != nil {
+		t.Fatal(err)
+	}
+	s.pruneSessions(1)
+	if _, err := os.Stat(other); err != nil {
+		t.Fatalf("non-session file was removed: %v", err)
+	}
+	files, _ := filepath.Glob(s.path("sessions", "*.json"))
+	if len(files) != 1 || filepath.Base(files[0]) != "s2.json" {
+		t.Fatalf("remaining sessions = %v, want only s2.json", files)
+	}
+}
+
+func TestSaveSessionPrunesBeyondKeepSessions(t *testing.T) {
+	s := tempStore(t, "/proj/saveprune")
+	base := time.Now().Add(-time.Hour)
+	for i := 0; i < keepSessions+5; i++ {
+		sess := session{
+			ID:      fmt.Sprintf("sess-%03d", i),
+			Title:   fmt.Sprintf("session %d", i),
+			Updated: time.Now(),
+			Messages: []Message{
+				{Role: "system", Content: "sys"},
+				{Role: "user", Content: "hi"},
+			},
+		}
+		if err := s.saveSession(sess); err != nil {
+			t.Fatalf("saveSession %d: %v", i, err)
+		}
+		// Coarse filesystem clocks can tie; make the age order explicit.
+		ts := base.Add(time.Duration(i) * time.Second)
+		if err := os.Chtimes(s.path("sessions", sess.ID+".json"), ts, ts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	jsons, _ := filepath.Glob(s.path("sessions", "*.json"))
+	hdrs, _ := filepath.Glob(s.path("sessions", "*.hdr"))
+	if len(jsons) != keepSessions {
+		t.Fatalf("%d session files, want %d", len(jsons), keepSessions)
+	}
+	if len(hdrs) != len(jsons) {
+		t.Fatalf("%d header sidecars for %d session files", len(hdrs), len(jsons))
+	}
+	if got := len(s.sessions()); got != keepSessions {
+		t.Fatalf("sessions() lists %d, want %d", got, keepSessions)
+	}
+	// The one just saved is never the one pruned.
+	last := fmt.Sprintf("sess-%03d", keepSessions+4)
+	if _, err := s.loadSession(last); err != nil {
+		t.Fatalf("newest session pruned: %v", err)
+	}
+}
+
+func TestSessionsListsLegacyFilesWithoutHeader(t *testing.T) {
+	s := tempStore(t, "/proj/legacy")
+	now := time.Now()
+
+	// Legacy: full file only.
+	legacy, _ := json.Marshal(session{ID: "old", Title: "legacy chat", Updated: now.Add(-time.Hour),
+		Messages: []Message{{Role: "system"}, {Role: "user", Content: "x"}}})
+	if err := writeAtomic(s.path("sessions", "old.json"), legacy); err != nil {
+		t.Fatal(err)
+	}
+	// Modern: saved with a sidecar.
+	if err := s.saveSession(session{ID: "new", Title: "modern chat", Updated: now,
+		Messages: []Message{{Role: "system"}, {Role: "user", Content: "y"}}}); err != nil {
+		t.Fatal(err)
+	}
+	// Garbage in either form is skipped, not fatal.
+	if err := writeAtomic(s.path("sessions", "bad.hdr"), []byte("not json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAtomic(s.path("sessions", "bad2.json"), []byte("not json")); err != nil {
+		t.Fatal(err)
+	}
+
+	list := s.sessions()
+	if len(list) != 2 {
+		t.Fatalf("sessions() = %+v, want 2 entries", list)
+	}
+	if list[0].ID != "new" || list[1].ID != "old" {
+		t.Fatalf("order = %q, %q; want new, old", list[0].ID, list[1].ID)
+	}
+	if list[1].Title != "legacy chat" {
+		t.Fatalf("legacy title = %q", list[1].Title)
+	}
+	for _, e := range list {
+		if len(e.Messages) != 0 {
+			t.Fatalf("listing must not carry messages: %+v", e)
+		}
+	}
+}
+
+func TestSessionsHeaderWinsOverFullFile(t *testing.T) {
+	s := tempStore(t, "/proj/hdrwins")
+	if err := s.saveSession(session{ID: "a", Title: "from save", Updated: time.Now(),
+		Messages: []Message{{Role: "system"}, {Role: "user", Content: "x"}}}); err != nil {
+		t.Fatal(err)
+	}
+	list := s.sessions()
+	if len(list) != 1 {
+		t.Fatalf("a session with both .json and .hdr must be listed once, got %d", len(list))
+	}
+}
+
+func TestLoadSessionErrors(t *testing.T) {
+	s := tempStore(t, "/proj/loaderr")
+	short, _ := json.Marshal(session{ID: "short", Updated: time.Now(), Messages: []Message{{Role: "system"}}})
+	if err := writeAtomic(s.path("sessions", "short.json"), short); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAtomic(s.path("sessions", "garbage.json"), []byte("{")); err != nil {
+		t.Fatal(err)
+	}
+	full, _ := json.Marshal(session{ID: "ok", Updated: time.Now(),
+		Messages: []Message{{Role: "system"}, {Role: "user", Content: "x"}}})
+	if err := writeAtomic(s.path("sessions", "ok.json"), full); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name, id string
+		wantErr  bool
+	}{
+		{"empty id", "", true},
+		{"missing", "nope", true},
+		{"too few messages", "short", true},
+		{"invalid json", "garbage", true},
+		{"valid", "ok", false},
+		// filepath.Base strips directory parts, so traversal can't leave sessions/.
+		{"traversal stays inside sessions", "../../ok", false},
+		{"traversal to missing", "../memory", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := s.loadSession(tc.id)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("loadSession(%q) error = %v, wantErr %v", tc.id, err, tc.wantErr)
+			}
+		})
 	}
 }

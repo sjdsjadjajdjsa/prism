@@ -12,7 +12,11 @@ function cssVar(name) {
 }
 function spectrum() {
   const out = [];
-  for (let i = 0; i < 7; i++) out.push(hexToRgb(cssVar('--s' + i)));
+  for (let i = 0; i < 7; i++) {
+    const color = cssVar('--s' + i);
+    if (!color) break;
+    out.push(hexToRgb(color));
+  }
   return out;
 }
 function hexToRgb(h) {
@@ -32,9 +36,9 @@ function specAt(spec, v) {
 }
 function ease(t) { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); }
 function hash(x, y, s) {
-  let h = (x * 374761393 + y * 668265263 + s * 2246822519) | 0;
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  let h = (x * 374761393 + y * 668265263 + s * 1442695041) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+  return ((h ^ (h >>> 16)) >>> 0) % 10000 / 10000;
 }
 
 const palette = { spec: [], bg: [0, 0, 0], fg: [255, 255, 255], muted: [100, 100, 100] };
@@ -54,7 +58,7 @@ function setTheme(name) {
   themeCache.fg = cssVar('--fg') || themeCache.fg;
   themeCache.muted = cssVar('--muted') || themeCache.muted;
   themeCache.faint = cssVar('--faint') || themeCache.faint;
-  themeCache.spectrum = [0, 1, 2, 3, 4, 5, 6].map((i) => cssVar('--s' + i));
+  themeCache.spectrum = palette.spec.map((_, i) => cssVar('--s' + i));
   return true;
 }
 
@@ -67,15 +71,15 @@ function el(tag, cls, text) {
 }
 function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
 
-const TOOL_COLOR = { read: '--s4', edit: '--s3', write: '--s3', bash: '--s6', search: '--s2', grep: '--s2', ls: '--s1', list: '--s1' };
-function toolColor(tool) { return `var(${TOOL_COLOR[tool] || '--s5'})`; }
+const TOOL_COLOR = { read: '--x4', edit: '--s3', write: '--s3', bash: '--x6', search: '--s2', grep: '--s2', ls: '--s1', list: '--s1' };
+function toolColor(tool) { return `var(${TOOL_COLOR[tool] || '--x5'})`; }
 
 // ---------- transcript ----------
 const transcript = $('transcript');
 const liveEl = $('live');
 const state = {
   busy: false, model: null, tokens: 0, window: 0, modelsReady: null,
-  turn: null, steps: null, stepMap: new Map(), textBuf: '', textEl: null,
+  crew: null, turn: null, steps: null, stepMap: new Map(), textBuf: '', textEl: null,
   reasoning: '', phase: 'idle', phaseAt: 0, draft: null, abort: null, route: null, waitMs: 0,
 };
 
@@ -210,6 +214,134 @@ function addMeta({ model, seconds }) {
   m.appendChild(el('span', 'dot', '  ·  '));
   m.appendChild(el('span', 'free', 'free'));
   curTurn().appendChild(m); state.textEl = null;
+}
+
+// ---------- crew panel (mirrors crewLines in cli/crewui.go) ----------
+const CREW_MARK = { queued: '·', running: '⠋', done: '✓', failed: '✕', cancelled: '–' };
+const CREW_SPIN = [...'⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'];
+let crewTimer = 0, crewFrame = 0;
+function crewModelName(m) {
+  m = String(m || '');
+  m = m.slice(m.lastIndexOf('/') + 1);
+  return m.endsWith(':free') ? m.slice(0, -5) : m;
+}
+function crewRow(c, r) {
+  const row = el('div', 'crew-row');
+  const note = el('div', 'crew-note');
+  const parts = {
+    row, note, status: 'queued',
+    glyph: el('span', 'crew-glyph', '◆'), id: el('span', 'crew-id', r.id || ''),
+    task: el('span', 'crew-task', String(r.task || '').replace(/\s+/g, ' ').trim()),
+    model: el('span', 'crew-model', crewModelName(r.model)), mark: el('span', 'crew-mark', CREW_MARK.queued), steps: el('span', 'crew-steps'),
+  };
+  row.append(parts.glyph, parts.id, parts.task, parts.model, parts.mark, parts.steps);
+  c.rows.set(r.id, parts);
+  c.list.append(row, note);
+  crewApply(c, parts, r);
+  return parts;
+}
+function crewApply(c, p, r) {
+  if (r.status) p.status = r.status;
+  if (r.model != null) p.model.textContent = crewModelName(r.model);
+  p.row.dataset.status = p.status;
+  p.mark.textContent = p.status === 'running' ? (REDUCED ? '◌' : CREW_SPIN[crewFrame % CREW_SPIN.length]) : (CREW_MARK[p.status] || '·');
+  p.steps.textContent = r.steps > 0 ? String(r.steps) : '';
+  const note = r.note && (p.status === 'running' || p.status === 'failed') ? r.note : '';
+  p.note.textContent = note ? '↳ ' + note.replace(/\s+/g, ' ').trim() : '';
+  p.note.hidden = !note;
+}
+function crewRecolor(c) {
+  const n = Math.max(1, c.rows.size); let i = 0;
+  for (const p of c.rows.values()) {
+    const col = rgbStr(specAt(palette.spec, i++ / n));
+    p.row.style.setProperty('--hue', col);
+    p.glyph.style.color = col;
+  }
+}
+function crewHead(c) {
+  const n = c.review ? c.rows.size - 1 : c.rows.size;
+  c.count.textContent = ` · ${n} ${n === 1 ? 'worker' : 'workers'}${c.review ? ' + review' : ''}`;
+}
+function crewSpin() {
+  const any = document.querySelector('.crew-row[data-status="running"]');
+  if (!any || REDUCED) { clearInterval(crewTimer); crewTimer = 0; return; }
+  crewFrame++;
+  document.querySelectorAll('.crew-row[data-status="running"] .crew-mark').forEach((m) => { m.textContent = CREW_SPIN[crewFrame % CREW_SPIN.length]; });
+}
+function crewEnsureSpin() { if (!crewTimer && !REDUCED) crewTimer = setInterval(crewSpin, 80); }
+function crewSummary(c, text) {
+  c.done = true;
+  const rows = [...c.rows.values()];
+  let mark = '✓', cls = 'ok';
+  if (rows.some((p) => p.status === 'failed')) { mark = '✕'; cls = 'bad'; }
+  else if (rows.some((p) => p.status !== 'done')) { mark = '–'; cls = 'dim'; }
+  clear(c.sum); c.sum.className = 'crew-sum ' + cls; c.sum.hidden = !text;
+  c.sum.append(el('span', 'crew-sumark', mark + ' '), el('span', 'crew-sumtext', text || ''));
+}
+function crewMount(data) {
+  const t = curTurn();
+  flushText(); state.textEl = null; state.steps = null;
+  const root = el('div', 'crew');
+  const head = el('div', 'crew-head');
+  const count = el('span', 'crew-count');
+  head.append(el('span', 'grad', '◆ crew'), count);
+  const list = el('div', 'crew-list');
+  const sum = el('div', 'crew-sum'); sum.hidden = true;
+  root.append(head, list, sum);
+  t.appendChild(root);
+  const c = { root, list, sum, count, rows: new Map(), review: false, done: false };
+  for (const r of (data.rows || data.tasks || [])) {
+    if (r.id === 'review') c.review = true;
+    crewRow(c, r);
+  }
+  crewHead(c); crewRecolor(c);
+  if (data.review) { c.review = true; crewHead(c); }
+  return c;
+}
+// the crew tool's own step row is replaced by the panel
+function dropCrewStep() {
+  const steps = [...document.querySelectorAll('.step.running')].filter((s) => s.querySelector('.tool')?.textContent === 'crew');
+  const s = steps[steps.length - 1];
+  if (!s) return;
+  const g = s.parentNode;
+  s.remove();
+  if (g && g.classList.contains('steps-group') && !g.children.length) g.remove();
+  state.steps = null;
+}
+function crewStart(ev) {
+  dropCrewStep();
+  state.crew = crewMount({ rows: (ev.tasks || []).map((t) => ({ id: t.id, task: t.task, model: 'auto:' + t.role, status: 'queued' })) });
+  crewEnsureSpin(); scrollDown();
+}
+function crewWorker(ev) {
+  const c = state.crew;
+  if (!c || c.done) return;
+  let p = c.rows.get(ev.id);
+  if (!p) {
+    if (ev.id === 'review') c.review = true;
+    p = crewRow(c, { id: ev.id, task: ev.id === 'review' ? 'review what changed' : '', model: ev.model, status: ev.status });
+    crewHead(c); crewRecolor(c);
+  }
+  crewApply(c, p, ev);
+  crewEnsureSpin(); scrollDown();
+}
+function crewDone(ev) {
+  const c = state.crew;
+  if (!c) return;
+  crewSummary(c, ev.summary || '');
+  scrollDown();
+}
+// esc, an error or a dropped connection: rows that never finished read cancelled
+function crewSettle() {
+  const c = state.crew;
+  if (!c || c.done) return;
+  for (const p of c.rows.values()) if (p.status === 'queued' || p.status === 'running') crewApply(c, p, { status: 'cancelled' });
+  crewSummary(c, '');
+}
+function crewFromHistory(data) {
+  const c = crewMount(data);
+  crewSummary(c, data.summary || '');
+  state.crew = null;
 }
 
 function scrollDown() {
@@ -374,10 +506,10 @@ function renderStatus() {
 // ---------- shard buddy ----------
 const SHARD = ['......#......', '.....###.....', '....#####....', '...#######...', '..#########..', '.###########.', '#############'];
 const shardCv = $('shard');
-const SHARD_W = 170, SHARD_H = 100; // room for '!', the wave hand and orbiting dots
+const SHARD_W = 170, SHARD_H = 140;
 const DPR = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
 shardCv.width = Math.round(SHARD_W * DPR); shardCv.height = Math.round(SHARD_H * DPR);
-shardCv.style.width = SHARD_W + 'px'; shardCv.style.height = SHARD_H + 'px';
+shardCv.style.width = SHARD_W + 'px'; shardCv.style.height = SHARD_H + 'px'; shardCv.style.marginTop = '-40px';
 const shardCtx = shardCv.getContext('2d');
 shardCtx.setTransform(DPR, 0, 0, DPR, 0, 0);
 shardCtx.imageSmoothingEnabled = false;
@@ -389,7 +521,7 @@ function inShard(ox, oy, px, sx, sy) {
 }
 const BUBBLES = {
   thinking: 'refracting…', working: 'focusing the beam.', done: 'converged.', tests: 'green across the spectrum.',
-  crack: 'hm. a crack in the lens.', fogged: 'all lenses fogged. give it a minute.', hello: 'light in. rainbow out.',
+  split: 'splitting the light.', crack: 'hm. a crack in the lens.', fogged: 'all lenses fogged. give it a minute.', hello: 'light in. rainbow out.',
 };
 let bubbleTimer = 0;
 let quiet = false; // /quiet
@@ -406,30 +538,19 @@ function setMood(m, ms = 0) { buddy.mood = m; buddy.since = performance.now(); b
 function drawShard(now) {
   const n = now;
   if (buddy.moodUntil && n > buddy.moodUntil) setMood(state.busy ? 'working' : 'idle');
-  const md = buddy.mood;
+  const md = beamStop ? 'working' : buddy.mood;
   const W = 13, H = 7, px = 10;
-  const bob = (REDUCED ? 0 : Math.round(Math.sin(n / (md === 'working' ? 260 : 900)) * (md === 'working' ? 2 : 1.5)));
   shardCtx.clearRect(0, 0, SHARD_W, SHARD_H);
-  const ox = Math.round((SHARD_W - W * px) / 2), oy = Math.round(SHARD_H - H * px - 6 + bob);
+  const ox = Math.round((SHARD_W - W * px) / 2), oy = Math.round(SHARD_H - H * px - 6);
   const white = [255, 255, 255], bg = palette.bg;
   let glow = 0;
   if (md === 'working') glow = 0.18 + 0.12 * Math.sin(n / 140);
   else if (md === 'thinking') glow = 0.06;
   else if (md === 'proud') glow = 0.12 + 0.08 * Math.sin(n / 200);
-  // charge rises over 20s while busy (cli/buddy.go pose), or with the size of a tool draft
-  const charge = Math.max(buddy.charge, state.busy ? Math.min(1, (n - buddy.busySince) / 20000) : 0);
+  const charge = beamStop ? 1 : Math.max(buddy.charge, state.busy ? Math.min(1, (n - buddy.busySince) / 20000) : 0);
   glow += charge * (0.22 + 0.06 * Math.sin(n / 90));
   const dim = md === 'sleepy' ? 0.5 : 0;
-  if (md === 'proud' && !REDUCED) {
-    // extra halo behind the body
-    const hx = ox + 6.5 * px, hy = oy + 3.5 * px, hr = 58 + 6 * Math.sin(n / 200);
-    const halo = shardCtx.createRadialGradient(hx, hy, 4, hx, hy, hr);
-    halo.addColorStop(0, rgbStr(mix(bg, specAt(palette.spec, n / 3000), 0.55)));
-    halo.addColorStop(1, rgbStr(bg));
-    shardCtx.globalAlpha = 0.45 + 0.15 * Math.sin(n / 200);
-    shardCtx.fillStyle = halo; shardCtx.fillRect(hx - hr, hy - hr, hr * 2, hr * 2);
-    shardCtx.globalAlpha = 1;
-  }
+
   const speed = md === 'thinking' || md === 'working' ? 900 : 1700;
   const band = ((n / speed) % 1.8) * (W + H) - H;
   const center = 6;
@@ -467,46 +588,43 @@ function drawShard(now) {
     }
   }
   // decorations — mirrors drawShardSmall in cli/shard.go
-  const cx = ox + 6.5 * px, cy = oy + 3 * px;
+  const cellX = (x) => ox + (x + 0.5) * px;
+  const cellY = (y) => oy + (y + 0.5) * px * 2;
+  const empty = (x, y) => !inShard(ox, oy, px, cellX(x), cellY(y));
   shardCtx.textBaseline = 'middle'; shardCtx.textAlign = 'center';
+  shardCtx.font = '16px ' + MONO;
   if (charge > 0.05 && !REDUCED) {
-    // three dots orbiting the body, tighter as charge builds
     for (let i = 0; i < 3; i++) {
       const a = n / 260 + i * 2.1;
-      const dx = cx + Math.cos(a) * (8 - charge * 3) * px * 0.9, dy = cy + Math.sin(a) * 1.6 * px * 1.3;
-      if (inShard(ox, oy, px, dx, dy)) continue;
+      const x = 6 + Math.round(Math.cos(a) * (8 - charge * 3));
+      const y = 1 + Math.round(Math.sin(a) * 1.6);
+      if (!empty(x, y)) continue;
       shardCtx.fillStyle = rgbStr(mix(bg, specAt(palette.spec, i / 3 + n / 4000), 0.4 + 0.6 * charge));
-      shardCtx.fillRect(Math.round(dx) - 2, Math.round(dy) - 2, 4, 4);
+      shardCtx.fillText('·', cellX(x), cellY(y));
     }
   }
-  if (md === 'surprised') {
-    shardCtx.font = 'bold 18px ' + MONO;
-    shardCtx.fillStyle = rgbStr(specAt(palette.spec, 0.05));
-    shardCtx.fillText('!', ox + 12 * px, oy - 8);
-  } else if (md === 'happy' || md === 'proud') {
-    shardCtx.font = '12px ' + MONO;
-    for (let i = 0; i < 5; i++) {
-      if (hash(i, Math.floor(n / 180), 9) <= 0.3) continue;
-      const a = (i / 5) * 2 * Math.PI + n / 700;
-      const sx = cx + Math.cos(a) * 7.5 * px, sy = cy + Math.sin(a) * 2.6 * px;
-      if (inShard(ox, oy, px, sx, sy)) continue;
-      shardCtx.fillStyle = rgbStr(specAt(palette.spec, i / 5));
-      shardCtx.fillText('✦·✧'[i % 3], sx, sy);
-    }
-  } else if (md === 'sleepy') {
-    shardCtx.font = '12px ' + MONO;
+  if (md === 'sleepy') {
     for (let i = 0; i < 3; i++) {
       if (i > (n / 900) % 3) continue;
       shardCtx.fillStyle = rgbStr(mix(bg, palette.muted, 0.9 - 0.2 * i));
-      shardCtx.fillText('z', ox + (12.5 + i) * px, oy - 2 - i * 10);
+      shardCtx.fillText('z', cellX(12 + i), cellY(-1 - i));
     }
+  } else if ((md === 'happy' || md === 'proud') && !REDUCED) {
+    for (let i = 0; i < 5; i++) {
+      const a = i / 5 * 2 * Math.PI + n / 700;
+      const x = 6 + Math.trunc(Math.cos(a) * 9);
+      const y = 1 + Math.trunc(Math.sin(a) * 2.2);
+      if (!empty(x, y) || hash(i, Math.trunc(n / 180), 9) <= 0.3) continue;
+      shardCtx.fillStyle = rgbStr(specAt(palette.spec, i / 5));
+      shardCtx.fillText('✦·✧'[i % 3], cellX(x), cellY(y));
+    }
+  } else if (md === 'surprised') {
+    shardCtx.fillStyle = rgbStr(specAt(palette.spec, 0.05));
+    shardCtx.fillText('!', cellX(13), cellY(-1));
   }
   if (n < buddy.waveUntil && !REDUCED) {
-    // waving hand: ▝ / ▗ alternate every 170ms, just right of the body on row 1
-    const up = Math.floor(n / 170) % 2 === 0;
     shardCtx.fillStyle = rgbStr(specAt(palette.spec, 0.15 + n / 6000));
-    shardCtx.fillRect(ox + 13 * px + 3, oy + 2 * px + (up ? 0 : px), px, px);
-    shardCtx.fillRect(ox + 12 * px + 3, oy + 3 * px, px, px / 2);
+    shardCtx.fillText('▝▗'[Math.trunc(n / 170) % 2], cellX(13), cellY(1));
   }
 }
 
@@ -531,22 +649,25 @@ function playBeam() {
   if (REDUCED || !beamEnabled || beamStop) return;
   const wrap = $('beam'), cv = $('beam-canvas');
   if (!wrap || !cv || !window.PrismBeam) return;
-  cv.width = innerWidth; cv.height = innerHeight;
+  const bdpr = Math.min(2, DPR); // full-screen canvas: cap the backing store
+  cv.width = Math.round(innerWidth * bdpr); cv.height = Math.round(innerHeight * bdpr);
   wrap.hidden = false;
   const body = document.body;
-  const cell = { w: 12, h: 18 };
+  const cell = { w: 12, h: 20 };
   // origin sits on Shard's left edge — PrismBeam fires leftward from there, like the terminal
   const r = shardCv.getBoundingClientRect();
-  const originX = Math.max(1, Math.round(r.left / cell.w));
-  const originY = Math.max(0, Math.round((r.top + r.height * 0.29) / cell.h));
+  const originX = Math.max(1, Math.round((r.left + (SHARD_W - 130) / 2 - 22) / cell.w));
+  const originY = Math.max(0, Math.round((r.top + SHARD_H - 70 - 6 + 50) / cell.h));
   let timer = 0;
   const finish = () => {
     clearTimeout(timer);
     removeEventListener('keydown', finish, true);
     removeEventListener('pointerdown', finish, true);
-    if (beamStop) { const s = beamStop; beamStop = null; s(); }
+    if (beamStop) { const s = beamStop; beamStop = null; s(); drawBuddy(performance.now()); }
     wrap.hidden = true;
-    cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
+    const c2 = cv.getContext('2d');
+    c2.setTransform(1, 0, 0, 1, 0, 0);
+    c2.clearRect(0, 0, cv.width, cv.height);
     body.classList.remove('shake');
   };
   beamStop = window.PrismBeam.play({
@@ -554,7 +675,13 @@ function playBeam() {
     originX,
     originY,
     cell,
+    dpr: bdpr,
     theme: themeCache,
+    onFrame: (ctx) => {
+      drawBuddy(performance.now());
+      const r = shardCv.getBoundingClientRect();
+      ctx.drawImage(shardCv, r.left, r.top, r.width, r.height);
+    },
     onShake: (dx) => {
       body.classList.toggle('shake', !!dx);
       body.style.setProperty('--shake-x', (dx * 4) + 'px');
@@ -713,6 +840,9 @@ function handleEvent(ev) {
       finishStep(ev); setPhase('thinking'); state.reasoning = '';
       if (ev.ok === false) { setMood('surprised', 1500); say('crack', 2600); } break;
     case 'note': addNote(ev.text || ''); break;
+    case 'crew_start': state.draft = null; setPhase('tool'); setMood('working'); say('split', 3000); crewStart(ev); break;
+    case 'crew_worker': crewWorker(ev); break;
+    case 'crew_done': crewDone(ev); say('done', 3000); break;
     case 'usage': state.tokens = ev.tokens || 0; state.window = ev.window || 0; renderStatus(); break;
     case 'done': {
       if (ev.model) state.model = ev.model;
@@ -753,6 +883,7 @@ async function send(message) {
     else addNote('stopped.');
   } finally {
     setBusy(false); state.abort = null;
+    crewSettle();
     document.querySelectorAll('.step.running').forEach((s) => { s.classList.remove('running'); s.querySelector('.dia').textContent = '◆'; });
     if (buddy.mood === 'thinking' || buddy.mood === 'working') setMood('idle');
     scrollDown();
@@ -822,9 +953,38 @@ async function runCommand(line) {
       addNote(`shard's lines ${quiet ? 'off' : 'on'}`);
       return;
     case '/help': showHelp(); return;
-    case '/web':
-      addNote("you're already in the browser. to go back to the terminal, close this tab or press enter there");
+    case '/web': {
+      const note = el('div', 'note');
+      const link = el('a', 'web-link', location.origin);
+      link.href = location.origin;
+      const copy = el('button', 'web-copy', 'copy');
+      copy.type = 'button';
+      copy.setAttribute('aria-label', 'Copy browser link');
+      copy.addEventListener('click', async () => {
+        let copied = false;
+        try {
+          if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(location.origin);
+            copied = true;
+          }
+        } catch (_) {}
+        if (!copied) {
+          const selection = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(link);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          copied = document.execCommand?.('copy') || false;
+          if (copied) selection.removeAllRanges();
+        }
+        if (copied) { copy.textContent = 'copied'; copy.setAttribute('aria-label', 'Browser link copied'); }
+      });
+      note.append(link, ' ', copy, el('div', '', 'to go back to the terminal, close this tab or press enter there'));
+      curTurn().appendChild(note);
+      state.textEl = null;
+      scrollDown();
       return;
+      }
     default: break;
   }
   if (DEMO || !window.PrismCommands) { addNote(`${cmd} needs the prism server`); return; }
@@ -868,6 +1028,7 @@ function loadHistory(entries) {
       case 'text': state.textEl = null; addText(e.text || ''); state.textEl = null; break;
       case 'tool': addStep({ tool: e.tool, arg: e.arg, ok: e.ok, summary: e.summary }); break;
       case 'note': addNote(e.text || ''); break;
+      case 'crew': if (e.crew) crewFromHistory(e.crew); break;
       case 'error': addError(e.text || 'error'); break;
       default: break;
     }
@@ -903,9 +1064,35 @@ function save() {
 \`\`\`
 
 Open \`index.html\` in a browser to try it.`;
+async function* demoCrew(d) {
+  const tasks = [
+    { id: 'api', role: 'code', task: 'build the checkout api with validation, error states and a retry friendly submit flow' },
+    { id: 'ui', role: 'fast', task: 'build the checkout form' },
+    { id: 'docs', role: 'code', task: 'write the readme' },
+  ];
+  yield { type: 'route', route: 'nemotron-3-ultra-550b-a55b', wait_ms: 0 };
+  yield { type: 'tool_start', id: 'c1', tool: 'crew', arg: '3 workers' };
+  yield { type: 'crew_start', tasks };
+  for (const t of tasks) yield { type: 'crew_worker', id: t.id, model: 'auto:' + t.role, status: 'queued', steps: 0, note: '' };
+  await d(1500);
+  yield { type: 'crew_worker', id: 'api', model: 'nvidia/nemotron-3-ultra:free', status: 'running', steps: 2, note: 'writing api.go' };
+  yield { type: 'crew_worker', id: 'ui', model: 'groq/llama-4-scout:free', status: 'running', steps: 1, note: '' };
+  await d(2500);
+  yield { type: 'crew_worker', id: 'api', model: 'nvidia/nemotron-3-ultra:free', status: 'done', steps: 5, note: '' };
+  yield { type: 'crew_worker', id: 'ui', model: 'groq/llama-4-scout:free', status: 'failed', steps: 3, note: 'the router gave up' };
+  yield { type: 'crew_worker', id: 'docs', model: 'auto:code', status: 'cancelled', steps: 0, note: 'stopped before it started' };
+  yield { type: 'crew_worker', id: 'review', model: 'auto:review', status: 'running', steps: 1, note: 'reading api.go' };
+  await d(2500);
+  yield { type: 'crew_worker', id: 'review', model: 'auto:review', status: 'done', steps: 2, note: '' };
+  yield { type: 'crew_done', summary: '1 of 3 workers done, 2 did not finish' };
+  yield { type: 'tool_done', id: 'c1', ok: true, summary: '1 of 3 workers done, 2 did not finish' };
+  yield { type: 'text', text: 'the api is in; the form needs another pass.' };
+  yield { type: 'done', seconds: 9.8, model: 'nemotron-3-ultra-550b-a55b', tools: 1, tests_passed: false };
+}
 async function* demoStream(message, signal) {
   const fast = params.get('demo') === 'fast';
   const d = (ms) => sleep(fast ? 10 : ms, signal);
+  if (/crew/i.test(message)) { yield* demoCrew(d); return; }
   yield { type: 'route', route: 'nemotron-3-ultra-550b-a55b', wait_ms: 0 };
   yield { type: 'thinking' };
   for (const t of ['the user wants persistence.', '\nI should read app.js first,', '\nthen add a save() helper and call it after every mutation.']) { await d(200); yield { type: 'reasoning', text: t }; }
@@ -962,7 +1149,7 @@ $('theme').addEventListener('change', (e) => setTheme(e.target.value));
 addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && state.busy && document.activeElement !== input) stop();
   const a = document.activeElement;
-  if (a !== input && a.tagName !== 'SELECT' && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) input.focus();
+  if (a !== input && !['SELECT', 'BUTTON', 'A'].includes(a.tagName) && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) input.focus();
 });
 
 // ---------- shard buddy draw (web/shard.js when it is loaded) ----------
@@ -970,16 +1157,19 @@ function drawBuddy(now) {
   const S = window.PrismShard;
   if (S && typeof S.drawSmall === 'function') {
     if (buddy.moodUntil && now > buddy.moodUntil) setMood(state.busy ? 'working' : 'idle');
-    const charge = Math.max(buddy.charge, state.busy ? Math.min(1, (now - buddy.busySince) / 20000) : 0);
+    const charge = beamStop ? 1 : Math.max(buddy.charge, state.busy ? Math.min(1, (now - buddy.busySince) / 20000) : 0);
     const look = now - buddy.lookAt < 700 ? -1 : 0;
-    S.drawSmall(shardCv, themeCache, { md: buddy.mood, mood: buddy.mood, charge, look, wave: now < buddy.waveUntil }, now);
+    const md = beamStop ? 'working' : buddy.mood;
+    S.drawSmall(shardCv, themeCache, { md, mood: md, charge, look, wave: now < buddy.waveUntil }, now);
     return;
   }
   drawShard(now);
 }
 
 // ---------- terminal handoff ----------
+let handoffSeen = false;
 function showHandoff() {
+  handoffSeen = true;
   if ($('handoff')) return;
   const note = el('div', 'handoff muted', 'this chat is shared with your terminal · close this tab to go back');
   note.id = 'handoff';
@@ -993,8 +1183,12 @@ function showClosed() {
   o.id = 'closed';
   o.style.cssText = 'position:fixed;inset:0;z-index:90;display:flex;flex-direction:column;gap:6px;align-items:center;justify-content:center;text-align:center;'
     + 'background:rgba(0,0,0,.72);backdrop-filter:blur(2px);color:var(--fg);font-size:15px;letter-spacing:.02em';
-  o.appendChild(el('p', '', 'this chat went back to the terminal'));
-  const hint = el('p', '', 'you can close this tab. if you closed the terminal too, run prism continue to pick the chat up again');
+  o.setAttribute('role', 'alertdialog');
+  o.setAttribute('aria-label', 'prism disconnected');
+  o.appendChild(el('p', '', handoffSeen ? 'this chat went back to the terminal' : 'prism stopped'));
+  const hint = el('p', '', handoffSeen
+    ? 'you can close this tab. if you closed the terminal too, run prism continue to pick the chat up again'
+    : 'you can close this tab. run prism continue to pick the chat up again');
   hint.style.cssText = 'color:var(--muted);font-size:13px;margin:0';
   o.appendChild(hint);
   document.body.appendChild(o);
@@ -1051,7 +1245,7 @@ async function boot() {
   startHeartbeat();
   if (DEMO) {
     setTimeout(() => {
-      input.value = ''; send('make my todo list persist between reloads, then run the tests');
+      input.value = ''; send(params.get('demo') === 'crew' ? 'build the checkout with a crew' : 'make my todo list persist between reloads, then run the tests');
     }, params.get('demo') === 'fast' ? 50 : 3000);
   }
 }

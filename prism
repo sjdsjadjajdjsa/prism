@@ -43,6 +43,8 @@ network_mode() {
 
 compose() {
   local extra=()
+  [[ -d "$HERE/custom-providers.json" ]] && rmdir "$HERE/custom-providers.json" 2>/dev/null
+  [[ -e "$HERE/custom-providers.json" ]] || { echo "[]" > "$HERE/custom-providers.json"; chmod 600 "$HERE/custom-providers.json"; }
   [[ "$(network_mode)" == host ]] && extra=(-f "$HERE/docker-compose.host.yml")
   docker compose --project-directory "$HERE" -f "$HERE/docker-compose.yml" ${extra[@]+"${extra[@]}"} "$@"
 }
@@ -127,19 +129,30 @@ free_port() {
 open_browser() {
   if grep -qi microsoft /proc/version 2>/dev/null; then
     if command -v wslview >/dev/null 2>&1; then wslview "$1"
-    else (cd /mnt/c 2>/dev/null; cmd.exe /c start "" "$1" >/dev/null 2>&1) || true
+    else (cd /mnt/c && cmd.exe /c start "" "$1" >/dev/null 2>&1)
     fi
   elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$1"
   elif command -v open >/dev/null 2>&1; then open "$1"
+  else return 1
   fi
 }
 
 open_when_ready() {
-  local url="http://127.0.0.1:$1" parent="$2" open=0
+  local url="http://127.0.0.1:$1" parent="$2" open=0 seen="" token
   command -v curl >/dev/null 2>&1 || return 0
   while sleep 2 && kill -0 "$parent" 2>/dev/null; do
     if curl -fs -m 1 -o /dev/null "$url/api/info"; then
-      [[ $open == 0 ]] && open_browser "$url" >/dev/null 2>&1
+      token="$(curl -fs -m 1 "$url/api/handoff-open" 2>/dev/null || true)"
+      if [[ -n "$token" && "$token" != "$seen" ]]; then
+        seen="$token"
+        if open_browser "$url" >/dev/null 2>&1; then
+          curl -fs -m 1 -H "Origin: $url" -X POST "$url/api/handoff-open" >/dev/null 2>&1 || true
+        else
+          curl -fs -m 1 -H "Origin: $url" -X POST "$url/api/handoff-open?failed=1" >/dev/null 2>&1 || true
+        fi
+      elif [[ -z "$token" && $open == 0 ]]; then
+        open_browser "$url" >/dev/null 2>&1 || true
+      fi
       open=1
     else
       open=0
@@ -147,8 +160,26 @@ open_when_ready() {
   done
 }
 
+# Docker applies the window size to the container's terminal only after the container
+# has started, so a program that reads it immediately sees 0x0 (and the resize signal can
+# arrive before it listens). Hand it the real size as a fallback; the live size and
+# resizes still win whenever the terminal reports one.
+term_size_args() {
+  [[ -t 0 ]] || return 0
+  local cols lines
+  read -r lines cols < <(stty size 2>/dev/null) || true
+  if ! [[ "$cols" =~ ^[0-9]+$ && "$lines" =~ ^[0-9]+$ && "$cols" -gt 0 && "$lines" -gt 0 ]]; then
+    cols="$(tput cols 2>/dev/null || true)"; lines="$(tput lines 2>/dev/null || true)"
+  fi
+  if [[ "$cols" =~ ^[0-9]+$ && "$lines" =~ ^[0-9]+$ && "$cols" -gt 0 && "$lines" -gt 0 ]]; then
+    printf '%s\n' -e "COLUMNS=$cols" -e "LINES=$lines"
+  fi
+}
+
 run_agent() {
-  local folder="$1" publish=() listen; shift
+  local folder="$1" publish=() listen size=(); shift
+  while IFS= read -r line; do size+=("$line"); done < <(term_size_args)
+  [[ -t 2 ]] && printf '\033[2m◆ starting prism…\033[0m\n' >&2
   start_router
   port="$(free_port)"
   if [[ "$(network_mode)" == host ]]; then
@@ -159,7 +190,7 @@ run_agent() {
   fi
   open_when_ready "$port" $$ &
   watcher=$!
-  PRISM_WEB_LISTEN="$listen" PRISM_PUBLIC_PORT="$port" PRISM_PROJECT="${folder/#$HOME/\~}" PROJECT_DIR="$folder" HOST_UID="$(id -u)" HOST_GID="$(id -g)" compose run --rm ${publish[@]+"${publish[@]}"} agent "$@"
+  PRISM_WEB_LISTEN="$listen" PRISM_PUBLIC_PORT="$port" PRISM_PROJECT="${folder/#$HOME/\~}" PROJECT_DIR="$folder" HOST_UID="$(id -u)" HOST_GID="$(id -g)" compose run --rm -e PRISM_MEMORY_KEEP=1 ${size[@]+"${size[@]}"} ${publish[@]+"${publish[@]}"} agent "$@"
 }
 
 web() {
@@ -250,11 +281,201 @@ setup() {
   compose up -d --force-recreate router >/dev/null 2>&1
   echo
   echo "Saved. Run: $(prism_cmd) status"
+  echo "Already pay for a model? Add it with: $(prism_cmd) keys add"
+}
+
+# ---- your own models: prism keys / keys add / keys remove ----
+# The list lives in custom-providers.json (one entry per line); the secret keys stay in keys.conf.
+CUSTOM="$HERE/custom-providers.json"
+FREE_KEYS="NVIDIA_API_KEY:NVIDIA GROQ_API_KEY:Groq GEMINI_API_KEY:Google MISTRAL_API_KEY:Mistral OPENROUTER_API_KEY:OpenRouter ZAI_API_KEY:Z.ai"
+
+key_value() { grep -E "^$1=" "$KEYS" 2>/dev/null | cut -d= -f2- || true; }
+
+mask_key() {
+  if [[ -z "$1" ]]; then echo "(not set)"; elif (( ${#1} <= 8 )); then echo "****"; else echo "${1:0:3}...${1: -4}"; fi
+}
+
+set_key() {
+  { grep -vE "^$1=" "$KEYS" 2>/dev/null || true; echo "$1=$2"; } > "$KEYS.tmp"
+  mv "$KEYS.tmp" "$KEYS"
+  chmod 600 "$KEYS"
+}
+
+custom_lines() { grep '^{' "$CUSTOM" 2>/dev/null | sed 's/,$//' || true; }
+
+save_custom_lines() {
+  local body
+  body="$(sed '$!s/$/,/')"
+  { echo "["; [[ -z "$body" ]] || echo "$body"; echo "]"; } > "$CUSTOM"
+  chmod 600 "$CUSTOM"
+}
+
+entry_field() { sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" <<<"$2"; }
+
+restart_router() { compose up -d --build --force-recreate router >/dev/null 2>&1 || { echo "Couldn't restart the AI router. Run: $(prism_cmd) logs" >&2; exit 1; }; }
+
+keys_list() {
+  local pair key any=0 line id models var paid
+  echo "Free providers (built in):"
+  for pair in $FREE_KEYS; do
+    key="$(key_value "${pair%%:*}")"
+    [[ -n "$key" ]] || continue
+    printf '  %-12s %s\n' "${pair#*:}" "$(mask_key "$key")"
+    any=1
+  done
+  (( any )) || echo "  no keys yet. Prism works without them; add some with: $(prism_cmd) setup"
+  echo
+  echo "Your own models:"
+  any=0
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    any=1
+    id="$(entry_field id "$line")"
+    var="$(entry_field keyVar "$line")"
+    models="$(sed -n 's/.*"models":\[\([^]]*\)\].*/\1/p' <<<"$line" | tr -d '"' | tr ',' ' ')"
+    paid="paid: only used when you pick it"
+    [[ "$line" == *'"paid":false'* ]] && paid="free to you"
+    printf '  %-14s %-26s %-14s (%s)\n' "$id" "$models" "$([[ -n "$var" ]] && mask_key "$(key_value "$var")" || echo "no key needed")" "$paid"
+  done < <(custom_lines)
+  (( any )) || echo "  none. Add one with: $(prism_cmd) keys add"
+}
+
+keys_add() {
+  local choice id name url var def paid link key current models first test_url saved_url answer code body entry list m guess reserved
+  echo "Add a model you pay for (or one on this computer). It is never used for the free \"auto\"."
+  echo "It only answers when you pick it by name."
+  echo
+  echo "  1) OpenAI"
+  echo "  2) Anthropic (Claude)"
+  echo "  3) DeepSeek"
+  echo "  4) OpenRouter (paid models)"
+  echo "  5) Ollama on this computer (no key)"
+  echo "  6) other (any OpenAI-compatible URL)"
+  read -rp "Which one? [1-6] " choice || exit 1
+  paid=true; var=""; def=""; link=""
+  case "$choice" in
+    1) id=openai; name=OpenAI; url=https://api.openai.com/v1; var=OPENAI_API_KEY; def=gpt-4o-mini; link=https://platform.openai.com/api-keys ;;
+    2) id=anthropic; name="Anthropic (Claude)"; url=https://api.anthropic.com/v1; var=ANTHROPIC_API_KEY; def=claude-sonnet-4-5; link=https://console.anthropic.com/settings/keys ;;
+    3) id=deepseek; name=DeepSeek; url=https://api.deepseek.com/v1; var=DEEPSEEK_API_KEY; def=deepseek-chat; link=https://platform.deepseek.com/api_keys ;;
+    4) id=openrouter-paid; name="OpenRouter (paid models)"; url=https://openrouter.ai/api/v1; var=OPENROUTER_API_KEY; def=openai/gpt-4o-mini; link=https://openrouter.ai/keys ;;
+    5)
+      id=ollama-local; name="Ollama (this computer)"; url=http://host.docker.internal:11434/v1; paid=false
+      def="$(curl -s -m 3 http://127.0.0.1:11434/api/tags 2>/dev/null | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4 || true)"
+      def="${def:-qwen3-coder}"
+      ;;
+    6)
+      read -rp "  Address of the service (like https://api.example.com/v1): " url || exit 1
+      url="${url%/}"; url="${url%/chat/completions}"; url="${url%/}"
+      if [[ ! "$url" =~ ^https?://[^[:space:]\"\\\$]+$ ]]; then echo "That doesn't look like a web address. Nothing saved." >&2; exit 1; fi
+      guess="${url#*://}"; guess="${guess%%/*}"; guess="${guess%%:*}"; guess="${guess#api.}"; guess="${guess%%.*}"
+      guess="$(tr 'A-Z' 'a-z' <<<"$guess" | tr -c 'a-z0-9\n-' '-' | cut -c1-32)"
+      read -rp "  A short name for it [$guess]: " id || exit 1
+      id="$(tr 'A-Z ' 'a-z-' <<<"${id:-$guess}")"
+      name="$id"
+      var="CUSTOM_$(tr 'a-z-' 'A-Z_' <<<"$id")_API_KEY"
+      ;;
+    *) echo "Pick a number from 1 to 6. Nothing saved." >&2; exit 1 ;;
+  esac
+  reserved="$(grep -oE '^      "name": "[^"]+"' "$HERE/router/providers.json" 2>/dev/null | cut -d'"' -f4 || true)"
+  if [[ ! "$id" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || grep -qxF "$id" <<<"$reserved"; then
+    echo "\"$id\" can't be used as a name (use lowercase letters, numbers and dashes; not a built-in name). Nothing saved." >&2
+    exit 1
+  fi
+  key=""
+  if [[ -n "$var" ]]; then
+    current="$(key_value "$var")"
+    echo
+    [[ -z "$link" ]] || echo "  Get a key: $link"
+    if [[ -n "$current" ]]; then read -rsp "  Paste your $name key (Enter keeps the saved one): " key || exit 1
+    else read -rsp "  Paste your $name key (hidden): " key || exit 1; fi
+    echo
+    key="${key:-$current}"
+    if [[ -z "$key" || "$key" =~ [[:space:]] ]]; then echo "No usable key entered. Nothing saved." >&2; exit 1; fi
+  fi
+  if [[ -n "$def" ]]; then read -rp "  Model name(s), separated by spaces [$def]: " models || exit 1
+  else read -rp "  Model name(s), separated by spaces: " models || exit 1; fi
+  models="${models:-$def}"; models="${models//,/ }"
+  [[ -n "${models// /}" ]] || { echo "Add at least one model name. Nothing saved." >&2; exit 1; }
+  list=""
+  for m in $models; do
+    [[ "$m" =~ ^[A-Za-z0-9._:/@+-]+$ ]] || { echo "\"$m\" has characters Prism can't use. Nothing saved." >&2; exit 1; }
+    list+="${list:+,}\"$m\""
+  done
+  first="${models%% *}"
+
+  # What Prism's router (inside Docker) calls, and what this terminal can call.
+  saved_url="$url"; test_url="$url"
+  if [[ "$choice" == 6 && "$url" =~ ^https?://(localhost|127\.0\.0\.1)([:/]|$) ]]; then
+    saved_url="$(sed -E 's#^(https?://)(localhost|127\.0\.0\.1)#\1host.docker.internal#' <<<"$url")"
+    echo "  (the router runs in Docker, so it will reach this computer as host.docker.internal)"
+  fi
+  test_url="${test_url/host.docker.internal/127.0.0.1}"
+
+  echo
+  echo "Trying one tiny request to $first ..."
+  body="$(mktemp)"
+  code="$({ if [[ -n "$key" ]]; then printf 'authorization: Bearer %s\n' "$key"; fi; } | curl -sS -m 60 -o "$body" -w '%{http_code}' -H @- -H 'content-type: application/json' \
+    -d "{\"model\":\"$first\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hi\"}],\"max_tokens\":5}" "$test_url/chat/completions" 2>"$body.err")" || code=000
+  if [[ "$code" == 2* ]]; then
+    echo "It works."
+  else
+    case "$code" in
+      000) echo "Couldn't reach $test_url: $(head -c 200 "$body.err")" ;;
+      401|403) echo "The service didn't accept that key (HTTP $code). Check the key and that it has credit." ;;
+      404) echo "The service doesn't know that address or model (HTTP 404): $(head -c 200 "$body")" ;;
+      *) echo "The service answered HTTP $code: $(head -c 200 "$body")" ;;
+    esac
+    rm -f "$body" "$body.err"
+    read -rp "Save it anyway? [y/N] " answer || answer=n
+    [[ "$answer" == [yY]* ]] || { echo "Nothing saved."; exit 1; }
+  fi
+  rm -f "$body" "$body.err"
+
+  if [[ -n "$var" ]]; then entry="\"keyVar\":\"$var\""; else entry="\"keyless\":true"; fi
+  entry="{\"id\":\"$id\",\"name\":\"$name\",\"baseURL\":\"$saved_url\",$entry,\"models\":[$list],\"paid\":$paid}"
+  { custom_lines | grep -vF "\"id\":\"$id\"" || true; echo "$entry"; } | save_custom_lines
+  [[ -z "$var" ]] || set_key "$var" "$key"
+  restart_router
+  echo
+  echo "Saved. Pick it by name: ${id}/${first}"
+  [[ "$paid" == false ]] || echo "Prism won't use it for \"auto\", so nothing is spent unless you pick it."
+}
+
+keys_remove() {
+  local id="${1:-}" line var pair free_var used=0
+  [[ -n "$id" ]] || { echo "Which one? See the names with: $(prism_cmd) keys   then: $(prism_cmd) keys remove <id>" >&2; exit 1; }
+  line="$(custom_lines | grep -F "\"id\":\"$id\"" || true)"
+  [[ -n "$line" ]] || { echo "No model of yours is called \"$id\". See them with: $(prism_cmd) keys" >&2; exit 1; }
+  var="$(entry_field keyVar "$line")"
+  { custom_lines | grep -vF "\"id\":\"$id\"" || true; } | save_custom_lines
+  if [[ -n "$var" ]]; then
+    for pair in $FREE_KEYS; do [[ "${pair%%:*}" == "$var" ]] && used=1; done
+    custom_lines | grep -qF "\"keyVar\":\"$var\"" && used=1
+    if (( ! used )); then
+      { grep -vE "^$var=" "$KEYS" 2>/dev/null || true; } > "$KEYS.tmp"
+      mv "$KEYS.tmp" "$KEYS"
+      chmod 600 "$KEYS"
+    fi
+  fi
+  restart_router
+  echo "Removed $id."
+}
+
+keys_cmd() {
+  [[ -f "$KEYS" ]] || cp "$HERE/keys.example.conf" "$KEYS"
+  chmod 600 "$KEYS"
+  case "${1:-}" in
+    "") keys_list ;;
+    add) keys_add ;;
+    remove|rm) keys_remove "${2:-}" ;;
+    *) echo "Use: $(prism_cmd) keys | keys add | keys remove <id>" >&2; exit 1 ;;
+  esac
 }
 
 case "${1:-}" in
   -h|--help|help) usage ;;
   setup) setup ;;
+  keys) keys_cmd "${2:-}" "${3:-}" ;;
   status) start_router; compose exec -T router wget -qO- "$ROUTER/status?format=text" ;;
   logs) compose logs -f router ;;
   stop) compose down ;;

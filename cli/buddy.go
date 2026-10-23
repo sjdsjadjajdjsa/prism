@@ -135,3 +135,14 @@ func drawSpeech(cv *canvas, t theme, m model, cx, colW, sx, sy int) {
 	}
 	drawBubble(cv, t, x, sy-4, text, reveal)
 }
+
+// crewReact is Shard's reaction to the crew events: the busy mood already
+// reads as working while the crew runs.
+func (m *model) crewReact(event any) {
+	switch event.(type) {
+	case evCrewStart:
+		m.speak("splitting the light.")
+	case evCrewDone:
+		m.speak("converged.")
+	}
+}

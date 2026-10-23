@@ -1,5 +1,6 @@
 import http from 'node:http'
 import { readFileSync, writeFileSync, renameSync } from 'node:fs'
+import { customProviders, eligible } from './custom.mjs'
 
 const config = JSON.parse(readFileSync(new URL('./providers.json', import.meta.url), 'utf8'))
 const port = Number(process.env.PORT) || 4848
@@ -8,9 +9,11 @@ const firstByteTimeout = 150_000
 const stallTimeout = 240_000
 const hedgeDelay = Number(process.env.HEDGE_MS) || 6000
 const maxParallel = 3
+const providerInflight = Number(process.env.PRISM_PROVIDER_INFLIGHT) || 2
+const roleNames = ['code', 'fast', 'review']
 const rankPenalty = 4000
 const statsTTL = 6 * 60 * 60_000
-const coldHedgeDelay = 2000
+const coldHedgeDelay = Number(process.env.COLD_HEDGE_MS) || 2000
 const statsFile = process.env.STATS_FILE || ''
 const stats = new Map()
 let saveTimer
@@ -33,21 +36,30 @@ const saveStats = () => {
 }
 const cooldowns = new Map()
 const lastErrors = new Map()
+const inflight = new Map()
+const slotWaiters = new Set()
 
 const expand = text => text.replace(/\$\{(\w+)(?::-([^}]*))?\}/g, (_, name, fallback = '') => process.env[name] || fallback)
 
 const routes = () =>
-  config.providers
+  [...config.providers, ...customProviders()]
     .filter(provider => !provider.requires || process.env[provider.requires])
     .flatMap(provider =>
-      provider.models.map(name => {
-        const model = expand(name)
+      provider.models.map(entry => {
+        const spec = typeof entry === 'string' ? { name: entry } : entry
+        const model = expand(spec.name)
         return {
           id: `${provider.name}/${model}`,
+          provider: provider.name,
+          family: spec.family ?? provider.name,
+          roles: spec.roles ?? [],
+          vision: spec.vision === true,
           model,
           baseURL: expand(provider.baseURL),
           key: provider.requires && provider.auth !== false ? process.env[provider.requires] : undefined,
           quick: provider.quick,
+          paid: provider.mark?.paid,
+          source: provider.mark?.source,
         }
       }),
     )
@@ -63,9 +75,9 @@ const learn = (route, ms) => {
   saveStats()
 }
 
-const ordered = () => {
+const ordered = keep => {
   const now = Date.now()
-  const all = routes()
+  const all = routes().filter(keep)
   const ready = all
     .map((route, rank) => ({ route, score: rank * rankPenalty + expectedWait(route) }))
     .filter(({ route }) => (cooldowns.get(route.id) ?? 0) <= now)
@@ -131,19 +143,36 @@ const complete = async (req, res) => {
     }
     return send(res, 400, { error: { message: 'Request body must be JSON', type: 'invalid_request' } })
   }
-  const { prism_quick: quick, prism_avoid: avoid, ...rest } = payload
+  const { prism_quick: quick, prism_avoid: avoid, prism_exclude_families: exclude } = payload
+  const rest = Object.fromEntries(Object.entries(payload).filter(([key]) => !key.startsWith('prism_')))
   const avoided = new Set(Array.isArray(avoid) ? avoid : [])
-  const queue = ordered().sort((a, b) => avoided.has(a.id) - avoided.has(b.id))
-  if (!queue.length) return send(res, 503, { error: { message: 'No free AI routes are configured', type: 'no_route_available', failures: [] } })
+  const excluded = new Set(Array.isArray(exclude) ? exclude : [])
+  const [head, tail] = String(payload.model ?? 'auto').split(/:(.*)/s)
+  const role = head === 'auto' && roleNames.includes(tail) ? tail : ''
+  const wantsVision = head === 'auto' && tail === 'vision'
+  // Your own paid models only answer when pinned by their full name (as listed in /v1/models).
+  const matches = route => route.id === payload.model || (route.paid !== true && route.model === payload.model)
+  const pinned = head !== 'auto' && routes().some(matches)
+  const queue = ordered(route => (pinned ? matches(route) : eligible(route)) && (!wantsVision || route.vision) && !excluded.has(route.family)).sort(
+    (a, b) => avoided.has(a.id) - avoided.has(b.id) || (role ? b.roles.includes(role) - a.roles.includes(role) : 0),
+  )
+  if (!queue.length) {
+    if (wantsVision && !routes().some(route => route.vision && !excluded.has(route.family))) return send(res, 503, { error: { message: 'no free model that can see images is available right now', type: 'no_route_available', failures: [] } })
+    if (excluded.size && routes().length) return send(res, 503, { error: { message: 'Every matching free AI route is in an excluded family', type: 'no_route_available', failures: [] } })
+    return send(res, 503, { error: { message: 'No free AI routes are configured', type: 'no_route_available', failures: [] } })
+  }
+  const readyProviders = new Set(queue.filter(route => (cooldowns.get(route.id) ?? 0) <= Date.now()).map(route => route.provider)).size
+  const crew = req.headers['x-prism-crew'] === '1'
   const failures = []
   const live = new Set()
   let winner = null
   let closed = false
-  let next = 0
+  const pending = [...queue]
   let hedgeTimer
   res.on('close', () => {
     if (res.writableFinished) return
     closed = true
+    slotWaiters.delete(launch)
     for (const attempt of live) attempt.controller.abort()
   })
 
@@ -170,7 +199,7 @@ const complete = async (req, res) => {
     })
 
   const giveUp = () => {
-    if (winner || closed || live.size || next < queue.length) return
+    if (winner || closed || live.size || pending.length) return
     send(res, 503, {
       error: {
         message: `Every free AI route failed. ${failures.map(failure => failure.message).join(' | ')}`,
@@ -180,8 +209,16 @@ const complete = async (req, res) => {
     })
   }
 
+  const free = attempt => {
+    if (attempt.freed) return
+    attempt.freed = true
+    inflight.set(attempt.route.provider, Math.max(0, (inflight.get(attempt.route.provider) ?? 0) - 1))
+    for (const wake of [...slotWaiters]) wake()
+  }
+
   const lose = (attempt, status, headers, detail) => {
     live.delete(attempt)
+    free(attempt)
     if (winner || closed || attempt.controller.signal.aborted) return
     failures.push({ route: attempt.route.id, status, message: fail(attempt.route, status, headers, detail) })
     launch()
@@ -206,6 +243,7 @@ const complete = async (req, res) => {
       'content-type': upstream.headers.get('content-type') ?? 'application/json',
       'cache-control': 'no-cache',
       'x-free-route': attempt.route.id,
+      'x-prism-family': attempt.route.family,
       'x-free-wait': String(wait),
     })
     res.write(first)
@@ -225,7 +263,7 @@ const complete = async (req, res) => {
     res.end()
   }
 
-  const run = async attempt => {
+  const execute = async attempt => {
     let upstream
     let networkError
     for (let tries = 0; tries < 2 && !upstream && !attempt.controller.signal.aborted; tries++) {
@@ -251,6 +289,7 @@ const complete = async (req, res) => {
     if (!first || first.done) {
       attempt.controller.abort()
       live.delete(attempt)
+      free(attempt)
       failures.push({ route: attempt.route.id, status: 0, message: fail(attempt.route, 0, null, first ? 'empty reply' : `no reply after ${seconds(firstByteTimeout)}`) })
       launch()
       return giveUp()
@@ -259,14 +298,35 @@ const complete = async (req, res) => {
     await pump(attempt, upstream, reader, first.value)
   }
 
+  const run = async attempt => {
+    try {
+      await execute(attempt)
+    } finally {
+      free(attempt)
+    }
+  }
+
   const launch = () => {
     clearTimeout(hedgeTimer)
-    if (winner || closed || next >= queue.length || live.size >= maxParallel) return
-    const attempt = { route: queue[next++], controller: new AbortController(), started: Date.now() }
+    slotWaiters.delete(launch)
+    if (winner || closed || !pending.length) return
+    if (live.size && (crew || live.size >= Math.min(maxParallel, Math.max(1, readyProviders - 1)))) return
+    const slot = pending.findIndex(route => (inflight.get(route.provider) ?? 0) < providerInflight)
+    if (slot < 0) {
+      if (!live.size) slotWaiters.add(launch)
+      return
+    }
+    const [route] = pending.splice(slot, 1)
+    const attempt = { route, controller: new AbortController(), started: Date.now() }
+    inflight.set(route.provider, (inflight.get(route.provider) ?? 0) + 1)
     if (live.size) console.log(`⇄ ${attempt.route.id} joins the race`)
     live.add(attempt)
     run(attempt)
-    hedgeTimer = setTimeout(launch, expectedWait(attempt.route) ? hedgeDelay : coldHedgeDelay)
+    if (!crew) {
+      // A route we know is slower than hedgeDelay (or know nothing about) gets the short delay.
+      const ew = expectedWait(attempt.route)
+      hedgeTimer = setTimeout(launch, !ew || ew > hedgeDelay ? coldHedgeDelay : hedgeDelay)
+    }
   }
 
   launch()
@@ -276,6 +336,11 @@ const status = () => {
   const now = Date.now()
   return routes().map(route => ({
     route: route.id,
+    provider: route.provider,
+    family: route.family,
+    roles: route.roles,
+    vision: route.vision,
+    ...(route.source && { source: route.source, paid: route.paid === true }),
     ready: (cooldowns.get(route.id) ?? 0) <= now,
     retryInSeconds: Math.max(0, Math.ceil(((cooldowns.get(route.id) ?? 0) - now) / 1000)),
     lastError: lastErrors.get(route.id) ?? null,
@@ -287,7 +352,7 @@ http
   .createServer((req, res) => {
     const path = new URL(req.url, 'http://router').pathname
     if (req.method === 'POST' && path === '/v1/chat/completions') return complete(req, res)
-    if (path === '/v1/models') return send(res, 200, { object: 'list', data: [{ id: 'auto', object: 'model', owned_by: 'free-ai' }] })
+    if (path === '/v1/models') return send(res, 200, { object: 'list', data: ['auto', ...roleNames.map(role => `auto:${role}`), 'auto:vision', ...routes().filter(route => route.source === 'yours').map(route => route.id)].map(id => ({ id, object: 'model', owned_by: 'free-ai' })) })
     if (path === '/status' && new URL(req.url, 'http://router').searchParams.get('format') === 'text') {
       res.writeHead(200, { 'content-type': 'text/plain' })
       return res.end(status().map(row => `${row.ready ? '✓ ready  ' : `… resting ${row.retryInSeconds}s`}  ${row.route}${row.lastError ? `\n             last error: ${row.lastError}` : ''}`).join('\n') + '\n')

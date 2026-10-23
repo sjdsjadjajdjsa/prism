@@ -14,6 +14,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - router-data:/data
+      - ./custom-providers.json:/app/custom-providers.json:ro
     restart: unless-stopped
 
   agent:

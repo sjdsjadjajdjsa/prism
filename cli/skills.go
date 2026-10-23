@@ -75,7 +75,7 @@ func skillIndex(skills []skill) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\n\nSkills: tested playbooks. These override the general \"answer directly\" rule — even if the request seems simple, if it matches a skill you MUST call the skill tool first before any other tool or text. Pick by the exact words in the request. IMPORTANT: do not call read, list, bash, grep, write, edit, or any other tool before loading the matching skill first. Tool use like read/list must come AFTER loading a matching skill.\n")
+	b.WriteString("\n\nWorkflow: Verify meaningful changes with existing checks and real behavior when possible; report unrun checks honestly. When a fix fails, inspect the error and revise the hypothesis before a bounded retry; ask only when truly blocked. For substantial unfinished work, leave a safe handoff with pending steps and test results, without overwriting unrelated files or including secrets.\nSkills: optional playbooks. Choose task-specific skills by intent, not exact words; load a relevant skill when its detailed steps help. Lifecycle skills (prove-it, retry-ladder, handoff-note) apply at the appropriate stage and need not be loaded at the start of a simple task.\n")
 	for _, s := range skills {
 		b.WriteString("- " + s.name + ": " + s.description + "\n")
 	}

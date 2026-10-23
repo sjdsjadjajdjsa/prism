@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/mattn/go-runewidth"
@@ -11,6 +12,7 @@ type cell struct {
 	ch     rune
 	fg, bg rgb
 	bold   bool
+	url    string
 }
 
 type canvas struct {
@@ -66,6 +68,22 @@ func (cv *canvas) text(x, y int, s string, fg rgb, bold bool) int {
 	return x
 }
 
+func (cv *canvas) link(x, y int, s, url string, fg rgb, bold bool) {
+	// A URL with control bytes could break out of the OSC 8 sequence.
+	if strings.IndexFunc(url, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
+		url = ""
+	}
+	for _, r := range s {
+		start := x
+		x = cv.put(x, y, r, fg, bold)
+		for i := start; i < x; i++ {
+			if c := cv.get(i, y); c != nil {
+				c.url = url
+			}
+		}
+	}
+}
+
 func (cv *canvas) grad(x, y int, s string, t theme, phase, span float64, bold bool) int {
 	for i, r := range []rune(s) {
 		x = cv.put(x, y, r, t.at(phase+float64(i)/span), bold)
@@ -85,10 +103,22 @@ func (cv *canvas) fill(x, y, w, h int, bg rgb) {
 
 func (cv *canvas) String() string {
 	var b strings.Builder
+	term := os.Getenv("TERM")
+	hyperlinks := term != "dumb" && term != "linux" && term != ""
 	for y := 0; y < cv.h; y++ {
 		var last cell
+		active := ""
 		for x := 0; x < cv.w; x++ {
 			c := cv.cells[y*cv.w+x]
+			if hyperlinks && c.url != active {
+				if active != "" {
+					b.WriteString("\x1b]8;;\x1b\\")
+				}
+				if c.url != "" {
+					fmt.Fprintf(&b, "\x1b]8;;%s\x1b\\", c.url)
+				}
+				active = c.url
+			}
 			if x == 0 || c.fg != last.fg || c.bg != last.bg || c.bold != last.bold {
 				bold := ""
 				if c.bold {
@@ -100,6 +130,9 @@ func (cv *canvas) String() string {
 			if c.ch != 0 {
 				b.WriteRune(c.ch)
 			}
+		}
+		if active != "" {
+			b.WriteString("\x1b]8;;\x1b\\")
 		}
 		b.WriteString("\x1b[0m")
 		if y < cv.h-1 {

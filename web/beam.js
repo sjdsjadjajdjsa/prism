@@ -141,7 +141,7 @@
 
         for (var d = 0; d < rayDist; d++) {
             var rx = sx - d;
-          if (rx < 0 || rx > sx) continue;
+          if (rx * cw < 20 || rx > sx) continue;
           var ry = sy + Math.round(Math.tan(angle) * d * 0.5);
           if (ry < 0 || ry >= rows) continue;
           // terminal: c.bg = mix(c.bg, shade, 0.5) then cv.set(x, y, '━', col, true)
@@ -178,7 +178,7 @@
 
       for (var bd = 0; bd < beamCols; bd++) {
         var bx = sx - bd;
-        if (bx < 0 || bx > sx) continue;
+        if (bx * cw < 20 || bx > sx) continue;
         var pulse = 0.5 + 0.5 * Math.sin(bd / 4 - n / 45);
 
         for (var dy = -half; dy <= half; dy++) {
@@ -212,19 +212,19 @@
       // Sparkles: drift outward and fade, never drawn right of the origin
       var age = (n - 800) / 1000;
       var sparkleGlyphs = ['✦', '·', '✧', '•'];
-      var fontSize = Math.max(9, Math.floor(ch * 0.8));
+      var fontSize = Math.max(9, Math.floor(ch * 0.6));
       ctx.font = fontSize + 'px monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
-      for (var si = 0; si < 28; si++) {
+      for (var si = 0; si < 12; si++) {
         var sd = hash(si, 1, 2) * length * fire;
         var drift = age * (2 + hash(si, 8, 3) * 5);
         var sign = hash(si, 4, 1) - 0.5 < 0 ? -1 : 1;
         var spy = sy + Math.round((hash(si, 3, 7) - 0.5) * 4 + Math.abs(drift) * sign);
         // dir is -1 (leftward): px = sx - int(d + age*hash*6*dir) -> in Go: sx + dir*int(d + age*hash*6*float64(dir))
         // Since dir is -1, float64(dir) is -1.0, so d + age*hash*6*(-1) -> px = sx - int(d - age*hash*6)
-        var spx = sx - Math.floor(sd - age * hash(si, 6, 2) * 6);
+        var spx = sx - Math.trunc(sd - age * hash(si, 6, 2) * 6);
         var life = 1 - Math.max(0, age - hash(si, 9, 9) * 0.6) / 0.9;
 
         if (life <= 0) continue;
@@ -263,7 +263,9 @@
     var ctx = canvas.getContext('2d');
     var theme = opts.theme || {};
     var onShake = typeof opts.onShake === 'function' ? opts.onShake : null;
+    var onFrame = typeof opts.onFrame === 'function' ? opts.onFrame : null;
     var cell = opts.cell || { w: 10, h: 20 };
+    var dpr = opts.dpr > 0 ? opts.dpr : 1; // canvas backing store is dpr x its CSS size
 
     var startTime = null;
     var rafId = null;
@@ -296,8 +298,8 @@
         return;
       }
 
-      var w = canvas.width;
-      var h = canvas.height;
+      var w = canvas.width / dpr;
+      var h = canvas.height / dpr;
       var cw = cell.w || 10;
       var ch = cell.h || 20;
       var cols = Math.ceil(w / cw);
@@ -311,8 +313,10 @@
         onShake(dx);
       }
 
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
       render(ctx, w, h, ox, oy, elapsed, theme, cell);
+      if (onFrame) onFrame(ctx);
 
       rafId = requestAnimationFrame(frame);
     }

@@ -96,15 +96,25 @@ func TestSkillBuiltinsLoad(t *testing.T) {
 		if !strings.HasSuffix(name, ".md") || name == "README.md" {
 			continue
 		}
-		want = append(want, strings.TrimSuffix(name, ".md"))
+		data, err := builtinSkills.ReadFile("skills/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s, ok := parseSkill(string(data), "built in")
+		if !ok || s.name != strings.TrimSuffix(name, ".md") {
+			t.Fatalf("invalid embedded skill %q: parsed name %q", name, s.name)
+		}
+		want = append(want, s.name)
 	}
-	if len(want) != 13 {
-		t.Fatalf("embedded skill files = %d, want 13", len(want))
+	for _, name := range []string{"prove-it", "handoff-note", "retry-ladder", "game-rewrite"} {
+		if _, ok := findSkill(loadSkills(t.TempDir()), name); !ok {
+			t.Errorf("new built-in %q did not load without custom skills", name)
+		}
 	}
 
 	skills := loadSkills(t.TempDir())
-	if len(skills) != 13 {
-		t.Fatalf("loadSkills returned %d skills, want 13", len(skills))
+	if len(skills) != len(want) {
+		t.Fatalf("loadSkills returned %d skills, want %d valid embedded skills", len(skills), len(want))
 	}
 	for _, name := range want {
 		s, ok := findSkill(skills, name)
@@ -130,6 +140,7 @@ func TestSkillBuiltinsLoad(t *testing.T) {
 func TestSkillLoadMergesAndProjectOverrides(t *testing.T) {
 	home := skillsEnv(t)
 	project := t.TempDir()
+	builtinCount := len(loadSkills(t.TempDir()))
 
 	// User-level skills: a new one, and an override of a built-in.
 	userDir := filepath.Join(home, "prism", "skills")
@@ -144,6 +155,8 @@ func TestSkillLoadMergesAndProjectOverrides(t *testing.T) {
 		"---\nname: my-proj\ndescription: Project skill.\n---\nProject body.\n")
 	writeSkillFile(t, projDir, "fix-bug.md",
 		"---\nname: fix-bug\ndescription: Project version of fix-bug.\n---\nProject fix body.\n")
+	writeSkillFile(t, projDir, "prove-it.md",
+		"---\nname: prove-it\ndescription: Project proof.\n---\nProject proof body.\n")
 
 	// Invalid file must be ignored.
 	writeSkillFile(t, projDir, "broken.md", "no front matter here\n")
@@ -169,11 +182,14 @@ func TestSkillLoadMergesAndProjectOverrides(t *testing.T) {
 	if fix.body != "Project fix body." {
 		t.Errorf("fix-bug body = %q", fix.body)
 	}
+	if proof, ok := findSkill(skills, "prove-it"); !ok || proof.source != "this project" || proof.body != "Project proof body." {
+		t.Errorf("prove-it project override: ok=%v source=%q body=%q", ok, proof.source, proof.body)
+	}
 	if _, ok := findSkill(skills, "broken"); ok {
 		t.Error("invalid skill file was loaded")
 	}
-	if len(skills) != 15 {
-		t.Errorf("total skills = %d, want 15 (13 built-in + 2 custom)", len(skills))
+	if len(skills) != builtinCount+2 {
+		t.Errorf("total skills = %d, want %d (built-ins + 2 custom)", len(skills), builtinCount+2)
 	}
 }
 
@@ -199,6 +215,17 @@ func TestSkillIndexListsSkills(t *testing.T) {
 	idx := skillIndex(skills)
 	if !strings.Contains(idx, "Skills:") {
 		t.Error("index missing header")
+	}
+	for _, principle := range []string{"Verify meaningful changes", "When a fix fails", "For substantial unfinished work"} {
+		if !strings.Contains(idx, principle) || strings.Index(idx, principle) > strings.Index(idx, "Skills:") {
+			t.Errorf("index missing workflow principle before skill listing: %q", principle)
+		}
+	}
+	if strings.Contains(idx, "MUST call the skill tool first") || strings.Contains(idx, "Pick by the exact words") {
+		t.Error("index still forces exact-word or mandatory upfront loading")
+	}
+	if !strings.Contains(idx, "Choose task-specific skills by intent") || !strings.Contains(idx, "need not be loaded at the start") {
+		t.Error("index missing intent-based optional lifecycle policy")
 	}
 	for _, s := range skills {
 		line := "- " + s.name + ": " + s.description
@@ -234,5 +261,178 @@ func TestSkillUseKnownAndUnknown(t *testing.T) {
 		if !strings.Contains(res.output, s.name) {
 			t.Errorf("error does not list %q", s.name)
 		}
+	}
+}
+
+func TestSkillParseFrontMatterEdgeCases(t *testing.T) {
+	cases := []struct {
+		label, data      string
+		ok               bool
+		name, desc, body string
+	}{
+		{"colon in value", "---\nname: demo\ndescription: Use when: tests fail\n---\nbody\n", true, "demo", "Use when: tests fail", "body"},
+		{"unknown keys ignored", "---\nname: demo\nauthor: me\ndescription: d\ntags: a, b\n---\nbody\n", true, "demo", "d", "body"},
+		{"extra whitespace", "---\n  name :   spaced  \ndescription:\t tabbed \t\n---\nbody\n", true, "spaced", "tabbed", "body"},
+		{"missing description", "---\nname: demo\n---\nbody\n", true, "demo", "", "body"},
+		{"empty description", "---\nname: demo\ndescription:\n---\nbody\n", true, "demo", "", "body"},
+		{"line without colon", "---\nname: demo\njunk line\ndescription: d\n---\nbody\n", true, "demo", "d", "body"},
+		{"leading blank lines", "\n\n---\nname: demo\ndescription: d\n---\nbody\n", true, "demo", "d", "body"},
+		{"later rule kept in body", "---\nname: demo\ndescription: d\n---\nfirst\n\n---\n\nsecond\n", true, "demo", "d", "first\n\n---\n\nsecond"},
+		{"body trimmed", "---\nname: demo\ndescription: d\n---\n\n\n  text  \n\n\n", true, "demo", "d", "text"},
+		{"no trailing newline", "---\nname: demo\ndescription: d\n---\nbody", true, "demo", "d", "body"},
+		{"empty name value", "---\nname:\ndescription: d\n---\nbody\n", false, "", "", ""},
+		{"whitespace-only body", "---\nname: demo\ndescription: d\n---\n \n\t\n", false, "", "", ""},
+		{"empty front matter", "---\n---\nbody\n", false, "", "", ""},
+		{"empty input", "", false, "", "", ""},
+		{"bom only", "\ufeff", false, "", "", ""},
+		{"opening rule not at start", "text\n---\nname: demo\n---\nbody\n", false, "", "", ""},
+		{"indented opening rule", " ---\nname: demo\n---\nbody\n", false, "", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.label, func(t *testing.T) {
+			s, ok := parseSkill(c.data, "test")
+			if ok != c.ok {
+				t.Fatalf("ok = %v, want %v (skill %+v)", ok, c.ok, s)
+			}
+			if !ok {
+				return
+			}
+			if s.name != c.name || s.description != c.desc || s.body != c.body {
+				t.Errorf("got name=%q desc=%q body=%q, want name=%q desc=%q body=%q",
+					s.name, s.description, s.body, c.name, c.desc, c.body)
+			}
+		})
+	}
+}
+
+func TestSkillParseBOMVariants(t *testing.T) {
+	const fm = "---\nname: demo\ndescription: d\n---\nbody\n"
+	cases := map[string]string{
+		"bom":                 "\ufeff" + fm,
+		"bom then newline":    "\ufeff\n" + fm,
+		"newline then bom":    "\n\ufeff" + fm,
+		"repeated bom":        "\ufeff\ufeff" + fm,
+		"no bom (control)":    fm,
+		"bom, blank line x 2": "\ufeff\n\n" + fm,
+	}
+	for label, data := range cases {
+		s, ok := parseSkill(data, "test")
+		if !ok {
+			t.Errorf("%s: expected parse to succeed", label)
+			continue
+		}
+		if s.name != "demo" || s.description != "d" || s.body != "body" {
+			t.Errorf("%s: got %+v", label, s)
+		}
+	}
+
+	// A BOM inside the front matter is not stripped, so it must not leak into
+	// the body or silently succeed for a mangled key.
+	s, ok := parseSkill("---\n\ufeffname: demo\ndescription: d\n---\nbody\n", "test")
+	if ok {
+		t.Errorf("mid-file BOM before key should leave name empty and fail, got %+v", s)
+	}
+}
+
+func TestSkillLoadBOMFileFromDisk(t *testing.T) {
+	home := skillsEnv(t)
+	project := t.TempDir()
+	writeSkillFile(t, filepath.Join(home, "prism", "skills"), "bom-user.md",
+		"\ufeff---\nname: bom-user\ndescription: BOM user skill.\n---\nUser body.\n")
+	writeSkillFile(t, filepath.Join(project, ".prism", "skills"), "bom-proj.md",
+		"\ufeff---\nname: bom-proj\ndescription: BOM project skill.\n---\nProject body.\n")
+
+	skills := loadSkills(project)
+	if s, ok := findSkill(skills, "bom-user"); !ok || s.source != "yours" || s.body != "User body." {
+		t.Errorf("bom-user: ok=%v %+v", ok, s)
+	}
+	if s, ok := findSkill(skills, "bom-proj"); !ok || s.source != "this project" || s.body != "Project body." {
+		t.Errorf("bom-proj: ok=%v %+v", ok, s)
+	}
+}
+
+func TestSkillProjectOverridesUserOnly(t *testing.T) {
+	home := skillsEnv(t)
+	project := t.TempDir()
+	writeSkillFile(t, filepath.Join(home, "prism", "skills"), "shared.md",
+		"---\nname: shared\ndescription: From user.\n---\nUser body.\n")
+	writeSkillFile(t, filepath.Join(project, ".prism", "skills"), "shared.md",
+		"---\nname: shared\ndescription: From project.\n---\nProject body.\n")
+
+	s, ok := findSkill(loadSkills(project), "shared")
+	if !ok {
+		t.Fatal("shared missing")
+	}
+	if s.source != "this project" || s.description != "From project." || s.body != "Project body." {
+		t.Errorf("project should win over user: %+v", s)
+	}
+
+	// Another project without the override still sees the user version.
+	s, ok = findSkill(loadSkills(t.TempDir()), "shared")
+	if !ok || s.source != "yours" || s.body != "User body." {
+		t.Errorf("user skill should apply elsewhere: ok=%v %+v", ok, s)
+	}
+}
+
+func TestSkillOverrideKeyedByNameNotFilename(t *testing.T) {
+	home := skillsEnv(t)
+	project := t.TempDir()
+	writeSkillFile(t, filepath.Join(home, "prism", "skills"), "alpha.md",
+		"---\nname: keyed\ndescription: User.\n---\nUser body.\n")
+	writeSkillFile(t, filepath.Join(project, ".prism", "skills"), "zzz-other-file.md",
+		"---\nname: keyed\ndescription: Project.\n---\nProject body.\n")
+
+	skills := loadSkills(project)
+	count := 0
+	for _, s := range skills {
+		if s.name == "keyed" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("keyed appears %d times, want 1", count)
+	}
+	if s, _ := findSkill(skills, "keyed"); s.source != "this project" || s.body != "Project body." {
+		t.Errorf("project should override by name: %+v", s)
+	}
+}
+
+func TestSkillInvalidProjectFileDoesNotShadowUser(t *testing.T) {
+	home := skillsEnv(t)
+	project := t.TempDir()
+	writeSkillFile(t, filepath.Join(home, "prism", "skills"), "keep.md",
+		"---\nname: keep\ndescription: User.\n---\nUser body.\n")
+	// Same name but empty body: invalid, so it must not replace the user skill.
+	writeSkillFile(t, filepath.Join(project, ".prism", "skills"), "keep.md",
+		"---\nname: keep\ndescription: Project.\n---\n")
+	// Non-markdown files are ignored.
+	writeSkillFile(t, filepath.Join(project, ".prism", "skills"), "notes.txt",
+		"---\nname: txt-skill\ndescription: d\n---\nbody\n")
+
+	skills := loadSkills(project)
+	if s, ok := findSkill(skills, "keep"); !ok || s.source != "yours" || s.body != "User body." {
+		t.Errorf("invalid project file shadowed user skill: ok=%v %+v", ok, s)
+	}
+	if _, ok := findSkill(skills, "txt-skill"); ok {
+		t.Error(".txt file was loaded as a skill")
+	}
+}
+
+func TestSkillLoadSortedByName(t *testing.T) {
+	home := skillsEnv(t)
+	project := t.TempDir()
+	writeSkillFile(t, filepath.Join(home, "prism", "skills"), "a.md",
+		"---\nname: zz-last\ndescription: d\n---\nbody\n")
+	writeSkillFile(t, filepath.Join(project, ".prism", "skills"), "b.md",
+		"---\nname: 00-first\ndescription: d\n---\nbody\n")
+
+	skills := loadSkills(project)
+	for i := 1; i < len(skills); i++ {
+		if skills[i-1].name >= skills[i].name {
+			t.Fatalf("skills not strictly sorted: %q before %q", skills[i-1].name, skills[i].name)
+		}
+	}
+	if skills[0].name != "00-first" || skills[len(skills)-1].name != "zz-last" {
+		t.Errorf("unexpected ends: first=%q last=%q", skills[0].name, skills[len(skills)-1].name)
 	}
 }

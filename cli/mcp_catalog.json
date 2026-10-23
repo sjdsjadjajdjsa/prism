@@ -1,0 +1,80 @@
+[
+  {
+    "id": "fetch",
+    "name": "Web page reader",
+    "about": "Reads any web page or JSON URL as clean text or Markdown. No account needed.",
+    "command": "npx",
+    "args": ["-y", "mcp-fetch-server"],
+    "try": "read https://go.dev/doc/effective_go and list the five most important rules"
+  },
+  {
+    "id": "context7",
+    "name": "Library docs (Context7)",
+    "about": "Looks up current documentation and code examples for popular libraries and frameworks. Works without a key.",
+    "command": "npx",
+    "args": ["-y", "@upstash/context7-mcp"],
+    "try": "using context7, show me how to set up routing in the newest Next.js"
+  },
+  {
+    "id": "deepwiki",
+    "name": "GitHub repo explainer (DeepWiki)",
+    "about": "Answers questions about how any public GitHub repository is built. Remote service, nothing to install, no account.",
+    "url": "https://mcp.deepwiki.com/mcp",
+    "try": "ask deepwiki how the router in expressjs/express matches a request"
+  },
+  {
+    "id": "github",
+    "name": "GitHub (issues, pull requests, code)",
+    "about": "Reads and searches issues, pull requests and code on GitHub. Free account and a free token needed.",
+    "url": "https://api.githubcopilot.com/mcp/",
+    "headers": {"Authorization": "Bearer ${GITHUB_TOKEN}"},
+    "needs": [
+      {"name": "GITHUB_TOKEN", "where": "https://github.com/settings/tokens (create a token, the repo scope is enough for reading)"}
+    ],
+    "try": "list the open issues in my repo and tell me which one to fix first"
+  },
+  {
+    "id": "tavily",
+    "name": "Web search (Tavily)",
+    "about": "Searches the web and extracts pages, so Prism can look things up. Free plan: 1000 searches a month, no card.",
+    "command": "npx",
+    "args": ["-y", "tavily-mcp"],
+    "env": {"TAVILY_API_KEY": "${TAVILY_API_KEY}"},
+    "needs": [
+      {"name": "TAVILY_API_KEY", "where": "https://app.tavily.com (sign up free, copy the API key)"}
+    ],
+    "try": "search the web for the latest stable Go release and what changed in it"
+  },
+  {
+    "id": "git",
+    "name": "Git tools",
+    "about": "Proper git tools: log, diff, blame, branches, commits, instead of shell commands.",
+    "command": "npx",
+    "args": ["-y", "@cyanheads/git-mcp-server"],
+    "try": "set the git folder to this project, then summarize the last 5 commits"
+  },
+  {
+    "id": "memory",
+    "name": "Notebook (knowledge graph memory)",
+    "about": "Lets Prism store facts about you, people and projects as a small graph and recall them later in the same folder.",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-memory"],
+    "try": "remember that the staging server is called atlas and the deploy is done on Fridays"
+  },
+  {
+    "id": "thinking",
+    "name": "Step-by-step thinking",
+    "about": "Gives Prism a scratchpad to break hard problems into steps and revise them. Helps smaller free models.",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+    "try": "think step by step about how to migrate this app from REST to GraphQL"
+  },
+  {
+    "id": "files",
+    "name": "Extra file tools",
+    "about": "Directory trees, file search and bulk reads inside this project. Prism already reads and edits files, so add this only if you want those extras.",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+    "try": "show the directory tree of this project and find every file that mentions TODO"
+  }
+]

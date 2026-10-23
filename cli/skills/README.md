@@ -49,3 +49,17 @@ Same format as above. Project skills override user skills with the same name. In
 - `automate-task`: Python chore script with dry-run default and clear output
 - `portfolio-site`: resume page with marked placeholders and print-friendly CSS
 - `learn-mode`: teach a beginner in small steps with tiny hands-on changes
+- `prove-it`: verify meaningful changes and report actual check results
+- `handoff-note`: leave a safe resume note for substantial unfinished work
+- `retry-ladder`: diagnose failures and make bounded, evidence-driven retries
+- `game-rewrite`: specialist planning and verification for authorized game reconstruction
+- `test-my-app`: use the app like a real user and report reproducible failures
+- `security-review`: find leaked secrets, injection, XSS, risky CORS and vulnerable dependencies
+- `accessibility-review`: WCAG check of semantics, keyboard, contrast and motion
+- `release-check`: go/no-go checklist before publishing
+- `docker-help`: explain and fix common Docker problems, clean up safely
+- `use-an-api`: call a web API from a script with keys in .env
+- `clean-data`: clean CSV/JSON/Excel into a new file, explaining every change
+
+General verification, retry, and handoff principles are included in Prism's skill index;
+load their full playbooks only when useful at the appropriate stage.

@@ -56,6 +56,8 @@ func integer(description string) map[string]any {
 }
 
 var toolSpecs = []any{
+	spec("screenshot", "Take a screenshot of a web page or a project HTML file with headless Chromium, save it under .prism/screenshots, and ask an image-capable free model what it shows. Give exactly one of url, file or desktop. If the result says no vision model was available, say so; never describe a screenshot you could not look at. The whole desktop can only be captured in host system mode and the user is asked every time.",
+		map[string]any{"url": str("http(s) address. localhost and private network addresses work freely; a public address needs the user's approval, which only exists in host system mode"), "file": str("A .html file inside the project, served locally"), "desktop": map[string]any{"type": "boolean", "description": "Capture the user's whole desktop (host system mode only, asks every time, not available in the container)"}, "width": integer("Viewport width (default 1280, max 3840)"), "height": integer("Viewport height (default 800, max 2160)"), "full_page": map[string]any{"type": "boolean", "description": "Capture the whole scrollable page; tall pages are shrunk to 1280 px before the model sees them"}, "question": str("What to check in the image, e.g. is the button visible, does the layout break")}),
 	spec("list", "List files and folders in the project, up to 4 levels deep.",
 		map[string]any{"path": str("Folder to list, relative to the project. Defaults to the project root.")}),
 	spec("grep", "Search file contents with a regular expression. Returns matching lines with file and line number.",
@@ -90,8 +92,12 @@ func runTool(ctx context.Context, dir, name, raw string) toolResult {
 		return writeTool(dir, args)
 	case "bash":
 		return bashTool(ctx, dir, args)
+	case "screenshot":
+		// The agent loop routes screenshot to (*Agent).screenshot so it keeps its system flag and approve
+		// callback. Reaching this line means there is no agent: no approvals, so no desktop or public URLs.
+		return screenshotTool(ctx, screenshotFallbackEnv(dir), raw)
 	}
-	return fail("unknown tool " + name + ". Use list, grep, read, edit, write or bash.")
+	return fail("unknown tool " + name + ". Use list, grep, read, edit, write, bash or screenshot.")
 }
 
 func fail(message string) toolResult {

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,102 @@ import (
 // ---------------------------------------------------------------------------
 // matching()
 // ---------------------------------------------------------------------------
+
+func TestMemoryCommands(t *testing.T) {
+	const initial = "- first fact\n- second fact\n- third fact\n- fourth fact\n- fifth fact"
+	facts := []string{"first fact", "second fact", "third fact", "fourth fact", "fifth fact"}
+	tests := []struct {
+		command, want, title string
+		lines                []string
+		wantErr              bool
+	}{
+		{"/memory", initial, "what prism remembers here", []string{"1  first fact", "5  fifth fact", "/memory forget 2 removes one", "/memory forget all"}, false},
+		{"/memory forget", initial, "what prism remembers here", []string{"2  second fact", "/memory forget 2 removes one", "/memory forget all"}, false},
+		{"/forget", initial, "what prism remembers here", []string{"1  first fact", "/memory forget 2 removes one", "/memory forget all"}, false},
+		{"/memory forget 2", "- first fact\n- third fact\n- fourth fact\n- fifth fact", "forgot: second fact", nil, false},
+		{"/forget 2", "- first fact\n- third fact\n- fourth fact\n- fifth fact", "forgot: second fact", nil, false},
+		{"/memory forget 2 5", "- first fact\n- third fact\n- fourth fact", "forgot: second fact · fifth fact", nil, false},
+		{"/forget 2 5", "- first fact\n- third fact\n- fourth fact", "forgot: second fact · fifth fact", nil, false},
+		{"/memory forget all", "", "memory cleared for this folder", nil, false},
+		{"/forget all", "", "memory cleared for this folder", nil, false},
+		{"/memory forget 6", initial, "no memory number", nil, true},
+		{"/forget 0", initial, "no memory number", nil, true},
+		{"/memory forget 2 nope", initial, "no memory number", nil, true},
+		{"/memory forget all 2", initial, "can't be mixed with numbers", nil, true},
+		{"/memory all", initial, "use /memory forget <n>", nil, true},
+	}
+	for _, ui := range []string{"terminal", "web"} {
+		t.Run(ui, func(t *testing.T) {
+			for _, tc := range tests {
+				t.Run(tc.command, func(t *testing.T) {
+					t.Setenv("HOME", t.TempDir())
+					t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "cfg"))
+					dir := t.TempDir()
+					a := &Agent{dir: dir, store: openStore(dir), messages: []Message{{Role: "system"}}}
+					if err := a.store.setMemory(initial); err != nil {
+						t.Fatal(err)
+					}
+					// Start from a real system prompt that contains every fact, so the
+					// check below proves the command refreshed it.
+					a.messages[0].Content = a.systemPrompt()
+					for _, fact := range facts {
+						if !strings.Contains(a.messages[0].Content, fact) {
+							t.Fatalf("system prompt lacks %q before the command", fact)
+						}
+					}
+					var kind, title string
+					var lines []string
+					if ui == "terminal" {
+						m := &model{agent: a}
+						m.command(tc.command)
+						e := m.entries[len(m.entries)-1]
+						kind, title, lines = e.kind, e.text, e.lines
+						if kind == "help" {
+							kind = "error"
+						}
+					} else {
+						s := &server{agent: a}
+						body, err := json.Marshal(map[string]string{"text": tc.command})
+						if err != nil {
+							t.Fatal(err)
+						}
+						w := httptest.NewRecorder()
+						s.command(w, httptest.NewRequest("POST", "/command", strings.NewReader(string(body))))
+						var response struct {
+							Kind, Title, Text string
+							Lines             []string
+						}
+						if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+							t.Fatal(err)
+						}
+						kind, title, lines = response.Kind, response.Title, response.Lines
+						if kind == "error" {
+							title = response.Text
+						} else if kind != "info" || response.Lines == nil {
+							t.Fatalf("unexpected web shape: %s", w.Body.String())
+						}
+					}
+					if (kind == "error") != tc.wantErr || !strings.Contains(title, tc.title) {
+						t.Errorf("response = %q %q, want error=%v, title containing %q", kind, title, tc.wantErr, tc.title)
+					}
+					for _, want := range tc.lines {
+						if !strings.Contains(strings.Join(lines, "\n"), want) {
+							t.Errorf("lines %q do not contain %q", lines, want)
+						}
+					}
+					if got := a.store.memory(); got != tc.want {
+						t.Errorf("memory = %q, want %q", got, tc.want)
+					}
+					for _, fact := range facts {
+						if kept := strings.Contains(tc.want, fact); kept != strings.Contains(a.messages[0].Content, fact) {
+							t.Errorf("system prompt contains %q = %v, want %v", fact, !kept, kept)
+						}
+					}
+				})
+			}
+		})
+	}
+}
 
 func TestMatchingPrefixes(t *testing.T) {
 	tests := []struct {
@@ -60,29 +158,28 @@ func TestMatchingNewline(t *testing.T) {
 	}
 }
 
+func TestMatchingNewlineVariants(t *testing.T) {
+	for _, in := range []string{"/m\n", "/models\nmore", "\n/help", "/\n"} {
+		if got := matching(in); len(got) != 0 {
+			t.Errorf("matching(%q) = %v, want empty", in, got)
+		}
+	}
+}
+
+func TestMatchingBareSlashListsAll(t *testing.T) {
+	if got := matching("/"); len(got) != len(commands) {
+		t.Errorf("matching(\"/\") returned %d commands, want %d", len(got), len(commands))
+	}
+}
+
 // ---------------------------------------------------------------------------
 // newSkill() — name validation and file creation
 // ---------------------------------------------------------------------------
 
-func makeTestAgent(t *testing.T) *Agent {
-	t.Helper()
-	dir := t.TempDir()
-	// openStore needs a config dir; point it somewhere harmless
+func TestNewSkillInvalidNames(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "cfg"))
-	a := &Agent{
-		dir:   dir,
-		store: openStore(dir),
-		mcp:   &mcpHub{},
-	}
-	a.skills = loadSkills(dir)
-	// newSkill() calls a.messages[0] — must be initialised or it panics (bug in commands.go:344)
-	a.messages = []Message{{Role: "system", Content: ""}}
-	return a
-}
-
-func TestNewSkillInvalidNames(t *testing.T) {
-	a := makeTestAgent(t)
+	a := &Agent{dir: t.TempDir(), messages: []Message{{Role: "system"}}}
 	bad := []string{
 		"",
 		"My-Skill", // uppercase
@@ -101,7 +198,9 @@ func TestNewSkillInvalidNames(t *testing.T) {
 }
 
 func TestNewSkillValidNameCreatesFile(t *testing.T) {
-	a := makeTestAgent(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "cfg"))
+	a := &Agent{dir: t.TempDir(), messages: []Message{{Role: "system"}}}
 	msg := newSkill(a, "my-skill")
 	if !strings.Contains(msg, "wrote") {
 		t.Fatalf("newSkill returned unexpected message: %q", msg)
@@ -121,7 +220,9 @@ func TestNewSkillValidNameCreatesFile(t *testing.T) {
 }
 
 func TestNewSkillDuplicateRejected(t *testing.T) {
-	a := makeTestAgent(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "cfg"))
+	a := &Agent{dir: t.TempDir(), messages: []Message{{Role: "system"}}}
 	newSkill(a, "dup-skill")
 	msg := newSkill(a, "dup-skill")
 	if !strings.Contains(msg, "already exists") {
@@ -130,7 +231,9 @@ func TestNewSkillDuplicateRejected(t *testing.T) {
 }
 
 func TestNewSkillBoundaryName(t *testing.T) {
-	a := makeTestAgent(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "cfg"))
+	a := &Agent{dir: t.TempDir(), messages: []Message{{Role: "system"}}}
 	// exactly 41 chars: 1 leading + 40 more = valid
 	name := "a" + strings.Repeat("b", 40)
 	msg := newSkill(a, name)
@@ -138,7 +241,9 @@ func TestNewSkillBoundaryName(t *testing.T) {
 		t.Errorf("41-char name should be valid, got: %q", msg)
 	}
 	// 42 chars: invalid
-	a2 := makeTestAgent(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "cfg"))
+	a2 := &Agent{dir: t.TempDir(), messages: []Message{{Role: "system"}}}
 	long := "a" + strings.Repeat("b", 41)
 	msg2 := newSkill(a2, long)
 	if !strings.Contains(msg2, "lowercase") {

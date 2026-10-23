@@ -40,6 +40,7 @@ type entry struct {
 	open  bool
 	rows  []routeRow
 	lines []string
+	crew  *crewBlock
 }
 
 type model struct {
@@ -87,6 +88,7 @@ type model struct {
 	expandAll      bool
 	web            *webSession
 	pending        *evApprove
+	queued         []*evApprove
 }
 
 func tick(d time.Duration) tea.Cmd {
@@ -173,19 +175,22 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.web != nil {
-		if k == "enter" {
+		switch k {
+		case "enter":
 			return m, m.endWeb()
+		case "o":
+			m.startWeb()
+		case "c":
+			return m, copyWebLink(m.web.url)
 		}
 		return m, nil
 	}
 	if m.pending != nil {
 		switch k {
 		case "y", "Y", "enter":
-			m.pending.reply <- true
-			m.pending = nil
+			m.answer(true)
 		case "n", "N", "esc":
-			m.pending.reply <- false
-			m.pending = nil
+			m.answer(false)
 		}
 		return m, nil
 	}
@@ -264,8 +269,35 @@ func (m *model) handle(event any) {
 	case evThinking:
 		m.thinking = true
 	case evApprove:
-		m.pending, m.thinking = &e, false
+		m.thinking = false
+		if m.pending == nil {
+			m.pending = &e
+		} else {
+			m.queued = append(m.queued, &e)
+		}
 		m.speak("may I?")
+	case evCrewStart:
+		m.thinking, m.reasoning, m.draft = false, "", nil
+		block := newCrewBlock(e)
+		placed := false
+		for i := len(m.entries) - 1; i >= 0 && !placed; i-- {
+			if en := m.entries[i]; en.kind == "tool" && en.tool == "crew" && !en.done {
+				en.kind, en.crew, placed = "crew", block, true
+			}
+		}
+		if !placed {
+			m.entries = append(m.entries, &entry{kind: "crew", crew: block})
+		}
+		m.crewReact(e)
+	case evCrewWorker:
+		if c := m.activeCrew(); c != nil {
+			c.worker(e)
+		}
+	case evCrewDone:
+		if c := m.activeCrew(); c != nil {
+			c.finish(e.summary)
+		}
+		m.crewReact(e)
 	case evDraft:
 		m.thinking, m.reasoning, m.draft = false, "", &e
 	case evText:
@@ -281,7 +313,7 @@ func (m *model) handle(event any) {
 		m.turnTools++
 	case evToolDone:
 		for i := len(m.entries) - 1; i >= 0; i-- {
-			if en := m.entries[i]; en.kind == "tool" && en.id == e.id && !en.done {
+			if en := m.entries[i]; (en.kind == "tool" || en.kind == "crew") && en.id == e.id && !en.done {
 				en.done, en.res = true, e.result
 				if en.tool == "bash" && e.result.ok && strings.Contains(en.arg, "test") {
 					m.turnTests = true
@@ -312,7 +344,8 @@ func (m *model) handle(event any) {
 			}
 		}
 	case evDone:
-		m.busy, m.thinking, m.cancel, m.reasoning, m.draft, m.pending = false, false, nil, "", nil, nil
+		m.busy, m.thinking, m.cancel, m.reasoning, m.draft, m.pending, m.queued = false, false, nil, "", nil, nil, nil
+		m.settleCrews()
 		switch {
 		case e.err == nil:
 			m.entries = append(m.entries, &entry{kind: "meta", text: fmt.Sprintf("%.1fs", (m.now - m.busySince).Seconds()), arg: m.route})
@@ -333,6 +366,35 @@ func (m *model) handle(event any) {
 			m.entries = append(m.entries, &entry{kind: "error", text: headline, arg: detail})
 			m.finish(false, strings.HasPrefix(headline, "Every free AI model is busy"))
 		}
+	}
+}
+
+// activeCrew is the crew block still receiving worker updates.
+func (m *model) activeCrew() *crewBlock {
+	for i := len(m.entries) - 1; i >= 0; i-- {
+		if c := m.entries[i].crew; c != nil && !c.done {
+			return c
+		}
+	}
+	return nil
+}
+
+// settleCrews ends any crew block the turn left unfinished (esc, an error) so
+// its rows read cancelled instead of spinning.
+func (m *model) settleCrews() {
+	for _, en := range m.entries {
+		if en.crew != nil && !en.crew.done {
+			en.crew.settle()
+		}
+	}
+}
+
+// answer replies to the approval on screen and brings up the next one.
+func (m *model) answer(ok bool) {
+	m.pending.reply <- ok
+	m.pending = nil
+	if len(m.queued) > 0 {
+		m.pending, m.queued = m.queued[0], m.queued[1:]
 	}
 }
 
@@ -453,6 +515,10 @@ func projectName(dir string) string {
 	return dir
 }
 
+// plainMemoryWait caps how long `prism run` waits for the memory update after
+// the answer is printed.
+const plainMemoryWait = 15 * time.Second
+
 func runPlain(agent *Agent, prompt string) int {
 	if strings.TrimSpace(prompt) == "" {
 		fmt.Fprintln(os.Stderr, "usage: prism run <message>")
@@ -491,6 +557,14 @@ func runPlain(agent *Agent, prompt string) int {
 			fmt.Printf("  %s %s\n", mark, e.result.summary)
 		case evNote:
 			fmt.Printf("\n· %s\n", e.text)
+		case evCrewStart:
+			fmt.Printf("  crew · %d workers\n", len(e.tasks))
+		case evCrewWorker:
+			if mark := map[string]string{"done": "✓", "failed": "✕", "cancelled": "–"}[e.status]; mark != "" {
+				fmt.Printf("  %s %s\n", mark, e.id)
+			}
+		case evCrewDone:
+			fmt.Printf("  %s\n", e.summary)
 		case evDone:
 			fmt.Println()
 			if e.err != nil {
@@ -499,8 +573,11 @@ func runPlain(agent *Agent, prompt string) int {
 			}
 		}
 	})
+	// The answer is done: report the run first, then (only if the memory can be
+	// saved) update it, waiting at most plainMemoryWait.
+	fmt.Printf("· %d requests · %d tokens sent · first word %.1fs · total %.1fs\n", agent.requests, agent.sent, first.Seconds(), time.Since(start).Seconds())
 	if job := agent.memoryJob(); job != nil {
-		mctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		mctx, cancel := context.WithTimeout(context.Background(), plainMemoryWait)
 		changed, err := job.run(mctx)
 		cancel()
 		switch {
@@ -510,7 +587,6 @@ func runPlain(agent *Agent, prompt string) int {
 			fmt.Println("· memory updated")
 		}
 	}
-	fmt.Printf("· %d requests · %d tokens sent · first word %.1fs · total %.1fs\n", agent.requests, agent.sent, first.Seconds(), time.Since(start).Seconds())
 	return code
 }
 
@@ -636,6 +712,12 @@ func entriesFrom(messages []Message) []*entry {
 			for _, c := range msg.ToolCalls {
 				output := outputs[c.ID]
 				ok := !strings.HasPrefix(output, "Error:")
+				if c.Function.Name == "crew" && ok {
+					if block := crewFromHistory(c.Function.Arguments, output); block != nil {
+						out = append(out, &entry{kind: "crew", id: c.ID, tool: "crew", done: true, crew: block, res: toolResult{ok: true}})
+						continue
+					}
+				}
 				out = append(out, &entry{kind: "tool", id: c.ID, tool: c.Function.Name, arg: describe(c.Function.Arguments), done: true,
 					res: toolResult{ok: ok, summary: pastSummary(c.Function.Name, output, ok)}})
 			}

@@ -1,10 +1,14 @@
 keys.conf
 keys.conf.tmp
+custom-providers.json
 cli/bin/
 bench/*.txt
+bench/harness/out/
 .empryo/
 .network
 .bin/
 PLAN.md
 .ports/
 check-report.md
+cli/prism
+preview/

@@ -137,7 +137,7 @@ func (h *mcpHub) connect(s *mcpServer) {
 	}
 	closed := false
 	h.set(s, func() {
-		closed = h.closed
+		closed = h.closed || !h.holds(s)
 		if !closed {
 			s.state, s.conn, s.tools = "ready", conn, tools
 			dedupWireNames(h.servers)
@@ -396,6 +396,9 @@ func (h *mcpHub) status() []mcpStatus {
 }
 
 func dialMCP(cfg mcpServerConfig) (mcpConn, error) {
+	if missing := mcpMissingVars(cfg); len(missing) > 0 {
+		return nil, &mcpMissingEnvError{names: missing}
+	}
 	switch {
 	case cfg.URL != "":
 		return &mcpHTTP{url: cfg.URL, headers: cfg.Headers}, nil
@@ -450,7 +453,7 @@ func dialStdio(cfg mcpServerConfig) (*mcpStdio, error) {
 	cmd := exec.Command(cfg.Command, cfg.Args...)
 	cmd.Env = os.Environ()
 	for k, v := range cfg.Env {
-		cmd.Env = append(cmd.Env, k+"="+os.ExpandEnv(v))
+		cmd.Env = append(cmd.Env, k+"="+mcpExpand(v))
 	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -604,7 +607,7 @@ func (c *mcpHTTP) post(ctx context.Context, msg rpcMessage) (*http.Response, err
 	req.Header.Set("accept", "application/json, text/event-stream")
 	req.Header.Set("mcp-protocol-version", mcpProtocol)
 	for k, v := range c.headers {
-		req.Header.Set(k, os.ExpandEnv(v))
+		req.Header.Set(k, mcpExpand(v))
 	}
 	c.mu.Lock()
 	if c.session != "" {

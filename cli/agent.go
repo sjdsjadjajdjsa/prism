@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -78,6 +79,29 @@ type routerError struct {
 
 func (e *routerError) Error() string { return e.message }
 
+// allBusy reports whether every route the router tried was rate-limited (429).
+func (e *routerError) allBusy() bool {
+	for _, f := range e.failures {
+		if f.Status != http.StatusTooManyRequests {
+			return false
+		}
+	}
+	return len(e.failures) > 0
+}
+
+// busyError is HTTP 429 from the router: every free route is rate-limited right now.
+// Waiting a little and asking again usually works, so the turn is not ended for it.
+type busyError struct {
+	status int
+	body   string
+	wait   time.Duration
+}
+
+func (e *busyError) Error() string { return fmt.Sprintf("router error %d: %s", e.status, e.body) }
+
+// busyWaits are the pauses before asking again after a 429, unless the router sends Retry-After.
+var busyWaits = []time.Duration{5 * time.Second, 15 * time.Second, 30 * time.Second}
+
 type Agent struct {
 	api        string
 	dir        string
@@ -97,6 +121,17 @@ type Agent struct {
 	mcp        *mcpHub
 	system     bool
 	approve    func(ctx context.Context, tool, arg string) bool
+
+	role      string
+	model     string
+	exclude   []string
+	crewNote  string
+	owned     []string
+	readOnly  bool
+	stepLimit int
+	steps     int
+	families  []string
+	avoid     func() []string
 }
 
 type evApprove struct {
@@ -117,10 +152,17 @@ func newAgent(api, dir, project string) *Agent {
 }
 
 func (a *Agent) tools() []any {
+	if a.readOnly {
+		return readOnlySpecs()
+	}
 	out := append([]any{}, toolSpecs...)
 	if len(a.skills) > 0 {
 		out = append(out, skillSpec)
 	}
+	if a.role != "" {
+		return workerSpecs()
+	}
+	out = append(out, crewSpec)
 	return append(out, a.mcp.specs()...)
 }
 
@@ -142,13 +184,20 @@ func randomSuffix() string {
 
 func (a *Agent) systemPrompt() string {
 	prompt := basePrompt(a.dir)
+	if a.role != "" {
+		prompt = crewBasePrompt(a.dir, a.readOnly)
+	}
 	if a.system {
 		prompt += systemHelpPrompt
 	}
 	prompt += skillIndex(a.skills)
+	if a.role == "" {
+		prompt += crewGuidance
+	}
 	if name, rules := projectRules(a.dir); rules != "" {
 		prompt += "\n\nProject rules from " + name + " (always follow these):\n" + rules
 	}
+	prompt += a.crewNote
 	if a.store != nil {
 		if mem := a.store.memory(); mem != "" {
 			if len(mem) > memoryLimit {
@@ -167,11 +216,13 @@ Work like a careful senior engineer:
 - If a question can be answered without the project files (general knowledge, math, explanations, greetings), answer directly without tools.
 - Look before you change anything: use list, grep and read to understand the code. Never guess what a file contains.
 - Make focused changes with edit. Use write only for new files or full rewrites.
-- After changing code, run it or its tests with bash to prove it works, then fix whatever fails.
+- After changing code, run the real check once (the program or its tests) with bash to prove it works, then fix whatever fails.
+- If a command you already ran shows the result, don't read or list the files again.
+- write creates parent folders; no mkdir needed.
+- When calls don't depend on each other (like writing several new files), make them all in one reply.
 - Keep using tools until the task is done. Ask the user only when something is truly unclear.
-- Never start servers or other commands that keep running; check work with commands that finish.
+- Never start servers or other commands that keep running, and never open a browser just to check work. If you need to see a page and the screenshot tool is in your tools, use it.
 - Never delete or overwrite files that existed before you started or that the user asked for, unless they asked you to. Files you create for the task are the result: never remove them to "clean up".
-- Before you say you are done, confirm the files you created still exist and contain the expected changes.
 - When finished, reply briefly in plain words: what you changed and how you checked it.`, dir)
 }
 
@@ -218,7 +269,11 @@ func (a *Agent) stopped() {
 }
 
 func (a *Agent) loop(ctx context.Context, emit func(any)) error {
-	for step := range maxSteps {
+	limit := a.stepLimit
+	if limit <= 0 {
+		limit = maxSteps
+	}
+	for step := range limit {
 		a.light = step == 0 && len([]rune(a.latestRequest())) <= 80
 		a.prune()
 		if a.tokens > a.window*7/10 {
@@ -234,6 +289,7 @@ func (a *Agent) loop(ctx context.Context, emit func(any)) error {
 			return err
 		}
 		a.messages = append(a.messages, reply)
+		a.steps++
 		emit(evUsage{a.tokens, a.window})
 		if len(reply.ToolCalls) == 0 {
 			return nil
@@ -246,14 +302,26 @@ func (a *Agent) loop(ctx context.Context, emit func(any)) error {
 			emit(evToolStart{call.ID, call.Function.Name, strings.TrimPrefix(describe(call.Function.Arguments), a.dir+"/")})
 			var result toolResult
 			switch {
+			case a.role == "worker" && !workerTools[call.Function.Name]:
+				result = fail("unknown tool " + call.Function.Name + ". Use list, grep, read, edit or write.")
+			case a.readOnly && !readOnlyTools[call.Function.Name]:
+				result = fail("the reviewer is read-only: " + call.Function.Name + " is not available. Use list, grep and read, then report your findings.")
 			case call.Function.Name == "skill":
 				result = a.useSkill(call.Function.Arguments)
 			case a.isSkill(call.Function.Name):
 				result = a.useSkill(`{"name":"` + call.Function.Name + `"}`)
+			case call.Function.Name == "crew":
+				result = a.runCrew(ctx, call.Function.Arguments, emit)
+			case a.role != "" && isMCP(call.Function.Name):
+				result = fail("MCP tools are not available to crew workers.")
+			case a.owned != nil && (call.Function.Name == "write" || call.Function.Name == "edit") && !a.owns(sarg(argsOf(call.Function.Arguments), "path")):
+				result = fail(a.notOwned(sarg(argsOf(call.Function.Arguments), "path")))
 			case a.approve != nil && (needsApproval[call.Function.Name] || a.mcp.has(call.Function.Name)) && !a.approve(ctx, call.Function.Name, approvalText(call.Function.Name, call.Function.Arguments)):
 				result = toolResult{output: "The user said no to this. Do not try it again another way; explain what you wanted to do and ask what they prefer.", summary: "you said no"}
 			case a.mcp.has(call.Function.Name):
 				result = a.mcp.run(ctx, call.Function.Name, call.Function.Arguments)
+			case call.Function.Name == "screenshot":
+				result = a.screenshot(ctx, call.Function.Arguments)
 			default:
 				result = runTool(ctx, a.dir, call.Function.Name, call.Function.Arguments)
 			}
@@ -264,25 +332,48 @@ func (a *Agent) loop(ctx context.Context, emit func(any)) error {
 			return ctx.Err()
 		}
 	}
-	return fmt.Errorf("stopped after %d steps without finishing", maxSteps)
+	return fmt.Errorf("stopped after %d steps without finishing", limit)
 }
 
 func (a *Agent) completeRetry(ctx context.Context, emit func(any)) (Message, error) {
 	var re *routerError
+	var be *busyError
 	var avoid []string
+	busy := 0
 	for attempt := 0; ; attempt++ {
 		var extra map[string]any
-		if len(avoid) > 0 {
-			extra = map[string]any{"prism_avoid": avoid}
+		if all := a.avoidRoutes(avoid); len(all) > 0 {
+			extra = map[string]any{"prism_avoid": all}
 		}
 		reply, err := a.complete(ctx, a.messages, extra, emit)
 		if a.lastRoute != "" {
 			avoid = append(avoid, a.lastRoute)
 		}
-		if err == nil || ctx.Err() != nil || errors.As(err, &re) || attempt == 2 {
+		limited := errors.As(err, &be) || (errors.As(err, &re) && re.allBusy())
+		if err != nil && ctx.Err() == nil && limited && busy < len(busyWaits) {
+			wait := busyWaits[busy]
+			if be != nil && be.wait > 0 && be.wait <= time.Minute {
+				wait = be.wait
+			}
+			be = nil
+			busy++
+			attempt--
+			emit(evNote{fmt.Sprintf("free models are busy, trying again in %ds…", int(wait.Round(time.Second)/time.Second))})
+			select {
+			case <-ctx.Done():
+				return reply, ctx.Err()
+			case <-time.After(wait):
+			}
+			continue
+		}
+		if err == nil || ctx.Err() != nil || limited || errors.As(err, &re) || attempt == 2 {
 			return reply, err
 		}
-		emit(evNote{"reply dropped, asking again…"})
+		if errors.Is(err, errCutOff) {
+			emit(evNote{"the model stopped mid-reply, trying another…"})
+		} else {
+			emit(evNote{"that model failed, trying another…"})
+		}
 	}
 }
 
@@ -323,8 +414,12 @@ func estimate(messages []Message) int {
 }
 
 func (a *Agent) complete(ctx context.Context, messages []Message, extra map[string]any, emit func(any)) (Message, error) {
+	model := a.model
+	if model == "" {
+		model = "auto"
+	}
 	body := map[string]any{
-		"model":          "auto",
+		"model":          model,
 		"messages":       messages,
 		"tools":          a.tools(),
 		"stream":         true,
@@ -333,6 +428,9 @@ func (a *Agent) complete(ctx context.Context, messages []Message, extra map[stri
 	}
 	if a.quick || a.light {
 		body["prism_quick"] = true
+	}
+	if len(a.exclude) > 0 {
+		body["prism_exclude_families"] = a.exclude
 	}
 	for k, v := range extra {
 		body[k] = v
@@ -346,6 +444,9 @@ func (a *Agent) complete(ctx context.Context, messages []Message, extra map[stri
 		return Message{}, err
 	}
 	req.Header.Set("content-type", "application/json")
+	if a.role != "" {
+		req.Header.Set("x-prism-crew", "1")
+	}
 	a.lastRoute = ""
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -366,9 +467,19 @@ func (a *Agent) complete(ctx context.Context, messages []Message, extra map[stri
 		if json.Unmarshal(data, &failure) == nil && failure.Error.Message != "" {
 			return Message{}, &routerError{message: failure.Error.Message, failures: failure.Error.Failures}
 		}
+		if res.StatusCode == http.StatusTooManyRequests {
+			secs, _ := strconv.Atoi(res.Header.Get("retry-after"))
+			return Message{}, &busyError{status: res.StatusCode, body: strings.TrimSpace(string(data)), wait: time.Duration(secs) * time.Second}
+		}
 		return Message{}, fmt.Errorf("router error %d: %s", res.StatusCode, strings.TrimSpace(string(data)))
 	}
 	a.lastRoute = res.Header.Get("x-free-route")
+	if a.lastRoute == "" {
+		a.lastRoute = res.Header.Get("x-prism-route")
+	}
+	if family := res.Header.Get("x-prism-family"); family != "" && !slices.Contains(a.families, family) {
+		a.families = append(a.families, family)
+	}
 	if route := a.lastRoute; route != "" {
 		wait, _ := strconv.Atoi(res.Header.Get("x-free-wait"))
 		emit(evRoute{route, time.Duration(wait) * time.Millisecond})

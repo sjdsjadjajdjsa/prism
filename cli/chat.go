@@ -175,7 +175,7 @@ func (m model) transcript(t theme, width int) []line {
 			} else if !e.res.ok {
 				gc = t.red
 			}
-			segs := []seg{{text: glyph, fg: gc}, {text: pad(e.tool, 6), fg: t.muted}, {text: clip(e.arg, width-34), fg: t.fg}}
+			segs := []seg{{text: glyph, fg: gc}, {text: pad(e.tool+" ", 6), fg: t.muted}, {text: clip(e.arg, width-34), fg: t.fg}}
 			if e.done {
 				segs = append(segs, summary(t, e.res, 26)...)
 			}
@@ -204,6 +204,9 @@ func (m model) transcript(t theme, width int) []line {
 				}
 				out = append(out, line{fill: &panel, indent: 4})
 			}
+		case "crew":
+			gap()
+			out = append(out, crewLines(t, e.crew, width, n)...)
 		case "note":
 			gap()
 			out = append(out, line{indent: 2, segs: []seg{{text: "· " + e.text, fg: t.muted}}})
@@ -259,13 +262,24 @@ func (m model) transcript(t theme, width int) []line {
 		gap()
 		verb := map[string]string{"bash": "run this command", "write": "do this", "edit": "do this"}[m.pending.tool]
 		warn := mix(t.panel, t.at(0.1), 0.12)
+		who, arg := approvalWorker(m.pending.arg)
 		out = append(out, line{fill: &warn, indent: 2})
-		out = append(out, line{fill: &warn, indent: 2, segs: []seg{{text: " ? ", fg: t.at(0.1), bold: true}, {text: "prism wants to " + verb + ":", fg: t.fg, bold: true}}})
-		for _, row := range wrapAll(m.pending.arg, width-12) {
+		head := []seg{{text: " ? ", fg: t.at(0.1), bold: true}}
+		if who != "" {
+			head = append(head, seg{text: "worker " + who, grad: true, phase: m.workerHue(who), bold: true}, seg{text: " wants to " + verb + ":", fg: t.fg, bold: true})
+		} else {
+			head = append(head, seg{text: "prism wants to " + verb + ":", fg: t.fg, bold: true})
+		}
+		out = append(out, line{fill: &warn, indent: 2, segs: head})
+		for _, row := range wrapAll(arg, width-12) {
 			out = append(out, line{fill: &warn, indent: 2, segs: []seg{{text: "     " + row, fg: t.at(0.6)}}})
 		}
 		out = append(out, line{fill: &warn, indent: 2})
-		out = append(out, line{fill: &warn, indent: 2, segs: []seg{{text: "   y", fg: t.green, bold: true}, {text: " allow   ", fg: t.muted}, {text: "n", fg: t.red, bold: true}, {text: " no", fg: t.muted}}})
+		keys := []seg{{text: "   y", fg: t.green, bold: true}, {text: " allow   ", fg: t.muted}, {text: "n", fg: t.red, bold: true}, {text: " no", fg: t.muted}}
+		if len(m.queued) > 0 {
+			keys = append(keys, seg{text: fmt.Sprintf("   +%d waiting", len(m.queued)), fg: t.at(0.1)})
+		}
+		out = append(out, line{fill: &warn, indent: 2, segs: keys})
 		out = append(out, line{fill: &warn, indent: 2})
 	}
 	if m.busy && m.draft != nil {
@@ -773,3 +787,28 @@ func tinted(segs []seg, toward rgb, amount float64) []seg {
 }
 
 const issuesURL = "github.com/sjdsjadjajdjsa/prism/issues"
+
+// approvalWorker splits "worker <id>: <what>" into the id and the text.
+func approvalWorker(arg string) (string, string) {
+	if rest, ok := strings.CutPrefix(arg, "worker "); ok {
+		if id, text, ok := strings.Cut(rest, ": "); ok && id != "" && !strings.ContainsAny(id, " \n") {
+			return id, text
+		}
+	}
+	return "", arg
+}
+
+// workerHue is the spectrum position of a worker's row in the latest crew.
+func (m model) workerHue(id string) float64 {
+	for i := len(m.entries) - 1; i >= 0; i-- {
+		if c := m.entries[i].crew; c != nil {
+			for k, r := range c.rows {
+				if r.ID == id {
+					return float64(k) / float64(max(1, len(c.rows)))
+				}
+			}
+			break
+		}
+	}
+	return 0.1
+}

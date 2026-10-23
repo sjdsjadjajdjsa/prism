@@ -264,7 +264,7 @@ func TestCutOffReplyRetriedWithAvoid(t *testing.T) {
 	}
 	if !hasEvent(events, func(ev any) bool {
 		n, ok := ev.(evNote)
-		return ok && strings.Contains(n.text, "again")
+		return ok && strings.Contains(n.text, "trying another")
 	}) {
 		t.Error("no retry note emitted")
 	}
@@ -276,6 +276,70 @@ func TestCutOffReplyRetriedWithAvoid(t *testing.T) {
 	}
 	if !strings.Contains(text, "full reply") {
 		t.Errorf("final text = %q, want it to contain %q", text, "full reply")
+	}
+}
+
+func TestRateLimitWaitsAndRetries(t *testing.T) {
+	saved := busyWaits
+	busyWaits = []time.Duration{10 * time.Millisecond, 10 * time.Millisecond}
+	defer func() { busyWaits = saved }()
+	plain429 := func(w http.ResponseWriter) string {
+		w.WriteHeader(http.StatusTooManyRequests)
+		io.WriteString(w, `{"status":429,"title":"Too Many Requests"}`)
+		return ""
+	}
+	failures := func(statuses string) func(http.ResponseWriter) string {
+		return func(w http.ResponseWriter) string {
+			w.Header().Set("content-type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			io.WriteString(w, `{"error":{"message":"Every free AI route failed.","failures":[`+statuses+`]}}`)
+			return ""
+		}
+	}
+	allBusy := failures(`{"route":"a","status":429},{"route":"b","status":429}`)
+	mixed := failures(`{"route":"a","status":429},{"route":"b","status":500}`)
+	ok := sseText(delta(`{"content":"done"}`), sseDone)
+	cases := []struct {
+		name     string
+		replies  []func(http.ResponseWriter) string
+		requests int
+		wantErr  string
+		notes    int
+	}{
+		{"429 then success", []func(http.ResponseWriter) string{plain429, ok}, 2, "", 1},
+		{"every route 429 then success", []func(http.ResponseWriter) string{allBusy, allBusy, ok}, 3, "", 2},
+		{"429 on every try gives up", []func(http.ResponseWriter) string{plain429, plain429, plain429}, 3, "router error 429", 2},
+		{"a real failure is not waited on", []func(http.ResponseWriter) string{mixed}, 1, "Every free AI route failed.", 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fake := &fakeRouter{mu: &sync.Mutex{}, replies: c.replies}
+			srv := httptest.NewServer(fake.handler())
+			defer srv.Close()
+			a := newTestAgent(t, srv.URL, t.TempDir())
+			events, err := collect(a, "hello")
+			if c.wantErr == "" && err != nil {
+				t.Fatalf("run failed: %v", err)
+			}
+			if c.wantErr != "" && (err == nil || !strings.Contains(err.Error(), c.wantErr)) {
+				t.Fatalf("err = %v, want it to contain %q", err, c.wantErr)
+			}
+			fake.mu.Lock()
+			seen := len(fake.seen)
+			fake.mu.Unlock()
+			if seen != c.requests {
+				t.Errorf("router saw %d requests, want %d", seen, c.requests)
+			}
+			notes := 0
+			for _, ev := range events {
+				if n, ok := ev.(evNote); ok && strings.Contains(n.text, "busy") {
+					notes++
+				}
+			}
+			if notes != c.notes {
+				t.Errorf("%d busy notes, want %d", notes, c.notes)
+			}
+		})
 	}
 }
 
@@ -358,5 +422,504 @@ func TestFullLoopWriteThenAnswer(t *testing.T) {
 	defer fake.mu.Unlock()
 	if len(fake.seen) != 2 {
 		t.Fatalf("router saw %d requests, want 2", len(fake.seen))
+	}
+}
+
+func TestReadStreamTable(t *testing.T) {
+	type call struct{ id, name, args string }
+	finish := `data: {"choices":[{"finish_reason":"stop","delta":{}}]}`
+	toolPart := func(index int, id, name, args string) string {
+		raw, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{
+			"tool_calls": []any{map[string]any{"index": index, "id": id, "function": map[string]any{"name": name, "arguments": args}}},
+		}}}})
+		return "data: " + string(raw)
+	}
+	cases := []struct {
+		name      string
+		lines     []string
+		wantErr   string
+		cutOff    bool
+		content   string
+		calls     []call
+		texts     []string
+		thinking  int
+		reasoning string
+		tokens    int
+		prompt    int
+	}{
+		{
+			name:    "finish_reason without DONE ends the stream",
+			lines:   []string{delta(`{"content":"ok"}`), finish},
+			content: "ok",
+			texts:   []string{"ok"},
+		},
+		{
+			name:    "non-data lines, comments and bad JSON are skipped",
+			lines:   []string{": keep-alive", "event: message", "", "data: {not json", delta(`{"content":"a"}`), "data:" + `{"choices":[{"delta":{"content":"b"}}]}`, sseDone},
+			content: "ab",
+			texts:   []string{"a", "b"},
+		},
+		{
+			name:    "error chunk aborts with its message",
+			lines:   []string{delta(`{"content":"x"}`), `data: {"error":{"message":"upstream exploded"}}`, sseDone},
+			wantErr: "upstream exploded",
+		},
+		{
+			name:    "error chunk with empty message is ignored",
+			lines:   []string{`data: {"error":{"message":""}}`, delta(`{"content":"fine"}`), sseDone},
+			content: "fine",
+			texts:   []string{"fine"},
+		},
+		{
+			name:   "empty stream is cut off",
+			lines:  []string{},
+			cutOff: true,
+		},
+		{
+			name:    "leading whitespace content is kept but not emitted",
+			lines:   []string{delta(`{"content":"\n"}`), delta(`{"content":"hi"}`), sseDone},
+			content: "\nhi",
+			texts:   []string{"hi"},
+		},
+		{
+			name:      "reasoning and reasoning_content emit thinking once",
+			lines:     []string{delta(`{"reasoning":"a"}`), delta(`{"reasoning_content":"b"}`), delta(`{"content":"c"}`), sseDone},
+			content:   "c",
+			texts:     []string{"c"},
+			thinking:  1,
+			reasoning: "ab",
+		},
+		{
+			name:    "usage with total tokens",
+			lines:   []string{delta(`{"content":"u"}`), `data: {"choices":[],"usage":{"prompt_tokens":10,"total_tokens":15}}`, sseDone},
+			content: "u",
+			texts:   []string{"u"},
+			tokens:  15,
+			prompt:  10,
+		},
+		{
+			name:    "usage with only prompt tokens",
+			lines:   []string{`data: {"choices":[],"usage":{"prompt_tokens":7}}`, sseDone},
+			content: "",
+			tokens:  7,
+			prompt:  7,
+		},
+		{
+			name: "parallel tool calls keep their order",
+			lines: []string{
+				toolPart(0, "c0", "read", `{"path":`),
+				toolPart(1, "c1", "list", `{"path":"."}`),
+				toolPart(0, "", "", `"a.go"}`),
+				sseDone,
+			},
+			calls: []call{{"c0", "read", `{"path":"a.go"}`}, {"c1", "list", `{"path":"."}`}},
+		},
+		{
+			name: "reused index with a new id starts a new call",
+			lines: []string{
+				toolPart(0, "c0", "read", `{"path":"a"}`),
+				toolPart(0, "c1", "read", `{"path":"b"}`),
+				sseDone,
+			},
+			calls: []call{{"c0", "read", `{"path":"a"}`}, {"c1", "read", `{"path":"b"}`}},
+		},
+		{
+			name: "reused index with the same id appends",
+			lines: []string{
+				toolPart(0, "c0", "bash", `{"command":`),
+				toolPart(0, "c0", "ignored", `"ls"}`),
+				sseDone,
+			},
+			calls: []call{{"c0", "bash", `{"command":"ls"}`}},
+		},
+		{
+			name: "missing id in first part is filled by a later part",
+			lines: []string{
+				toolPart(0, "", "grep", `{"pattern":"x"}`),
+				toolPart(0, "late", "", ``),
+				sseDone,
+			},
+			calls: []call{{"late", "grep", `{"pattern":"x"}`}},
+		},
+		{
+			name: "text and tool call together",
+			lines: []string{
+				delta(`{"content":"checking"}`),
+				toolPart(0, "c0", "list", `{}`),
+				sseDone,
+			},
+			content: "checking",
+			texts:   []string{"checking"},
+			calls:   []call{{"c0", "list", `{}`}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &Agent{}
+			var texts []string
+			thinking := 0
+			reasoning := ""
+			body := strings.Join(tc.lines, "\n")
+			if body != "" {
+				body += "\n"
+			}
+			reply, err := a.readStream(strings.NewReader(body), func(ev any) {
+				switch e := ev.(type) {
+				case evText:
+					texts = append(texts, e.text)
+				case evThinking:
+					thinking++
+				case evReasoning:
+					reasoning += e.text
+				}
+			})
+			if tc.cutOff {
+				if !errors.Is(err, errCutOff) {
+					t.Fatalf("err = %v, want errCutOff", err)
+				}
+				return
+			}
+			if tc.wantErr != "" {
+				if err == nil || err.Error() != tc.wantErr {
+					t.Fatalf("err = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected err: %v", err)
+			}
+			if reply.Role != "assistant" || reply.Content != tc.content {
+				t.Errorf("reply = %+v, want content %q", reply, tc.content)
+			}
+			if strings.Join(texts, "|") != strings.Join(tc.texts, "|") {
+				t.Errorf("evText = %q, want %q", texts, tc.texts)
+			}
+			if thinking != tc.thinking || reasoning != tc.reasoning {
+				t.Errorf("thinking=%d reasoning=%q, want %d %q", thinking, reasoning, tc.thinking, tc.reasoning)
+			}
+			if a.tokens != tc.tokens || a.lastPrompt != tc.prompt {
+				t.Errorf("tokens=%d lastPrompt=%d, want %d %d", a.tokens, a.lastPrompt, tc.tokens, tc.prompt)
+			}
+			if len(reply.ToolCalls) != len(tc.calls) {
+				t.Fatalf("got %d tool calls, want %d: %+v", len(reply.ToolCalls), len(tc.calls), reply.ToolCalls)
+			}
+			for i, want := range tc.calls {
+				got := reply.ToolCalls[i]
+				if got.ID != want.id || got.Function.Name != want.name || got.Function.Arguments != want.args {
+					t.Errorf("call %d = %+v, want %+v", i, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestReadStreamDraftEvents(t *testing.T) {
+	a := &Agent{}
+	big := strings.Repeat("x", 250)
+	lines := []string{
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c","function":{"name":"write","arguments":"{\"path\":\"dir/f.txt\","}}]}}]}`,
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"content\":\"` + big + `"}}]}}]}`,
+		`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"}"}}]}}]}`,
+		sseDone,
+	}
+	var drafts []evDraft
+	_, err := a.readStream(strings.NewReader(strings.Join(lines, "\n")+"\n"), func(ev any) {
+		if d, ok := ev.(evDraft); ok {
+			drafts = append(drafts, d)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// First part always drafts; second grows by >=200 chars; third is too small.
+	if len(drafts) != 2 {
+		t.Fatalf("got %d drafts, want 2: %+v", len(drafts), drafts)
+	}
+	for _, d := range drafts {
+		if d.name != "write" || d.arg != "dir/f.txt" {
+			t.Errorf("draft = %+v", d)
+		}
+	}
+	if drafts[1].chars <= drafts[0].chars {
+		t.Errorf("draft chars did not grow: %+v", drafts)
+	}
+}
+
+func TestReadWholeTable(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		wantErr string
+		content string
+		calls   int
+		tokens  int
+		texts   int
+	}{
+		{name: "plain reply", body: `{"choices":[{"message":{"role":"x","content":"hello"}}],"usage":{"prompt_tokens":3,"total_tokens":9}}`, content: "hello", tokens: 9, texts: 1},
+		{name: "tool call reply emits no text", body: `{"choices":[{"message":{"content":"","tool_calls":[{"id":"t","function":{"name":"list","arguments":"{}"}}]}}]}`, calls: 1},
+		{name: "no choices", body: `{"choices":[]}`, wantErr: "the model sent an empty reply"},
+		{name: "not JSON", body: `<html>`, wantErr: "unreadable reply from the router"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &Agent{}
+			texts := 0
+			reply, err := a.readWhole(strings.NewReader(tc.body), func(ev any) {
+				if _, ok := ev.(evText); ok {
+					texts++
+				}
+			})
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if reply.Role != "assistant" || reply.Content != tc.content || len(reply.ToolCalls) != tc.calls {
+				t.Errorf("reply = %+v", reply)
+			}
+			if a.tokens != tc.tokens || texts != tc.texts {
+				t.Errorf("tokens=%d texts=%d, want %d %d", a.tokens, texts, tc.tokens, tc.texts)
+			}
+		})
+	}
+}
+
+func TestCompleteRetryPaths(t *testing.T) {
+	cutOff := func(route string) func(http.ResponseWriter) string {
+		return func(w http.ResponseWriter) string {
+			w.Header().Set("content-type", "text/event-stream")
+			routeHeader(w, route)
+			fmt.Fprintln(w, delta(`{"content":"par`))
+			return route
+		}
+	}
+	plain500 := func(w http.ResponseWriter) string {
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, "  boom  ")
+		return ""
+	}
+	routerFail := func(w http.ResponseWriter) string {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		io.WriteString(w, `{"error":{"message":"no routes"}}`)
+		return ""
+	}
+	ok := sseText(delta(`{"content":"done"}`), sseDone)
+	cases := []struct {
+		name      string
+		replies   []func(http.ResponseWriter) string
+		requests  int
+		wantErr   string
+		cutOff    bool
+		router    bool
+		notes     int
+		lastAvoid []string
+	}{
+		{name: "success first try", replies: []func(http.ResponseWriter) string{ok}, requests: 1},
+		{name: "router error is not retried", replies: []func(http.ResponseWriter) string{routerFail, ok}, requests: 1, router: true, wantErr: "no routes"},
+		{name: "plain http error retried then succeeds", replies: []func(http.ResponseWriter) string{plain500, ok}, requests: 2, notes: 1},
+		{name: "plain http error gives up after three tries", replies: []func(http.ResponseWriter) string{plain500, plain500, plain500, ok}, requests: 3, notes: 2, wantErr: "router error 500: boom"},
+		{
+			name:      "cut off three times avoids every route",
+			replies:   []func(http.ResponseWriter) string{cutOff("r1"), cutOff("r2"), cutOff("r3"), ok},
+			requests:  3,
+			notes:     2,
+			cutOff:    true,
+			lastAvoid: []string{"r1", "r2"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			testEnv(t)
+			fake := &fakeRouter{mu: &sync.Mutex{}, replies: tc.replies}
+			srv := httptest.NewServer(fake.handler())
+			defer srv.Close()
+			a := &Agent{api: srv.URL, window: contextLimit, messages: []Message{{Role: "user", Content: "hi"}}}
+			notes := 0
+			reply, err := a.completeRetry(context.Background(), func(ev any) {
+				if _, ok := ev.(evNote); ok {
+					notes++
+				}
+			})
+			fake.mu.Lock()
+			seen := append([]fakeReq{}, fake.seen...)
+			fake.mu.Unlock()
+			if len(seen) != tc.requests {
+				t.Errorf("router saw %d requests, want %d", len(seen), tc.requests)
+			}
+			if notes != tc.notes {
+				t.Errorf("retry notes = %d, want %d", notes, tc.notes)
+			}
+			switch {
+			case tc.cutOff:
+				if !errors.Is(err, errCutOff) {
+					t.Errorf("err = %v, want errCutOff", err)
+				}
+			case tc.wantErr != "":
+				if err == nil || err.Error() != tc.wantErr {
+					t.Errorf("err = %v, want %q", err, tc.wantErr)
+				}
+				var re *routerError
+				if errors.As(err, &re) != tc.router {
+					t.Errorf("routerError = %v, want %v", errors.As(err, &re), tc.router)
+				}
+			default:
+				if err != nil || reply.Content != "done" {
+					t.Errorf("reply=%+v err=%v", reply, err)
+				}
+			}
+			if tc.lastAvoid != nil {
+				got := seen[len(seen)-1].avoid
+				if strings.Join(got, ",") != strings.Join(tc.lastAvoid, ",") {
+					t.Errorf("last avoid = %v, want %v", got, tc.lastAvoid)
+				}
+			}
+		})
+	}
+}
+
+func TestCompleteRetryStopsOnCancel(t *testing.T) {
+	testEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	fake := &fakeRouter{mu: &sync.Mutex{}, replies: []func(http.ResponseWriter) string{
+		func(w http.ResponseWriter) string {
+			cancel()
+			w.WriteHeader(http.StatusInternalServerError)
+			return ""
+		},
+		sseText(delta(`{"content":"never"}`), sseDone),
+	}}
+	srv := httptest.NewServer(fake.handler())
+	defer srv.Close()
+	a := &Agent{api: srv.URL, window: contextLimit, messages: []Message{{Role: "user", Content: "hi"}}}
+	_, err := a.completeRetry(ctx, func(any) {})
+	if err == nil {
+		t.Fatal("want an error after cancel")
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if len(fake.seen) != 1 {
+		t.Errorf("router saw %d requests after cancel, want 1", len(fake.seen))
+	}
+}
+
+func TestCompleteUnreachableRouter(t *testing.T) {
+	testEnv(t)
+	srv := httptest.NewServer(http.NotFoundHandler())
+	url := srv.URL
+	srv.Close()
+	a := &Agent{api: url, window: contextLimit}
+	_, err := a.complete(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, func(any) {})
+	if err == nil || !strings.Contains(err.Error(), "can't reach the free AI router") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestCompleteHeadersAndToolCallFixups(t *testing.T) {
+	cases := []struct {
+		name        string
+		headers     map[string]string
+		body        string
+		wantRoute   string
+		wantWait    time.Duration
+		wantFamily  []string
+		routeEvents int
+	}{
+		{
+			name:        "x-free-route with wait",
+			headers:     map[string]string{"x-free-route": "free-a", "x-free-wait": "250", "content-type": "application/json"},
+			wantRoute:   "free-a",
+			wantWait:    250 * time.Millisecond,
+			routeEvents: 1,
+		},
+		{
+			name:        "x-prism-route fallback and family",
+			headers:     map[string]string{"x-prism-route": "prism-b", "x-prism-family": "llama", "content-type": "application/json"},
+			wantRoute:   "prism-b",
+			wantFamily:  []string{"llama"},
+			routeEvents: 1,
+		},
+		{
+			name:    "no route header emits no route event",
+			headers: map[string]string{"content-type": "application/json"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			testEnv(t)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				for k, v := range tc.headers {
+					w.Header().Set(k, v)
+				}
+				io.WriteString(w, `{"choices":[{"message":{"content":"","tool_calls":[{"id":"","function":{"name":"list","arguments":"{}"}},{"id":"keep","function":{"name":"read","arguments":"{}"}}]}}]}`)
+			}))
+			defer srv.Close()
+			a := &Agent{api: srv.URL, window: contextLimit, families: []string{}}
+			var routes []evRoute
+			reply, err := a.complete(context.Background(), []Message{{Role: "user", Content: "hello world"}}, nil, func(ev any) {
+				if r, ok := ev.(evRoute); ok {
+					routes = append(routes, r)
+				}
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if a.lastRoute != tc.wantRoute {
+				t.Errorf("lastRoute = %q, want %q", a.lastRoute, tc.wantRoute)
+			}
+			if len(routes) != tc.routeEvents {
+				t.Fatalf("route events = %+v", routes)
+			}
+			if tc.routeEvents == 1 && (routes[0].route != tc.wantRoute || routes[0].wait != tc.wantWait) {
+				t.Errorf("route event = %+v", routes[0])
+			}
+			if strings.Join(a.families, ",") != strings.Join(tc.wantFamily, ",") {
+				t.Errorf("families = %v, want %v", a.families, tc.wantFamily)
+			}
+			if len(reply.ToolCalls) != 2 {
+				t.Fatalf("tool calls = %+v", reply.ToolCalls)
+			}
+			if !strings.HasPrefix(reply.ToolCalls[0].ID, "call_") || reply.ToolCalls[1].ID != "keep" {
+				t.Errorf("ids = %q, %q", reply.ToolCalls[0].ID, reply.ToolCalls[1].ID)
+			}
+			for _, c := range reply.ToolCalls {
+				if c.Type != "function" {
+					t.Errorf("type = %q, want function", c.Type)
+				}
+			}
+			if a.requests != 1 || a.sent == 0 || a.tokens == 0 {
+				t.Errorf("requests=%d sent=%d tokens=%d", a.requests, a.sent, a.tokens)
+			}
+		})
+	}
+}
+
+func TestDraftArgAndApprovalText(t *testing.T) {
+	drafts := []struct{ in, want string }{
+		{`{"path":"a/b.go","content":"x"}`, "a/b.go"},
+		{`{"command": "ls -la"}`, "ls -la"},
+		{`{"pattern":"fo\"o"}`, `fo\"o`},
+		{`{"path":"unterminated`, "unterminated"},
+		{`{"other":"x"}`, ""},
+	}
+	for _, d := range drafts {
+		if got := draftArg(d.in); got != d.want {
+			t.Errorf("draftArg(%q) = %q, want %q", d.in, got, d.want)
+		}
+	}
+	approvals := []struct{ tool, raw, want string }{
+		{"bash", `{"command":"rm x"}`, "rm x"},
+		{"write", `{"path":"f.txt"}`, "write the file f.txt"},
+		{"edit", `{"path":"g.txt"}`, "change the file g.txt"},
+		{"github__create_issue", `{"title":"t"}`, `use the create_issue tool from github with {"title":"t"}`},
+		{"read", `{}`, "read"},
+	}
+	for _, c := range approvals {
+		if got := approvalText(c.tool, c.raw); got != c.want {
+			t.Errorf("approvalText(%q) = %q, want %q", c.tool, got, c.want)
+		}
 	}
 }

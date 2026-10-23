@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/mattn/go-runewidth"
 )
 
 const handoffIdle = 8 * time.Second
@@ -18,9 +21,17 @@ type webSession struct {
 	server  *server
 	url     string
 	started time.Time
+	openID  atomic.Uint64
+	failed  atomic.Bool
 }
 
 func (m *model) startWeb() {
+	if m.web != nil {
+		m.web.started = time.Now()
+		m.web.failed.Store(false)
+		m.web.openID.Add(1)
+		return
+	}
 	dir := webDir()
 	if dir == "" {
 		m.entries = append(m.entries, &entry{kind: "error", text: "the browser page files are missing · reinstall prism, then try /web again"})
@@ -38,9 +49,27 @@ func (m *model) startWeb() {
 	}
 	s := newServer(m.agent, dir, themes[m.theme].name)
 	s.handoff = true
-	srv := &http.Server{Handler: s.handler(port)}
-	go srv.Serve(ln)
-	m.web = &webSession{srv: srv, server: s, url: "http://127.0.0.1:" + port, started: time.Now()}
+	w := &webSession{server: s, url: "http://127.0.0.1:" + port, started: time.Now()}
+	w.openID.Store(uint64(time.Now().UnixNano()))
+	next := s.handler(port)
+	handler := http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/handoff-open" {
+			switch r.Method {
+			case http.MethodGet:
+				fmt.Fprint(rw, w.openID.Load())
+			case http.MethodPost:
+				w.failed.Store(r.URL.Query().Get("failed") == "1")
+				rw.WriteHeader(http.StatusNoContent)
+			default:
+				rw.WriteHeader(http.StatusMethodNotAllowed)
+			}
+			return
+		}
+		next.ServeHTTP(rw, r)
+	})
+	w.srv = &http.Server{Handler: localOnly(port, handler)}
+	go w.srv.Serve(ln)
+	m.web = w
 	m.speak("see you in the browser.")
 }
 
@@ -74,22 +103,53 @@ func (m *model) endWeb() tea.Cmd {
 	return nil
 }
 
+// linkCopiedAt is when the last "copy link" command ran (unix nanoseconds).
+var linkCopiedAt atomic.Int64
+
+const linkCopiedFor = 6 * time.Second
+
+// copyWebLink asks the terminal to put url on the clipboard (OSC 52 through
+// bubbletea) and notes the time so the handoff screen can say so.
+func copyWebLink(url string) tea.Cmd {
+	return tea.Batch(tea.SetClipboard(url), func() tea.Msg {
+		linkCopiedAt.Store(time.Now().UnixNano())
+		return nil
+	})
+}
+
+func handoffLine(cv *canvas, y int, s string, color rgb, bold bool, url string) {
+	s = runewidth.Truncate(s, max(0, cv.w-2), "…")
+	x := (cv.w - runewidth.StringWidth(s)) / 2
+	if url != "" {
+		cv.link(x, y, s, url, color, bold)
+	} else {
+		cv.text(x, y, s, color, bold)
+	}
+}
+
 func drawHandoff(cv *canvas, t theme, m model) {
 	n := ms(m.now)
 	w := m.web
-	cy := cv.h/2 + 1
-	drawShard(cv, t, (cv.w-26)/2, cy-9, moodIdle, n)
-	title := "continuing in your browser"
-	cv.grad((cv.w-len(title))/2, cy+1, title, t, n/5000, 18, true)
-	cv.text((cv.w-len(w.url))/2, cy+3, w.url, t.at(0.6), true)
-	lines := []string{"if the page didn't open, copy this link into your browser", "", "press enter here to come back, or just close the browser tab"}
-	if seen, busy := w.server.state(); !seen.IsZero() {
-		lines[0] = "the browser is connected"
+	cy := (max(0, cv.h-7))/2 - 1
+	if cv.h >= 18 && cv.w >= 26 {
+		cy = cv.h/2 + 1
+		drawShard(cv, t, (cv.w-26)/2, cy-9, moodIdle, n)
+	}
+	title := runewidth.Truncate("continuing in your browser", max(0, cv.w-2), "…")
+	cv.grad((cv.w-runewidth.StringWidth(title))/2, cy+1, title, t, n/5000, 18, true)
+	handoffLine(cv, cy+3, w.url, t.at(0.6), true, w.url)
+	status := "if the page didn't open, copy this link into your browser"
+	if w.failed.Load() {
+		status = "couldn't open your browser, copy the link above"
+	} else if at := linkCopiedAt.Load(); at != 0 && time.Since(time.Unix(0, at)) < linkCopiedFor {
+		status = "link copied · if nothing was copied, select the link above"
+	} else if seen, busy := w.server.state(); !seen.IsZero() {
+		status = "the browser is connected"
 		if busy {
-			lines[0] = "prism is working in the browser"
+			status = "prism is working in the browser"
 		}
 	}
-	for i, l := range lines {
-		cv.text((cv.w-len([]rune(l)))/2, cy+5+i, l, t.muted, false)
-	}
+	handoffLine(cv, cy+5, status, t.muted, false, "")
+	handoffLine(cv, cy+6, "o open again  ·  c copy link", t.muted, false, "")
+	handoffLine(cv, cy+7, "press enter here to come back", t.muted, false, "")
 }
