@@ -1,6 +1,6 @@
 ---
 name: git-basics
-description: Set up git safely: init, .gitignore, small clear commits, no force pushes, never commit secrets.
+description: Set up git safely: first commit, ignore files, never commit secrets.
 ---
 
 # Skill: git basics

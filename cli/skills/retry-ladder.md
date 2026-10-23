@@ -1,6 +1,6 @@
 ---
 name: retry-ladder
-description: Diagnose failed attempts from evidence, vary the approach, and escalate real blockers.
+description: When a fix keeps failing: read the error, try a new approach.
 ---
 
 # Retry ladder

@@ -1,6 +1,6 @@
 ---
 name: test-my-app
-description: Exercise a user's running app like a real user and report reproducible failures without changing code.
+description: Use your app like a real user and report any bugs found.
 ---
 
 # Test my app

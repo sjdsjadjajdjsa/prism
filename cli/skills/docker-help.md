@@ -1,6 +1,6 @@
 ---
 name: docker-help
-description: Explain Docker in plain words and fix common Docker problems: write a Dockerfile, read logs, clean up safely.
+description: Explain Docker in plain words and fix common Docker problems.
 ---
 
 # Skill: Docker help

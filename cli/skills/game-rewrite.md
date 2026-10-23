@@ -1,6 +1,6 @@
 ---
 name: game-rewrite
-description: Plan and verify a game decompilation, recompilation, port, or authorized mashup.
+description: Plan rebuilding an old game you have the rights to, step by step.
 ---
 
 # Game rewrite

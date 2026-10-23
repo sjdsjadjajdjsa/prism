@@ -1,6 +1,6 @@
 ---
 name: explain-code
-description: User asks how code works, what a file does, or to explain a project. Read-only.
+description: Explain how code works, in plain words. Nothing is changed.
 ---
 
 # Skill: explain code

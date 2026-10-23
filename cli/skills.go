@@ -107,3 +107,46 @@ func (a *Agent) isSkill(name string) bool {
 	}
 	return false
 }
+
+// skillGroup is one display group for /skills output.
+type skillGroup struct {
+	label  string
+	skills []skill
+}
+
+// skillKind maps a skill name to a display group label.
+func skillKind(name string) string {
+	switch name {
+	case "fix-bug", "retry-ladder", "prove-it", "security-review", "accessibility-review", "release-check", "test-my-app":
+		return "fixing & checking"
+	case "refactor", "explain-code":
+		return "improving code"
+	case "website", "web-app-node", "browser-game", "portfolio-site", "discord-bot", "python-project", "use-an-api", "docker-help", "automate-task", "clean-data", "game-rewrite":
+		return "building things"
+	case "learn-mode", "computer-help", "git-basics":
+		return "learning & exploring"
+	case "handoff-note":
+		return "workflow"
+	}
+	return "your skills"
+}
+
+// groupSkills organises skills into display groups, preserving sort order within each group.
+func groupSkills(skills []skill) []skillGroup {
+	order := []string{"building things", "fixing & checking", "improving code", "learning & exploring", "workflow", "your skills"}
+	byLabel := map[string][]skill{}
+	for _, s := range skills {
+		label := skillKind(s.name)
+		if s.source != "built in" {
+			label = "your skills"
+		}
+		byLabel[label] = append(byLabel[label], s)
+	}
+	var out []skillGroup
+	for _, label := range order {
+		if items, ok := byLabel[label]; ok {
+			out = append(out, skillGroup{label: label, skills: items})
+		}
+	}
+	return out
+}

@@ -1,6 +1,6 @@
 ---
 name: handoff-note
-description: Leave a safe resume note when substantial work is unfinished or a session must stop.
+description: Leave a note so unfinished work can be picked up later.
 ---
 
 # Handoff note

@@ -1,6 +1,6 @@
 ---
 name: fix-bug
-description: Fix a bug, fix an error, fix a crash, fix wrong output. Reproduce first, then patch.
+description: Fix a bug or crash: reproduce it first, then fix it.
 ---
 
 # Skill: fix a bug

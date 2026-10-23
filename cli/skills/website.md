@@ -1,6 +1,6 @@
 ---
 name: website
-description: Build a polished single-page website with modern responsive CSS, checked by clicking through it with browse.
+description: Build a good-looking website that works on phones and computers.
 ---
 
 # Skill: build a website

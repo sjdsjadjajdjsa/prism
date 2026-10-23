@@ -1,6 +1,6 @@
 ---
 name: discord-bot
-description: Set up a Python discord.py bot skeleton with a token from .env and a sample slash command.
+description: Set up a starter Discord bot in Python with a safe token setup.
 ---
 
 # Skill: set up a discord.py bot

@@ -1,6 +1,6 @@
 ---
 name: computer-help
-description: Troubleshoot a Linux computer in plain words: read-only checks first, always ask before changes or sudo.
+description: Fix a Linux problem in plain words, asking before any big change.
 ---
 
 # Skill: Linux computer help

@@ -1,6 +1,6 @@
 ---
 name: web-app-node
-description: Node app, node script, npm project, JavaScript app, package.json. Never use for Python.
+description: Set up a Node.js project you can run with one command.
 ---
 
 # Skill: small Node.js app

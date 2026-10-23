@@ -1,6 +1,6 @@
 ---
 name: release-check
-description: Run a full go/no-go checklist before publishing or releasing a project.
+description: Check everything is ready before you publish or release.
 ---
 
 # Skill: release check

@@ -1,6 +1,6 @@
 ---
 name: prove-it
-description: Verify meaningful changes with real checks before reporting results.
+description: Run real checks before saying a task is done.
 ---
 
 # Prove it before saying done

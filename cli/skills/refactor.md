@@ -1,6 +1,6 @@
 ---
 name: refactor
-description: Restructure code without changing behaviour: capture current output first, small steps, verify each.
+description: Tidy up code without changing how it works, checking each step.
 ---
 
 # Skill: refactor safely

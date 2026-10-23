@@ -1,6 +1,6 @@
 ---
 name: automate-task
-description: Scripts that automate a chore: rename, sort, move, convert files or CSV.
+description: Write a script to do a boring chore: rename, sort, or convert files.
 ---
 
 # Skill: automate a chore

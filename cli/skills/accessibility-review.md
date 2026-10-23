@@ -1,6 +1,6 @@
 ---
 name: accessibility-review
-description: Check a web page or app for WCAG issues (semantics, keyboard, contrast, motion) and report exact fixes.
+description: Check a page or app for accessibility issues and report exact fixes.
 ---
 
 # Skill: accessibility review

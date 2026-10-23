@@ -1,6 +1,6 @@
 ---
 name: security-review
-description: Review a small project for leaked secrets, injection, XSS, risky CORS and vulnerable dependencies.
+description: Check a project for security problems: leaked keys, weak spots.
 ---
 
 # Skill: security review

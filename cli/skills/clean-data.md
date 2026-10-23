@@ -1,6 +1,6 @@
 ---
 name: clean-data
-description: Clean a CSV, JSON, or Excel dataset safely while preserving the original and explaining every change.
+description: Clean up a messy CSV, JSON, or Excel file, keeping the original.
 ---
 
 # Skill: clean data

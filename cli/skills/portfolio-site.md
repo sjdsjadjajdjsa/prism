@@ -1,6 +1,6 @@
 ---
 name: portfolio-site
-description: Build a personal resume or portfolio page with placeholders and print-friendly CSS.
+description: Build a personal resume or portfolio page you can print.
 ---
 
 # Skill: build a portfolio or resume page

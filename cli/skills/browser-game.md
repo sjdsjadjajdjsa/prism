@@ -1,6 +1,6 @@
 ---
 name: browser-game
-description: Build a small canvas game in one index.html with a game loop, input, score, and restart.
+description: Build a small game that runs in your web browser.
 ---
 
 # Skill: build a browser game

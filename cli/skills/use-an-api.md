@@ -1,6 +1,6 @@
 ---
 name: use-an-api
-description: Use a web API from a small script when the user needs live data or an integration.
+description: Call a web service from a small script to get live data.
 ---
 
 # Skill: use a web API
