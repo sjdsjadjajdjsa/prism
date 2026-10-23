@@ -1,0 +1,1 @@
+shop.py should print 3.83 but prints something wrong. Find and fix every bug and run it to prove it.

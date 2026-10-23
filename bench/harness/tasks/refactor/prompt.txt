@@ -1,0 +1,1 @@
+In report.py the three functions repeat the same formatting code. Move it into one helper function without changing the output, then run python3 report.py to check.

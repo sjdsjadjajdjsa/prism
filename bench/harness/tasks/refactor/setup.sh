@@ -1,0 +1,1 @@
+printf 'def a(x):\n    return "[" + str(x).upper().strip() + "]"\n\ndef b(x):\n    return ("[" + str(x).upper().strip() + "]") * 2\n\ndef c(x):\n    return "[" + str(x).upper().strip() + "]" + "!"\n\nprint(a(" hi "), b("yo"), c("ok"))\n' > report.py; python3 report.py > expected.txt

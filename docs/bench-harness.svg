@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="743" viewBox="0 0 900 743" font-family="ui-monospace, 'JetBrains Mono', 'SFMono-Regular', Menlo, monospace">
+<defs><linearGradient id="rainbow" x1="0" x2="1" y1="0" y2="0"><stop offset="0.000" stop-color="#ff5f6d"/><stop offset="0.167" stop-color="#ffa25f"/><stop offset="0.333" stop-color="#f9e27d"/><stop offset="0.500" stop-color="#7ee2a8"/><stop offset="0.667" stop-color="#6fd3ff"/><stop offset="0.833" stop-color="#8a9bff"/><stop offset="1.000" stop-color="#c69bff"/></linearGradient></defs>
+<rect width="900" height="743" rx="14" fill="#0b0b10"/>
+<rect x="0.5" y="0.5" width="899" height="742" rx="14" fill="none" stroke="#1d1c29"/>
+<text x="32" y="44" fill="#e8e6f0" font-size="20" font-weight="700">Prism vs other coding agents, same free models</text>
+<text x="32" y="68" fill="#6e6a86" font-size="13">5 tasks × 3 runs each · all through the same router · median seconds · bench/harness (22 Oct 2026)</text>
+<rect x="32" y="80" width="56" height="3" rx="1.5" fill="url(#rainbow)"/>
+<rect x="32" y="104" width="12.0" height="14" rx="3" fill="url(#rainbow)" opacity="1"/>
+<text x="50" y="115" fill="#e8e6f0" font-size="12" font-weight="700">prism · 15/15 pass · 160.8s</text>
+<rect x="462" y="104" width="12.0" height="14" rx="3" fill="#6fd3ff" opacity="1"/>
+<text x="480" y="115" fill="#e8e6f0" font-size="12">opencode · 15/15 pass · 97.4s</text>
+<rect x="32" y="124" width="12.0" height="14" rx="3" fill="#8a9bff" opacity="1"/>
+<text x="50" y="135" fill="#e8e6f0" font-size="12">aider · 14/15 pass · 113.8s</text>
+<rect x="462" y="124" width="12.0" height="14" rx="3" fill="#c69bff" opacity="1"/>
+<text x="480" y="135" fill="#e8e6f0" font-size="12">mini-swe-agent · 15/15 pass · 157.6s</text>
+<text x="32" y="161" fill="#6e6a86" font-size="12">per task vs opencode: prism wins 1 · loses 4 · ties 0  (more passes win, then the faster time)</text>
+<text x="32" y="177" fill="#6e6a86" font-size="12">per task vs aider: prism wins 2 · loses 3 · ties 0  (more passes win, then the faster time)</text>
+<text x="32" y="193" fill="#6e6a86" font-size="12">per task vs mini-swe-agent: prism wins 3 · loses 2 · ties 0  (more passes win, then the faster time)</text>
+<text x="32" y="243" fill="#e8e6f0" font-size="14">bugfix</text>
+<rect x="150" y="229" width="390.0" height="14" rx="3" fill="url(#rainbow)" opacity="1.0"/>
+<text x="550.0" y="241" fill="#e8e6f0" font-size="12" font-weight="700">prism 51.4s · 3/3 pass</text>
+<rect x="150" y="249" width="139.6" height="14" rx="3" fill="#6fd3ff" opacity="1.0"/>
+<text x="299.6" y="261" fill="#e8e6f0" font-size="12">opencode 18.4s · 3/3 pass</text>
+<text x="868" y="261" fill="#ff5f6d" font-size="12" font-weight="700" text-anchor="end">prism loses</text>
+<rect x="150" y="269" width="181.3" height="14" rx="3" fill="#8a9bff" opacity="1.0"/>
+<text x="341.3" y="281" fill="#e8e6f0" font-size="12">aider 23.9s · 3/3 pass</text>
+<text x="868" y="281" fill="#ff5f6d" font-size="12" font-weight="700" text-anchor="end">prism loses</text>
+<rect x="150" y="289" width="272.4" height="14" rx="3" fill="#c69bff" opacity="1.0"/>
+<text x="432.4" y="301" fill="#e8e6f0" font-size="12">mini-swe-agent 35.9s · 3/3 pass</text>
+<text x="868" y="301" fill="#ff5f6d" font-size="12" font-weight="700" text-anchor="end">prism loses</text>
+<text x="32" y="341" fill="#e8e6f0" font-size="14">website</text>
+<rect x="150" y="327" width="252.7" height="14" rx="3" fill="url(#rainbow)" opacity="1.0"/>
+<text x="412.7" y="339" fill="#e8e6f0" font-size="12" font-weight="700">prism 33.3s · 3/3 pass</text>
+<rect x="150" y="347" width="159.3" height="14" rx="3" fill="#6fd3ff" opacity="1.0"/>
+<text x="319.3" y="359" fill="#e8e6f0" font-size="12">opencode 21s · 3/3 pass</text>
+<text x="868" y="359" fill="#ff5f6d" font-size="12" font-weight="700" text-anchor="end">prism loses</text>
+<rect x="150" y="367" width="317.2" height="14" rx="3" fill="#8a9bff" opacity="1.0"/>
+<text x="477.2" y="379" fill="#e8e6f0" font-size="12">aider 41.8s · 3/3 pass</text>
+<text x="868" y="379" fill="#7ee2a8" font-size="12" font-weight="700" text-anchor="end">prism wins</text>
+<rect x="150" y="387" width="355.1" height="14" rx="3" fill="#c69bff" opacity="1.0"/>
+<text x="515.1" y="399" fill="#e8e6f0" font-size="12">mini-swe-agent 46.8s · 3/3 pass</text>
+<text x="868" y="399" fill="#7ee2a8" font-size="12" font-weight="700" text-anchor="end">prism wins</text>
+<text x="32" y="439" fill="#e8e6f0" font-size="14">refactor</text>
+<rect x="150" y="425" width="170.7" height="14" rx="3" fill="url(#rainbow)" opacity="1.0"/>
+<text x="330.7" y="437" fill="#e8e6f0" font-size="12" font-weight="700">prism 22.5s · 3/3 pass</text>
+<rect x="150" y="445" width="233.7" height="14" rx="3" fill="#6fd3ff" opacity="1.0"/>
+<text x="393.7" y="457" fill="#e8e6f0" font-size="12">opencode 30.8s · 3/3 pass</text>
+<text x="868" y="457" fill="#7ee2a8" font-size="12" font-weight="700" text-anchor="end">prism wins</text>
+<rect x="150" y="465" width="117.6" height="14" rx="3" fill="#8a9bff" opacity="0.7833333333333333"/>
+<text x="277.6" y="477" fill="#ff5f6d" font-size="12">aider 15.5s · 2/3 pass</text>
+<text x="868" y="477" fill="#7ee2a8" font-size="12" font-weight="700" text-anchor="end">prism wins</text>
+<rect x="150" y="485" width="198.0" height="14" rx="3" fill="#c69bff" opacity="1.0"/>
+<text x="358.0" y="497" fill="#e8e6f0" font-size="12">mini-swe-agent 26.1s · 3/3 pass</text>
+<text x="868" y="497" fill="#7ee2a8" font-size="12" font-weight="700" text-anchor="end">prism wins</text>
+<text x="32" y="537" fill="#e8e6f0" font-size="14">explain</text>
+<rect x="150" y="523" width="220.0" height="14" rx="3" fill="url(#rainbow)" opacity="1.0"/>
+<text x="380.0" y="535" fill="#e8e6f0" font-size="12" font-weight="700">prism 29s · 3/3 pass</text>
+<rect x="150" y="543" width="85.0" height="14" rx="3" fill="#6fd3ff" opacity="1.0"/>
+<text x="245.0" y="555" fill="#e8e6f0" font-size="12">opencode 11.2s · 3/3 pass</text>
+<text x="868" y="555" fill="#ff5f6d" font-size="12" font-weight="700" text-anchor="end">prism loses</text>
+<rect x="150" y="563" width="94.1" height="14" rx="3" fill="#8a9bff" opacity="1.0"/>
+<text x="254.1" y="575" fill="#e8e6f0" font-size="12">aider 12.4s · 3/3 pass</text>
+<text x="868" y="575" fill="#ff5f6d" font-size="12" font-weight="700" text-anchor="end">prism loses</text>
+<rect x="150" y="583" width="143.4" height="14" rx="3" fill="#c69bff" opacity="1.0"/>
+<text x="303.4" y="595" fill="#e8e6f0" font-size="12">mini-swe-agent 18.9s · 3/3 pass</text>
+<text x="868" y="595" fill="#ff5f6d" font-size="12" font-weight="700" text-anchor="end">prism loses</text>
+<text x="32" y="635" fill="#e8e6f0" font-size="14">multifile</text>
+<rect x="150" y="621" width="186.7" height="14" rx="3" fill="url(#rainbow)" opacity="1.0"/>
+<text x="346.7" y="633" fill="#e8e6f0" font-size="12" font-weight="700">prism 24.6s · 3/3 pass</text>
+<rect x="150" y="641" width="121.4" height="14" rx="3" fill="#6fd3ff" opacity="1.0"/>
+<text x="281.4" y="653" fill="#e8e6f0" font-size="12">opencode 16s · 3/3 pass</text>
+<text x="868" y="653" fill="#ff5f6d" font-size="12" font-weight="700" text-anchor="end">prism loses</text>
+<rect x="150" y="661" width="153.3" height="14" rx="3" fill="#8a9bff" opacity="1.0"/>
+<text x="313.3" y="673" fill="#e8e6f0" font-size="12">aider 20.2s · 3/3 pass</text>
+<text x="868" y="673" fill="#ff5f6d" font-size="12" font-weight="700" text-anchor="end">prism loses</text>
+<rect x="150" y="681" width="226.9" height="14" rx="3" fill="#c69bff" opacity="1.0"/>
+<text x="386.9" y="693" fill="#e8e6f0" font-size="12">mini-swe-agent 29.9s · 3/3 pass</text>
+<text x="868" y="693" fill="#7ee2a8" font-size="12" font-weight="700" text-anchor="end">prism wins</text>
+</svg>

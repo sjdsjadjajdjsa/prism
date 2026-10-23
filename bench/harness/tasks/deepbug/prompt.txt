@@ -1,0 +1,1 @@
+`python3 -m unittest -v` shows failing tests in test_catalog.py. The tests are correct - do NOT edit them. Find the real root cause in the code under test (it is not where the failing assertions point) and fix it there. Run the suite to prove every test passes.

@@ -1,7 +1,7 @@
 {
   "coding": {
     "title": "5 real coding tasks, total time",
-    "subtitle": "fix a bug, build a site, refactor, count functions, make a package · all 5 pass in every row",
+    "subtitle": "fix a bug, build a site, refactor, count functions, make a package \u00b7 all 5 pass in every row",
     "rows": [
       {
         "label": "first version",
@@ -97,6 +97,258 @@
         "label": "with racing, run 2",
         "value": 24,
         "highlight": true
+      }
+    ]
+  },
+  "compare": {
+    "title": "Prism vs Aider, one pinned model",
+    "subtitle": "nemotron-3-ultra via NVIDIA only \u00b7 one run each \u00b7 2 tasks re-run after 429s",
+    "rows": [
+      {
+        "harness": "prism",
+        "model": "nvidia/nvidia/nemotron-3-ultra-550b-a55b",
+        "task": "bugfix",
+        "seconds": 40,
+        "pass": true,
+        "tokens": 8602
+      },
+      {
+        "harness": "prism",
+        "model": "nvidia/nvidia/nemotron-3-ultra-550b-a55b",
+        "task": "website",
+        "seconds": 218,
+        "pass": true,
+        "tokens": null
+      },
+      {
+        "harness": "prism",
+        "model": "nvidia/nvidia/nemotron-3-ultra-550b-a55b",
+        "task": "refactor",
+        "seconds": 23,
+        "pass": true,
+        "tokens": 8099
+      },
+      {
+        "harness": "prism",
+        "model": "nvidia/nvidia/nemotron-3-ultra-550b-a55b",
+        "task": "explain",
+        "seconds": 61,
+        "pass": true,
+        "tokens": null
+      },
+      {
+        "harness": "prism",
+        "model": "nvidia/nvidia/nemotron-3-ultra-550b-a55b",
+        "task": "multifile",
+        "seconds": 32,
+        "pass": true,
+        "tokens": null
+      },
+      {
+        "harness": "aider",
+        "model": "nvidia/nvidia/nemotron-3-ultra-550b-a55b",
+        "task": "bugfix",
+        "seconds": 80,
+        "pass": true,
+        "tokens": 761
+      },
+      {
+        "harness": "aider",
+        "model": "nvidia/nvidia/nemotron-3-ultra-550b-a55b",
+        "task": "website",
+        "seconds": 85,
+        "pass": false,
+        "tokens": 630
+      },
+      {
+        "harness": "aider",
+        "model": "nvidia/nvidia/nemotron-3-ultra-550b-a55b",
+        "task": "refactor",
+        "seconds": 10,
+        "pass": true,
+        "tokens": 782
+      },
+      {
+        "harness": "aider",
+        "model": "nvidia/nvidia/nemotron-3-ultra-550b-a55b",
+        "task": "explain",
+        "seconds": 10,
+        "pass": true,
+        "tokens": 834
+      },
+      {
+        "harness": "aider",
+        "model": "nvidia/nvidia/nemotron-3-ultra-550b-a55b",
+        "task": "multifile",
+        "seconds": 14,
+        "pass": true,
+        "tokens": 648
+      }
+    ]
+  },
+  "harness": {
+    "title": "Prism vs other coding agents, same free models",
+    "subtitle": "5 tasks \u00d7 3 runs each \u00b7 all through the same router \u00b7 median seconds \u00b7 bench/harness (22 Oct 2026)",
+    "rows": [
+      {
+        "harness": "prism",
+        "task": "bugfix",
+        "seconds": 51.4,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "prism",
+        "task": "website",
+        "seconds": 33.3,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "prism",
+        "task": "refactor",
+        "seconds": 22.5,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "prism",
+        "task": "explain",
+        "seconds": 29.0,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "prism",
+        "task": "multifile",
+        "seconds": 24.6,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "opencode",
+        "task": "bugfix",
+        "seconds": 18.4,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "opencode",
+        "task": "website",
+        "seconds": 21.0,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "opencode",
+        "task": "refactor",
+        "seconds": 30.8,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "opencode",
+        "task": "explain",
+        "seconds": 11.2,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "opencode",
+        "task": "multifile",
+        "seconds": 16.0,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "aider",
+        "task": "bugfix",
+        "seconds": 23.9,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "aider",
+        "task": "website",
+        "seconds": 41.8,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "aider",
+        "task": "refactor",
+        "seconds": 15.5,
+        "passed": 2,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "aider",
+        "task": "explain",
+        "seconds": 12.4,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "aider",
+        "task": "multifile",
+        "seconds": 20.2,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "mini-swe-agent",
+        "task": "bugfix",
+        "seconds": 35.9,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "mini-swe-agent",
+        "task": "website",
+        "seconds": 46.8,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "mini-swe-agent",
+        "task": "refactor",
+        "seconds": 26.1,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "mini-swe-agent",
+        "task": "explain",
+        "seconds": 18.9,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
+      },
+      {
+        "harness": "mini-swe-agent",
+        "task": "multifile",
+        "seconds": 29.9,
+        "passed": 3,
+        "runs": 3,
+        "pass": true
       }
     ]
   }

@@ -1,0 +1,1 @@
+How many functions are defined across all .py files in this folder? Write just the number into answer.txt.

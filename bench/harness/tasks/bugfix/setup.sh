@@ -1,0 +1,1 @@
+printf 'def total(items):\n    t = 0\n    for name, price, qty in items:\n        t += price\n    return t\n\ndef discount(amount, percent):\n    return amount - amount * percent\n\nprint(round(discount(total([("apple", 0.5, 4), ("bread", 2.25, 1)]), 10), 2))\n' > shop.py

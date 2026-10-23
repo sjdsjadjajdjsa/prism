@@ -1,0 +1,1 @@
+Create a package calc/ with add.py (add(a,b)) and sub.py (sub(a,b)) and an __init__.py exporting both, plus test_calc.py with plain asserts. Run the test.

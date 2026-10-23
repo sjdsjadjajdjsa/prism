@@ -1,0 +1,1 @@
+server.js is a small plain-node HTTP API (no npm packages). Extend it as described in the comment block at the top of server.js (list filtering/pagination, DELETE, /stats, 405 handling) without breaking the existing routes. Run `node test.js` until it prints ALL PASSED. Do NOT edit test.js.

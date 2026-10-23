@@ -1,0 +1,5 @@
+{"harness":"prism","model":"nvidia/nvidia/nemotron-3-ultra-550b-a55b","task":"bugfix","seconds":40,"pass":true,"tokens":8602}
+{"harness":"prism","model":"nvidia/nvidia/nemotron-3-ultra-550b-a55b","task":"website","seconds":218,"pass":true,"tokens":null}
+{"harness":"prism","model":"nvidia/nvidia/nemotron-3-ultra-550b-a55b","task":"refactor","seconds":23,"pass":true,"tokens":8099}
+{"harness":"prism","model":"nvidia/nvidia/nemotron-3-ultra-550b-a55b","task":"explain","seconds":61,"pass":true,"tokens":null}
+{"harness":"prism","model":"nvidia/nvidia/nemotron-3-ultra-550b-a55b","task":"multifile","seconds":32,"pass":true,"tokens":null}

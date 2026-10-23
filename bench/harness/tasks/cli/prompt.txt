@@ -1,0 +1,1 @@
+Implement the command-line tool described in README.md as taskbook.py (python3, stdlib only, use argparse). Follow the spec exactly - output text, exit codes and error behaviour are all checked with several invocations. Try it out yourself against a temporary --db file before finishing.

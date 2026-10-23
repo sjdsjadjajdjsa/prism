@@ -1,0 +1,1 @@
+The unittest suite in this folder is failing (run it with: python3 -m unittest -v). The bugs are spread over pricing.py, inventory.py and orders.py. Fix the code so every test passes - do NOT edit test_shop.py - and run the suite to prove it.

@@ -1,0 +1,1423 @@
+{
+  "generated": "2026-10-23T00:44:27+00:00",
+  "method": "same 5 tasks (from bench/run.sh), same router (prism-router-1), same model id 'auto', same 360 s budget, one fresh container per run, --network host; only the harness differs. Each run talks to its own recording proxy (bench/harness/proxy.py) so every request's upstream route (router header x-free-route) is attributed to that run.",
+  "model": "auto",
+  "budget_secs": 360,
+  "versions": {
+    "prism": [
+      "image prism-agent:latest 4dfe61891519 built 2026-10-22T14:06:47.508575399-07:00 (repo HEAD ae023e4 2026-10-22)"
+    ],
+    "router": [
+      "7d77133cfc51 (container prism-router-1)"
+    ],
+    "aider": [
+      "aider-chat 0.86.2"
+    ],
+    "mini": [
+      "mini-swe-agent 2.4.6"
+    ],
+    "opencode": [
+      "opencode-ai 1.19.4"
+    ]
+  },
+  "batches": [
+    {
+      "batch": "20261022-162758",
+      "versions": {
+        "prism": "image prism-agent:latest 4dfe61891519 built 2026-10-22T14:06:47.508575399-07:00 (repo HEAD ae023e4 2026-10-22)",
+        "router": "7d77133cfc51 (container prism-router-1)",
+        "aider": "aider-chat 0.86.2",
+        "mini": "mini-swe-agent 2.4.6",
+        "opencode": "opencode-ai 1.19.4"
+      },
+      "runs": 60
+    }
+  ],
+  "summary": {
+    "aider": {
+      "passed": 14,
+      "runs": 15,
+      "pass_rate": 0.933,
+      "per_task": {
+        "bugfix": "3/3",
+        "explain": "3/3",
+        "multifile": "3/3",
+        "refactor": "2/3",
+        "website": "3/3"
+      },
+      "median_secs": 22.8,
+      "median_secs_passing": 23.4,
+      "timeouts": 0,
+      "nonzero_exits": 0,
+      "model_requests": 22,
+      "failed_requests": 0,
+      "request_kb_sent": 79.3,
+      "mean_secs": 24.5,
+      "routes_used": {
+        "kilo/nvidia/nemotron-3.5-lightning:free": 8,
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 5,
+        "blockrun/nvidia/nemotron-3.5-lightning": 4,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 2,
+        "llm7/codestral-latest": 2,
+        "blockrun/nvidia/nemotron-3-ultra-550b": 1
+      }
+    },
+    "mini": {
+      "passed": 15,
+      "runs": 15,
+      "pass_rate": 1.0,
+      "per_task": {
+        "bugfix": "3/3",
+        "explain": "3/3",
+        "multifile": "3/3",
+        "refactor": "3/3",
+        "website": "3/3"
+      },
+      "median_secs": 33.3,
+      "median_secs_passing": 33.3,
+      "timeouts": 0,
+      "nonzero_exits": 0,
+      "model_requests": 119,
+      "failed_requests": 0,
+      "request_kb_sent": 940.6,
+      "mean_secs": 36.2,
+      "routes_used": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 40,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 36,
+        "kilo/nvidia/nemotron-3.5-lightning:free": 21,
+        "blockrun/nvidia/nemotron-3-ultra-550b": 11,
+        "blockrun/nvidia/nemotron-3.5-lightning": 8,
+        "nvidia/z-ai/glm-5.3-flash": 3
+      }
+    },
+    "opencode": {
+      "passed": 15,
+      "runs": 15,
+      "pass_rate": 1.0,
+      "per_task": {
+        "bugfix": "3/3",
+        "explain": "3/3",
+        "multifile": "3/3",
+        "refactor": "3/3",
+        "website": "3/3"
+      },
+      "median_secs": 16.3,
+      "median_secs_passing": 16.3,
+      "timeouts": 0,
+      "nonzero_exits": 0,
+      "model_requests": 80,
+      "failed_requests": 0,
+      "request_kb_sent": 2114.7,
+      "mean_secs": 20.9,
+      "routes_used": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 28,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 17,
+        "kilo/nvidia/nemotron-3.5-lightning:free": 16,
+        "blockrun/nvidia/nemotron-3.5-lightning": 14,
+        "blockrun/nvidia/nemotron-3-ultra-550b": 5
+      }
+    },
+    "prism": {
+      "passed": 15,
+      "runs": 15,
+      "pass_rate": 1.0,
+      "per_task": {
+        "bugfix": "3/3",
+        "explain": "3/3",
+        "multifile": "3/3",
+        "refactor": "3/3",
+        "website": "3/3"
+      },
+      "median_secs": 27.8,
+      "median_secs_passing": 27.8,
+      "timeouts": 0,
+      "nonzero_exits": 0,
+      "model_requests": 97,
+      "failed_requests": 0,
+      "request_kb_sent": 727.4,
+      "mean_secs": 33.6,
+      "routes_used": {
+        "kilo/nvidia/nemotron-3.5-lightning:free": 36,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 22,
+        "blockrun/nvidia/nemotron-3.5-lightning": 22,
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 8,
+        "blockrun/nvidia/nemotron-3-ultra-550b": 5,
+        "nvidia/z-ai/glm-5.3-flash": 4
+      }
+    }
+  },
+  "failures": [
+    {
+      "harness": "aider",
+      "task": "refactor",
+      "rep": 1,
+      "batch": "20261022-162758",
+      "error": "harness finished but the check failed",
+      "exit_code": 0,
+      "secs": 15.5
+    }
+  ],
+  "runs": [
+    {
+      "harness": "aider",
+      "task": "bugfix",
+      "rep": 1,
+      "pass": true,
+      "secs": 22.8,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:29:15-07:00",
+      "dir": "/tmp/hbench-aider-bugfix-r1-2fTw",
+      "batch": "20261022-162758",
+      "model_requests": 1,
+      "failed_requests": 0,
+      "request_kb_sent": 3.3,
+      "routes": {
+        "kilo/nvidia/nemotron-3.5-lightning:free": 1
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/aider-bugfix-r1/log.txt"
+    },
+    {
+      "harness": "aider",
+      "task": "bugfix",
+      "rep": 2,
+      "pass": true,
+      "secs": 41.8,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:37:41-07:00",
+      "dir": "/tmp/hbench-aider-bugfix-r2-6ySt",
+      "batch": "20261022-162758",
+      "model_requests": 1,
+      "failed_requests": 0,
+      "request_kb_sent": 3.3,
+      "routes": {
+        "kilo/nvidia/nemotron-3.5-lightning:free": 1
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/aider-bugfix-r2/log.txt"
+    },
+    {
+      "harness": "aider",
+      "task": "bugfix",
+      "rep": 3,
+      "pass": true,
+      "secs": 23.9,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:48:42-07:00",
+      "dir": "/tmp/hbench-aider-bugfix-r3-POB8",
+      "batch": "20261022-162758",
+      "model_requests": 1,
+      "failed_requests": 0,
+      "request_kb_sent": 3.3,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 1
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/aider-bugfix-r3/log.txt"
+    },
+    {
+      "harness": "aider",
+      "task": "explain",
+      "rep": 1,
+      "pass": true,
+      "secs": 24.9,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:33:31-07:00",
+      "dir": "/tmp/hbench-aider-explain-r1-sXEb",
+      "batch": "20261022-162758",
+      "model_requests": 1,
+      "failed_requests": 0,
+      "request_kb_sent": 3.5,
+      "routes": {
+        "kilo/nvidia/nemotron-3.5-lightning:free": 1
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/aider-explain-r1/log.txt"
+    },
+    {
+      "harness": "aider",
+      "task": "explain",
+      "rep": 2,
+      "pass": true,
+      "secs": 7.7,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:45:42-07:00",
+      "dir": "/tmp/hbench-aider-explain-r2-itUK",
+      "batch": "20261022-162758",
+      "model_requests": 1,
+      "failed_requests": 0,
+      "request_kb_sent": 3.5,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 1
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/aider-explain-r2/log.txt"
+    },
+    {
+      "harness": "aider",
+      "task": "explain",
+      "rep": 3,
+      "pass": true,
+      "secs": 12.4,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:55:56-07:00",
+      "dir": "/tmp/hbench-aider-explain-r3-iDwH",
+      "batch": "20261022-162758",
+      "model_requests": 1,
+      "failed_requests": 0,
+      "request_kb_sent": 3.5,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 1
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/aider-explain-r3/log.txt"
+    },
+    {
+      "harness": "aider",
+      "task": "multifile",
+      "rep": 1,
+      "pass": true,
+      "secs": 38.5,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:35:55-07:00",
+      "dir": "/tmp/hbench-aider-multifile-r1-P8xH",
+      "batch": "20261022-162758",
+      "model_requests": 3,
+      "failed_requests": 0,
+      "request_kb_sent": 10.4,
+      "routes": {
+        "kilo/nvidia/nemotron-3.5-lightning:free": 3
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/aider-multifile-r1/log.txt"
+    },
+    {
+      "harness": "aider",
+      "task": "multifile",
+      "rep": 2,
+      "pass": true,
+      "secs": 14.2,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:46:36-07:00",
+      "dir": "/tmp/hbench-aider-multifile-r2-iSTj",
+      "batch": "20261022-162758",
+      "model_requests": 1,
+      "failed_requests": 0,
+      "request_kb_sent": 2.9,
+      "routes": {
+        "blockrun/nvidia/nemotron-3.5-lightning": 1
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/aider-multifile-r2/log.txt"
+    },
+    {
+      "harness": "aider",
+      "task": "multifile",
+      "rep": 3,
+      "pass": true,
+      "secs": 20.2,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:56:46-07:00",
+      "dir": "/tmp/hbench-aider-multifile-r3-gcqN",
+      "batch": "20261022-162758",
+      "model_requests": 1,
+      "failed_requests": 0,
+      "request_kb_sent": 2.9,
+      "routes": {
+        "blockrun/nvidia/nemotron-3.5-lightning": 1
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/aider-multifile-r3/log.txt"
+    },
+    {
+      "harness": "aider",
+      "task": "refactor",
+      "rep": 1,
+      "pass": false,
+      "secs": 15.5,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:32:15-07:00",
+      "dir": "/tmp/hbench-aider-refactor-r1-JPOR",
+      "batch": "20261022-162758",
+      "model_requests": 1,
+      "failed_requests": 0,
+      "request_kb_sent": 3.4,
+      "routes": {
+        "kilo/nvidia/nemotron-3.5-lightning:free": 1
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/aider-refactor-r1/log.txt",
+      "log_tail": [
+        "def c(x):",
+        "    return format_val(x) + \"!\"",
+        "",
+        "print(a(\" hi \"), b(\"yo\"), c(\"ok\"))",
+        "```",
+        "```",
+        "Running `python3 report.py` produces: `[HI] [YO][YO] [OK]!`",
+        "Tokens: 768 sent, 141 received.",
+        "",
+        "print(a(\" hi \"), b(\"yo\"), c(\"ok\"))",
+        "Applied edit to print(a(\" hi \"), b(\"yo\"), c(\"ok\"))",
+        "Applied edit to report.py"
+      ],
+      "error": "harness finished but the check failed"
+    },
+    {
+      "harness": "aider",
+      "task": "refactor",
+      "rep": 2,
+      "pass": true,
+      "secs": 10.5,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:41:21-07:00",
+      "dir": "/tmp/hbench-aider-refactor-r2-40da",
+      "batch": "20261022-162758",
+      "model_requests": 1,
+      "failed_requests": 0,
+      "request_kb_sent": 3.4,
+      "routes": {
+        "blockrun/nvidia/nemotron-3-ultra-550b": 1
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/aider-refactor-r2/log.txt"
+    },
+    {
+      "harness": "aider",
+      "task": "refactor",
+      "rep": 3,
+      "pass": true,
+      "secs": 17.8,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:54:54-07:00",
+      "dir": "/tmp/hbench-aider-refactor-r3-kTG0",
+      "batch": "20261022-162758",
+      "model_requests": 2,
+      "failed_requests": 0,
+      "request_kb_sent": 7.5,
+      "routes": {
+        "blockrun/nvidia/nemotron-3.5-lightning": 2
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/aider-refactor-r3/log.txt"
+    },
+    {
+      "harness": "aider",
+      "task": "website",
+      "rep": 1,
+      "pass": true,
+      "secs": 41.8,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:30:23-07:00",
+      "dir": "/tmp/hbench-aider-website-r1-1IL1",
+      "batch": "20261022-162758",
+      "model_requests": 1,
+      "failed_requests": 0,
+      "request_kb_sent": 2.9,
+      "routes": {
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 1
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/aider-website-r1/log.txt"
+    },
+    {
+      "harness": "aider",
+      "task": "website",
+      "rep": 2,
+      "pass": true,
+      "secs": 42.8,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:39:41-07:00",
+      "dir": "/tmp/hbench-aider-website-r2-oG5R",
+      "batch": "20261022-162758",
+      "model_requests": 3,
+      "failed_requests": 0,
+      "request_kb_sent": 13.0,
+      "routes": {
+        "kilo/nvidia/nemotron-3.5-lightning:free": 1,
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 2
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/aider-website-r2/log.txt"
+    },
+    {
+      "harness": "aider",
+      "task": "website",
+      "rep": 3,
+      "pass": true,
+      "secs": 32.7,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:51:24-07:00",
+      "dir": "/tmp/hbench-aider-website-r3-5wf6",
+      "batch": "20261022-162758",
+      "model_requests": 3,
+      "failed_requests": 0,
+      "request_kb_sent": 12.5,
+      "routes": {
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 1,
+        "llm7/codestral-latest": 2
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/aider-website-r3/log.txt"
+    },
+    {
+      "harness": "mini",
+      "task": "bugfix",
+      "rep": 1,
+      "pass": true,
+      "secs": 25.8,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:28:00-07:00",
+      "dir": "/tmp/hbench-mini-bugfix-r1-uNnq",
+      "batch": "20261022-162758",
+      "model_requests": 8,
+      "failed_requests": 0,
+      "request_kb_sent": 52.0,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 4,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 4
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/mini-bugfix-r1/log.txt"
+    },
+    {
+      "harness": "mini",
+      "task": "bugfix",
+      "rep": 2,
+      "pass": true,
+      "secs": 35.9,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:38:24-07:00",
+      "dir": "/tmp/hbench-mini-bugfix-r2-QdDx",
+      "batch": "20261022-162758",
+      "model_requests": 7,
+      "failed_requests": 0,
+      "request_kb_sent": 46.0,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 4,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 3
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/mini-bugfix-r2/log.txt"
+    },
+    {
+      "harness": "mini",
+      "task": "bugfix",
+      "rep": 3,
+      "pass": true,
+      "secs": 76.7,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:49:08-07:00",
+      "dir": "/tmp/hbench-mini-bugfix-r3-kQHs",
+      "batch": "20261022-162758",
+      "model_requests": 11,
+      "failed_requests": 0,
+      "request_kb_sent": 107.7,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 3,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 3,
+        "blockrun/nvidia/nemotron-3-ultra-550b": 4,
+        "nvidia/z-ai/glm-5.3-flash": 1
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/mini-bugfix-r3/log.txt"
+    },
+    {
+      "harness": "mini",
+      "task": "explain",
+      "rep": 1,
+      "pass": true,
+      "secs": 18.9,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:33:57-07:00",
+      "dir": "/tmp/hbench-mini-explain-r1-XXjt",
+      "batch": "20261022-162758",
+      "model_requests": 6,
+      "failed_requests": 0,
+      "request_kb_sent": 32.8,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 3,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 3
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/mini-explain-r1/log.txt"
+    },
+    {
+      "harness": "mini",
+      "task": "explain",
+      "rep": 2,
+      "pass": true,
+      "secs": 55.8,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:43:12-07:00",
+      "dir": "/tmp/hbench-mini-explain-r2-it0o",
+      "batch": "20261022-162758",
+      "model_requests": 6,
+      "failed_requests": 0,
+      "request_kb_sent": 31.7,
+      "routes": {
+        "blockrun/nvidia/nemotron-3-ultra-550b": 1,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 1,
+        "nvidia/z-ai/glm-5.3-flash": 1,
+        "blockrun/nvidia/nemotron-3.5-lightning": 1,
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 2
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/mini-explain-r2/log.txt"
+    },
+    {
+      "harness": "mini",
+      "task": "explain",
+      "rep": 3,
+      "pass": true,
+      "secs": 9.5,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:56:09-07:00",
+      "dir": "/tmp/hbench-mini-explain-r3-Vk4W",
+      "batch": "20261022-162758",
+      "model_requests": 5,
+      "failed_requests": 0,
+      "request_kb_sent": 22.9,
+      "routes": {
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 5
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/mini-explain-r3/log.txt"
+    },
+    {
+      "harness": "mini",
+      "task": "multifile",
+      "rep": 1,
+      "pass": true,
+      "secs": 26.9,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:34:55-07:00",
+      "dir": "/tmp/hbench-mini-multifile-r1-1BIY",
+      "batch": "20261022-162758",
+      "model_requests": 10,
+      "failed_requests": 0,
+      "request_kb_sent": 88.4,
+      "routes": {
+        "kilo/nvidia/nemotron-3.5-lightning:free": 8,
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 2
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/mini-multifile-r1/log.txt"
+    },
+    {
+      "harness": "mini",
+      "task": "multifile",
+      "rep": 2,
+      "pass": true,
+      "secs": 45.5,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:46:51-07:00",
+      "dir": "/tmp/hbench-mini-multifile-r2-GjDm",
+      "batch": "20261022-162758",
+      "model_requests": 9,
+      "failed_requests": 0,
+      "request_kb_sent": 53.1,
+      "routes": {
+        "blockrun/nvidia/nemotron-3.5-lightning": 3,
+        "nvidia/z-ai/glm-5.3-flash": 1,
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 4,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 1
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/mini-multifile-r2/log.txt"
+    },
+    {
+      "harness": "mini",
+      "task": "multifile",
+      "rep": 3,
+      "pass": true,
+      "secs": 29.9,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:57:07-07:00",
+      "dir": "/tmp/hbench-mini-multifile-r3-WrPo",
+      "batch": "20261022-162758",
+      "model_requests": 9,
+      "failed_requests": 0,
+      "request_kb_sent": 55.4,
+      "routes": {
+        "blockrun/nvidia/nemotron-3.5-lightning": 2,
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 5,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 2
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/mini-multifile-r3/log.txt"
+    },
+    {
+      "harness": "mini",
+      "task": "refactor",
+      "rep": 1,
+      "pass": true,
+      "secs": 21.1,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:32:32-07:00",
+      "dir": "/tmp/hbench-mini-refactor-r1-psQH",
+      "batch": "20261022-162758",
+      "model_requests": 8,
+      "failed_requests": 0,
+      "request_kb_sent": 57.3,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 2,
+        "kilo/nvidia/nemotron-3.5-lightning:free": 3,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 3
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/mini-refactor-r1/log.txt"
+    },
+    {
+      "harness": "mini",
+      "task": "refactor",
+      "rep": 2,
+      "pass": true,
+      "secs": 42.6,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:41:33-07:00",
+      "dir": "/tmp/hbench-mini-refactor-r2-vYoV",
+      "batch": "20261022-162758",
+      "model_requests": 10,
+      "failed_requests": 0,
+      "request_kb_sent": 67.5,
+      "routes": {
+        "blockrun/nvidia/nemotron-3-ultra-550b": 6,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 4
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/mini-refactor-r2/log.txt"
+    },
+    {
+      "harness": "mini",
+      "task": "refactor",
+      "rep": 3,
+      "pass": true,
+      "secs": 26.1,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:53:49-07:00",
+      "dir": "/tmp/hbench-mini-refactor-r3-VBJv",
+      "batch": "20261022-162758",
+      "model_requests": 6,
+      "failed_requests": 0,
+      "request_kb_sent": 32.5,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 6
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/mini-refactor-r3/log.txt"
+    },
+    {
+      "harness": "mini",
+      "task": "website",
+      "rep": 1,
+      "pass": true,
+      "secs": 47.7,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:31:06-07:00",
+      "dir": "/tmp/hbench-mini-website-r1-mjkX",
+      "batch": "20261022-162758",
+      "model_requests": 11,
+      "failed_requests": 0,
+      "request_kb_sent": 149.8,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 1,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 1,
+        "kilo/nvidia/nemotron-3.5-lightning:free": 9
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/mini-website-r1/log.txt"
+    },
+    {
+      "harness": "mini",
+      "task": "website",
+      "rep": 2,
+      "pass": true,
+      "secs": 33.3,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:40:25-07:00",
+      "dir": "/tmp/hbench-mini-website-r2-5Nrc",
+      "batch": "20261022-162758",
+      "model_requests": 8,
+      "failed_requests": 0,
+      "request_kb_sent": 84.9,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 1,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 6,
+        "kilo/nvidia/nemotron-3.5-lightning:free": 1
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/mini-website-r2/log.txt"
+    },
+    {
+      "harness": "mini",
+      "task": "website",
+      "rep": 3,
+      "pass": true,
+      "secs": 46.8,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:51:58-07:00",
+      "dir": "/tmp/hbench-mini-website-r3-kJGg",
+      "batch": "20261022-162758",
+      "model_requests": 5,
+      "failed_requests": 0,
+      "request_kb_sent": 58.6,
+      "routes": {
+        "blockrun/nvidia/nemotron-3.5-lightning": 2,
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 3
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/mini-website-r3/log.txt"
+    },
+    {
+      "harness": "opencode",
+      "task": "bugfix",
+      "rep": 1,
+      "pass": true,
+      "secs": 18.4,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:28:26-07:00",
+      "dir": "/tmp/hbench-opencode-bugfix-r1-HW1O",
+      "batch": "20261022-162758",
+      "model_requests": 7,
+      "failed_requests": 0,
+      "request_kb_sent": 197.0,
+      "routes": {
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 3,
+        "kilo/nvidia/nemotron-3.5-lightning:free": 4
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/opencode-bugfix-r1/log.txt"
+    },
+    {
+      "harness": "opencode",
+      "task": "bugfix",
+      "rep": 2,
+      "pass": true,
+      "secs": 12.7,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:36:35-07:00",
+      "dir": "/tmp/hbench-opencode-bugfix-r2-MD5m",
+      "batch": "20261022-162758",
+      "model_requests": 7,
+      "failed_requests": 0,
+      "request_kb_sent": 194.3,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 7
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/opencode-bugfix-r2/log.txt"
+    },
+    {
+      "harness": "opencode",
+      "task": "bugfix",
+      "rep": 3,
+      "pass": true,
+      "secs": 57.3,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:50:25-07:00",
+      "dir": "/tmp/hbench-opencode-bugfix-r3-YCNM",
+      "batch": "20261022-162758",
+      "model_requests": 6,
+      "failed_requests": 0,
+      "request_kb_sent": 160.3,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 4,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 2
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/opencode-bugfix-r3/log.txt"
+    },
+    {
+      "harness": "opencode",
+      "task": "explain",
+      "rep": 1,
+      "pass": true,
+      "secs": 9.2,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:34:17-07:00",
+      "dir": "/tmp/hbench-opencode-explain-r1-F8Rd",
+      "batch": "20261022-162758",
+      "model_requests": 5,
+      "failed_requests": 0,
+      "request_kb_sent": 127.8,
+      "routes": {
+        "kilo/nvidia/nemotron-3.5-lightning:free": 4,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 1
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/opencode-explain-r1/log.txt"
+    },
+    {
+      "harness": "opencode",
+      "task": "explain",
+      "rep": 2,
+      "pass": true,
+      "secs": 25.7,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:44:09-07:00",
+      "dir": "/tmp/hbench-opencode-explain-r2-tsud",
+      "batch": "20261022-162758",
+      "model_requests": 5,
+      "failed_requests": 0,
+      "request_kb_sent": 127.9,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 5
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/opencode-explain-r2/log.txt"
+    },
+    {
+      "harness": "opencode",
+      "task": "explain",
+      "rep": 3,
+      "pass": true,
+      "secs": 11.2,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:55:13-07:00",
+      "dir": "/tmp/hbench-opencode-explain-r3-DQmO",
+      "batch": "20261022-162758",
+      "model_requests": 5,
+      "failed_requests": 0,
+      "request_kb_sent": 127.9,
+      "routes": {
+        "blockrun/nvidia/nemotron-3.5-lightning": 4,
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 1
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/opencode-explain-r3/log.txt"
+    },
+    {
+      "harness": "opencode",
+      "task": "multifile",
+      "rep": 1,
+      "pass": true,
+      "secs": 11.5,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:35:23-07:00",
+      "dir": "/tmp/hbench-opencode-multifile-r1-IGZb",
+      "batch": "20261022-162758",
+      "model_requests": 6,
+      "failed_requests": 0,
+      "request_kb_sent": 161.6,
+      "routes": {
+        "kilo/nvidia/nemotron-3.5-lightning:free": 1,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 5
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/opencode-multifile-r1/log.txt"
+    },
+    {
+      "harness": "opencode",
+      "task": "multifile",
+      "rep": 2,
+      "pass": true,
+      "secs": 16.0,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:45:50-07:00",
+      "dir": "/tmp/hbench-opencode-multifile-r2-OcdX",
+      "batch": "20261022-162758",
+      "model_requests": 5,
+      "failed_requests": 0,
+      "request_kb_sent": 128.1,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 5
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/opencode-multifile-r2/log.txt"
+    },
+    {
+      "harness": "opencode",
+      "task": "multifile",
+      "rep": 3,
+      "pass": true,
+      "secs": 16.3,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:57:38-07:00",
+      "dir": "/tmp/hbench-opencode-multifile-r3-O7RP",
+      "batch": "20261022-162758",
+      "model_requests": 8,
+      "failed_requests": 0,
+      "request_kb_sent": 229.3,
+      "routes": {
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 3,
+        "blockrun/nvidia/nemotron-3.5-lightning": 5
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/opencode-multifile-r3/log.txt"
+    },
+    {
+      "harness": "opencode",
+      "task": "refactor",
+      "rep": 1,
+      "pass": true,
+      "secs": 35.7,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:32:54-07:00",
+      "dir": "/tmp/hbench-opencode-refactor-r1-V9xz",
+      "batch": "20261022-162758",
+      "model_requests": 5,
+      "failed_requests": 0,
+      "request_kb_sent": 128.7,
+      "routes": {
+        "kilo/nvidia/nemotron-3.5-lightning:free": 5
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/opencode-refactor-r1/log.txt"
+    },
+    {
+      "harness": "opencode",
+      "task": "refactor",
+      "rep": 2,
+      "pass": true,
+      "secs": 30.8,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:42:17-07:00",
+      "dir": "/tmp/hbench-opencode-refactor-r2-SFq2",
+      "batch": "20261022-162758",
+      "model_requests": 5,
+      "failed_requests": 0,
+      "request_kb_sent": 129.8,
+      "routes": {
+        "blockrun/nvidia/nemotron-3-ultra-550b": 4,
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 1
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/opencode-refactor-r2/log.txt"
+    },
+    {
+      "harness": "opencode",
+      "task": "refactor",
+      "rep": 3,
+      "pass": true,
+      "secs": 9.7,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:54:16-07:00",
+      "dir": "/tmp/hbench-opencode-refactor-r3-sxmt",
+      "batch": "20261022-162758",
+      "model_requests": 5,
+      "failed_requests": 0,
+      "request_kb_sent": 129.3,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 2,
+        "blockrun/nvidia/nemotron-3.5-lightning": 3
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/opencode-refactor-r3/log.txt"
+    },
+    {
+      "harness": "opencode",
+      "task": "website",
+      "rep": 1,
+      "pass": true,
+      "secs": 8.9,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:29:39-07:00",
+      "dir": "/tmp/hbench-opencode-website-r1-MDcH",
+      "batch": "20261022-162758",
+      "model_requests": 3,
+      "failed_requests": 0,
+      "request_kb_sent": 66.4,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 3
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/opencode-website-r1/log.txt"
+    },
+    {
+      "harness": "opencode",
+      "task": "website",
+      "rep": 2,
+      "pass": true,
+      "secs": 21.0,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:40:59-07:00",
+      "dir": "/tmp/hbench-opencode-website-r2-uJmn",
+      "batch": "20261022-162758",
+      "model_requests": 3,
+      "failed_requests": 0,
+      "request_kb_sent": 67.7,
+      "routes": {
+        "kilo/nvidia/nemotron-3.5-lightning:free": 2,
+        "blockrun/nvidia/nemotron-3-ultra-550b": 1
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/opencode-website-r2/log.txt"
+    },
+    {
+      "harness": "opencode",
+      "task": "website",
+      "rep": 3,
+      "pass": true,
+      "secs": 28.7,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:52:46-07:00",
+      "dir": "/tmp/hbench-opencode-website-r3-Vlsk",
+      "batch": "20261022-162758",
+      "model_requests": 5,
+      "failed_requests": 0,
+      "request_kb_sent": 138.6,
+      "routes": {
+        "blockrun/nvidia/nemotron-3.5-lightning": 2,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 3
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/opencode-website-r3/log.txt"
+    },
+    {
+      "harness": "prism",
+      "task": "bugfix",
+      "rep": 1,
+      "pass": true,
+      "secs": 27.8,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:28:46-07:00",
+      "dir": "/tmp/hbench-prism-bugfix-r1-cJhU",
+      "batch": "20261022-162758",
+      "model_requests": 8,
+      "failed_requests": 0,
+      "request_kb_sent": 61.4,
+      "routes": {
+        "kilo/nvidia/nemotron-3.5-lightning:free": 8
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/prism-bugfix-r1/log.txt"
+    },
+    {
+      "harness": "prism",
+      "task": "bugfix",
+      "rep": 2,
+      "pass": true,
+      "secs": 51.4,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:36:48-07:00",
+      "dir": "/tmp/hbench-prism-bugfix-r2-5beN",
+      "batch": "20261022-162758",
+      "model_requests": 10,
+      "failed_requests": 0,
+      "request_kb_sent": 79.0,
+      "routes": {
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 5,
+        "kilo/nvidia/nemotron-3.5-lightning:free": 5
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/prism-bugfix-r2/log.txt"
+    },
+    {
+      "harness": "prism",
+      "task": "bugfix",
+      "rep": 3,
+      "pass": true,
+      "secs": 63.7,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:47:38-07:00",
+      "dir": "/tmp/hbench-prism-bugfix-r3-2pR4",
+      "batch": "20261022-162758",
+      "model_requests": 7,
+      "failed_requests": 0,
+      "request_kb_sent": 49.3,
+      "routes": {
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 4,
+        "nvidia/z-ai/glm-5.3-flash": 3
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/prism-bugfix-r3/log.txt"
+    },
+    {
+      "harness": "prism",
+      "task": "explain",
+      "rep": 1,
+      "pass": true,
+      "secs": 26.1,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:34:28-07:00",
+      "dir": "/tmp/hbench-prism-explain-r1-pvCP",
+      "batch": "20261022-162758",
+      "model_requests": 4,
+      "failed_requests": 0,
+      "request_kb_sent": 22.4,
+      "routes": {
+        "kilo/nvidia/nemotron-3.5-lightning:free": 4
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/prism-explain-r1/log.txt"
+    },
+    {
+      "harness": "prism",
+      "task": "explain",
+      "rep": 2,
+      "pass": true,
+      "secs": 64.5,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:44:36-07:00",
+      "dir": "/tmp/hbench-prism-explain-r2-6gmf",
+      "batch": "20261022-162758",
+      "model_requests": 6,
+      "failed_requests": 0,
+      "request_kb_sent": 38.6,
+      "routes": {
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 1,
+        "nvidia/z-ai/glm-5.3-flash": 1,
+        "blockrun/nvidia/nemotron-3.5-lightning": 4
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/prism-explain-r2/log.txt"
+    },
+    {
+      "harness": "prism",
+      "task": "explain",
+      "rep": 3,
+      "pass": true,
+      "secs": 29.0,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:55:26-07:00",
+      "dir": "/tmp/hbench-prism-explain-r3-iEx1",
+      "batch": "20261022-162758",
+      "model_requests": 5,
+      "failed_requests": 0,
+      "request_kb_sent": 30.8,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 5
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/prism-explain-r3/log.txt"
+    },
+    {
+      "harness": "prism",
+      "task": "multifile",
+      "rep": 1,
+      "pass": true,
+      "secs": 18.1,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:35:36-07:00",
+      "dir": "/tmp/hbench-prism-multifile-r1-taK9",
+      "batch": "20261022-162758",
+      "model_requests": 7,
+      "failed_requests": 0,
+      "request_kb_sent": 49.1,
+      "routes": {
+        "kilo/nvidia/nemotron-3.5-lightning:free": 7
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/prism-multifile-r1/log.txt"
+    },
+    {
+      "harness": "prism",
+      "task": "multifile",
+      "rep": 2,
+      "pass": true,
+      "secs": 27.0,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:46:08-07:00",
+      "dir": "/tmp/hbench-prism-multifile-r2-uwsz",
+      "batch": "20261022-162758",
+      "model_requests": 7,
+      "failed_requests": 0,
+      "request_kb_sent": 46.7,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 1,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 1,
+        "blockrun/nvidia/nemotron-3.5-lightning": 5
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/prism-multifile-r2/log.txt"
+    },
+    {
+      "harness": "prism",
+      "task": "multifile",
+      "rep": 3,
+      "pass": true,
+      "secs": 24.6,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:56:20-07:00",
+      "dir": "/tmp/hbench-prism-multifile-r3-Qp3W",
+      "batch": "20261022-162758",
+      "model_requests": 8,
+      "failed_requests": 0,
+      "request_kb_sent": 64.9,
+      "routes": {
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 1,
+        "blockrun/nvidia/nemotron-3.5-lightning": 7
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/prism-multifile-r3/log.txt"
+    },
+    {
+      "harness": "prism",
+      "task": "refactor",
+      "rep": 1,
+      "pass": true,
+      "secs": 19.1,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:31:55-07:00",
+      "dir": "/tmp/hbench-prism-refactor-r1-mGdH",
+      "batch": "20261022-162758",
+      "model_requests": 6,
+      "failed_requests": 0,
+      "request_kb_sent": 41.2,
+      "routes": {
+        "kilo/nvidia/nemotron-3.5-lightning:free": 6
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/prism-refactor-r1/log.txt"
+    },
+    {
+      "harness": "prism",
+      "task": "refactor",
+      "rep": 2,
+      "pass": true,
+      "secs": 22.5,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:42:49-07:00",
+      "dir": "/tmp/hbench-prism-refactor-r2-hpff",
+      "batch": "20261022-162758",
+      "model_requests": 5,
+      "failed_requests": 0,
+      "request_kb_sent": 32.0,
+      "routes": {
+        "blockrun/nvidia/nemotron-3-ultra-550b": 5
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/prism-refactor-r2/log.txt"
+    },
+    {
+      "harness": "prism",
+      "task": "refactor",
+      "rep": 3,
+      "pass": true,
+      "secs": 26.5,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:54:27-07:00",
+      "dir": "/tmp/hbench-prism-refactor-r3-cwXW",
+      "batch": "20261022-162758",
+      "model_requests": 6,
+      "failed_requests": 0,
+      "request_kb_sent": 41.6,
+      "routes": {
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 3,
+        "blockrun/nvidia/nemotron-3.5-lightning": 3
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/prism-refactor-r3/log.txt"
+    },
+    {
+      "harness": "prism",
+      "task": "website",
+      "rep": 1,
+      "pass": true,
+      "secs": 33.3,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:29:49-07:00",
+      "dir": "/tmp/hbench-prism-website-r1-InKm",
+      "batch": "20261022-162758",
+      "model_requests": 6,
+      "failed_requests": 0,
+      "request_kb_sent": 61.4,
+      "routes": {
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b": 2,
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 4
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/prism-website-r1/log.txt"
+    },
+    {
+      "harness": "prism",
+      "task": "website",
+      "rep": 2,
+      "pass": true,
+      "secs": 38.7,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:39:01-07:00",
+      "dir": "/tmp/hbench-prism-website-r2-awa9",
+      "batch": "20261022-162758",
+      "model_requests": 6,
+      "failed_requests": 0,
+      "request_kb_sent": 51.2,
+      "routes": {
+        "kilo/nvidia/nemotron-3.5-lightning:free": 6
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/prism-website-r2/log.txt"
+    },
+    {
+      "harness": "prism",
+      "task": "website",
+      "rep": 3,
+      "pass": true,
+      "secs": 31.9,
+      "exit_code": 0,
+      "timed_out": false,
+      "started": "2026-10-22T16:53:16-07:00",
+      "dir": "/tmp/hbench-prism-website-r3-Ncat",
+      "batch": "20261022-162758",
+      "model_requests": 6,
+      "failed_requests": 0,
+      "request_kb_sent": 57.8,
+      "routes": {
+        "nvidia/nvidia/nemotron-3.5-lightning-30b-a3b": 3,
+        "blockrun/nvidia/nemotron-3.5-lightning": 3
+      },
+      "request_errors": [],
+      "log": "out/20261022-162758/prism-website-r3/log.txt"
+    }
+  ]
+}
