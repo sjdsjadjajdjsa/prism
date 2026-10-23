@@ -43,7 +43,7 @@ Steps in `cli/agent.go`:
 2. `loop` runs up to `maxSteps` (80) steps. Each step calls `prune` (trims old tool output), compacts if needed, then `completeRetry`.
 3. `completeRetry` calls `complete` up to 3 times when a reply is dropped, sending the routes that already failed as `prism_avoid`. A `routerError` (the router's own 503) is not retried.
 4. `complete` posts to `<api>/chat/completions` with `model` (`auto` unless a crew role sets one), the tool specs from `tools()`, and optional `prism_quick` / `prism_exclude_families`. It reads the route from the `x-free-route` header, then parses the body with `readStream` (SSE) or `readWhole` (plain JSON).
-5. Tool calls are dispatched in `loop`: `skill` (or a skill name) → `useSkill`; `crew` → `runCrew`; MCP tools → `mcp.run`; `screenshot` → `(*Agent).screenshot`; everything else → `runTool`. When `approve` is set (system mode), `bash`, `write`, `edit` and every MCP tool ask first.
+5. Tool calls are dispatched in `loop`: `skill` (or a skill name) → `useSkill`; `crew` → `runCrew`; MCP tools → `mcp.run`; `screenshot` → `(*Agent).screenshot`; `browse` → `(*Agent).browse`; everything else → `runTool`. When `approve` is set (system mode), `bash`, `write`, `edit` and every MCP tool ask first.
 6. When the token count passes 70% of the window (`PRISM_CONTEXT`, default 128000), `compact` asks the model for a summary and replaces the history with it.
 7. After the run, the caller (TUI `handle`, `runPlain`, or the web `chat` handler) runs `memoryJob` in the background to update the project memory. It is skipped when `PRISM_MEMORY=off` or the store can't persist (`store.persists`).
 
@@ -56,6 +56,15 @@ Steps in `cli/agent.go`:
 - Failures set cooldowns via `pauseFor` (429 → retry-after, 401/402/403 → 15 min, 404 → 1 h, 5xx/network → 30 s). Speed stats persist to `STATS_FILE` (`/data/speed.json` in Docker).
 - Endpoints: `POST /v1/chat/completions`, `GET /v1/models`, `GET /status` (JSON, or text with `?format=text`), `GET /health`.
 - `router/check.mjs` sends a tiny request to every model in `providers.json` and prints a report.
+
+## Speed and prompt caching
+
+Providers that cache prompts reuse work only for a byte-identical prefix, so each request is built static-first:
+- The tool specs from `tools()` come first, then `messages[0]`, the system prompt from `systemPrompt` (`cli/agent.go`): base rules, the skill index (`skillIndex`), crew guidance, project rules (`projectRules`: PRISM.md / AGENTS.md / CLAUDE.md), the project file list (`projectMap`, top-level agent only, capped at `mapLimit`), then the project memory. The conversation follows.
+- The system prompt is built once per chat. Mid-chat it is rebuilt only by explicit user actions: `/memory` or `/forget` when they change memory (TUI and web), `/skills new` (reloads skills), and returning from `/web` (`endWeb`). `compact` also rebuilds it, but compaction replaces the history anyway.
+- `prune` (`cli/memory.go`) does nothing until the chat passes a quarter of the window (`window/4`); then it trims every old tool output in one batch, so short tasks keep their cache and long ones lose it only now and then. `PRISM_PRUNE=off` disables it.
+- After each reply `complete` stores the serving route (`x-free-route`) and sends it as `prism_prefer` on the next request (not in light mode). The router sorts that route first, after `prism_avoid` and role ranking; slow answers are still hedged.
+- Cached tokens come from `usage.prompt_tokens_details.cached_tokens`. `prism run` prints them in its stats line (`… tokens sent (N cached)`); `/usage` shows `this chat … sent · … cached`.
 
 ## Files map
 
@@ -72,7 +81,8 @@ Steps in `cli/agent.go`:
 | `router/check.mjs` | One-shot health check of every configured model |
 | `cli/main.go` | Entry point and flags (`-system`, `-continue`, `-theme`, `-api`), `serve` and `run` subcommands, TUI model (`Update`, `handle`, `View`), `runPlain` |
 | `cli/agent.go` | `Agent` struct, `Run`/`loop`/`completeRetry`/`complete`/`compact`, `readStream`/`readWhole`, event types, approval text |
-| `cli/tools.go` | Built-in tool specs (`toolSpecs`: screenshot, list, grep, read, edit, write, bash) and the `runTool` dispatcher |
+| `cli/tools.go` | Built-in tool specs (`toolSpecs`: browse, screenshot, list, grep, read, edit, write, bash) and the `runTool` dispatcher |
+| `cli/browse.go` | `browse` tool: drives headless Chromium over the DevTools pipe, finds elements by role and accessible name, text or ref, clicks and types with real input events, checks expectations, reports page errors and an outline of the page, saves an end-state screenshot under `.prism/checks` |
 | `cli/screenshot.go` | `screenshot` tool: headless Chromium (downloaded on first use), local file server and URL policy, desktop capture in system mode, sends the image to `auto:vision` |
 | `cli/crew.go` | `crew` tool: `runCrew` runs 2–3 worker agents in parallel on disjoint files, then an optional read-only review (`runReview`) and `repair` round |
 | `cli/crewui.go` | Crew panel state (`crewBlock`) for the TUI and its JSON form for the web (`crewWire`) |
@@ -147,6 +157,7 @@ Skills are markdown files with front matter (`name`, `description`) followed by 
 |---|---|
 | `cli/agent_test.go` | Stream parsing, split tool calls, cut-off retry with avoid, router 503, full loop |
 | `cli/tools_test.go` | Built-in tools, edit diffs, bash timeouts/background, symlink escape |
+| `cli/browse_test.go` | Browse tool against real Chromium: catches a broken filter, passes the fixed page, reports missing targets and page errors |
 | `cli/screenshot_test.go` | Screenshot tool: URL policy, file server, desktop capture, browser download, vision |
 | `cli/crew_test.go` | Crew parallel workers, ownership, review/repair, concurrency, retries |
 | `cli/crewui_test.go` | Crew panel rendering and wire format |

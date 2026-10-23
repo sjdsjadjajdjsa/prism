@@ -5,7 +5,7 @@
 
 <p align="center"><img src="docs/prism-demo.gif" alt="Prism builds a todo app with free AI, then the app is used in Firefox" width="820"></p>
 
-Prism is a coding assistant for your terminal that runs entirely on **free AI**. It reads your code, edits files, runs commands and checks its own work.
+Prism is a coding assistant for your terminal that runs entirely on **free AI**. It reads your code, edits files, runs commands and checks its own work. When it builds a web page, it opens it in a headless browser and clicks through it like a person (add, tick, filter, reload) before calling it done.
 
 It runs inside Docker, so it can only touch the one folder you give it.
 
@@ -99,6 +99,7 @@ Each row is one run of the same tasks on the same computer. A task only counts i
 <p align="center"><img src="docs/bench-coding.png" alt="Coding benchmark: 465s at first, 115s now with a free NVIDIA key, 168s with no keys" width="820"></p>
 <p align="center"><img src="docs/bench-chat.png" alt="Simple questions: 10.7s to 0.4s" width="820"></p>
 <p align="center"><img src="docs/bench-website.png" alt="One website task: 1171s to 24s" width="820"></p>
+<p align="center"><img src="docs/bench-light.png" alt="prism starts in 0.27s instead of 11s, idles at 0.2% CPU and 0 KB/s, and uses 9.1 MB per extra session instead of 10.9" width="820"></p>
 
 ### Against other coding agents
 
@@ -110,7 +111,7 @@ Prism passed every run, but it is not the fastest: opencode was quicker on 4 of 
 
 With one model pinned (no router), Prism against Aider:
 
-<p align="center"><img src="docs/bench-pinned.png" alt="Prism 5 of 5 against Aider 4 of 5 with one pinned model; Aider faster on three tasks" width="820"></p>
+<p align="center"><img src="docs/bench-pinned.png" alt="Prism 5 of 5 against Aider 4 of 5 with one pinned model; Aider faster on four tasks, one of them a fail" width="820"></p>
 
 Free models are shared, so the same run can be 30% faster or slower on another day. Compare rows loosely. The raw numbers are in [bench/history.json](bench/history.json), `python3 bench/chart.py` redraws the charts, and `bench/run.sh` and `bench/chat.sh` measure your own setup.
 
@@ -185,6 +186,18 @@ The same Prism, Shard and beam included, in your browser. It opens by itself; th
 <p align="center"><img src="docs/web.png" alt="Prism in the browser, firing the Last Prism beam" width="820"></p>
 
 Inside the terminal app, `/web` moves the current chat to your browser (same history and memory). Close the tab or press enter in the terminal to come back, and everything done in the browser is there. The browser version understands the same slash commands, with the same suggestion list.
+
+## Project tree
+
+<p align="center"><img src="docs/tree.png" alt="The project tree in the browser: files with change marks on the left, the selected file's functions and importers on the right" width="820"></p>
+
+`/tree` shows every file with what changed: `M` changed, `?` new, `●` Prism edited it, `◦` Prism read it, `★` many files use it. `/tree changed` or `/tree <text>` narrows it. In the browser, the **Files** button opens a live, searchable tree that updates as files change, with each file's functions and which files it imports or is imported by. `prism tree --html` writes the same view as a page you can open anywhere.
+
+It respects `.gitignore`, and watching for changes costs nothing while nothing changes. Prism also gets a short version of the map (about 600 tokens), so easy tasks start in the right file.
+
+## Web search
+
+Prism can search the web and read pages when it needs facts it doesn't have, like current docs, versions or an error message. It uses DuckDuckGo, so no key is needed; if `TAVILY_API_KEY` or `BRAVE_API_KEY` is set, it uses that first. It only reads public pages (never your computer or local network), and it treats what it finds as information, not instructions.
 
 ## Memory
 
