@@ -128,7 +128,7 @@ def usage_of(data, sse):
             found = json.loads(data).get("usage")
         except Exception:
             pass
-    return (found or {}).get("prompt_tokens")
+    return found or {}
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -179,7 +179,9 @@ class Handler(BaseHTTPRequestHandler):
         self.close_connection = True
         if chat:
             sse = "event-stream" in (resp.getheader("content-type") or "")
-            entry = {"status": resp.status, "route": served_by(bytes(data), sse), "prompt_tokens": usage_of(bytes(data), sse)}
+            usage = usage_of(bytes(data), sse)
+            entry = {"status": resp.status, "route": served_by(bytes(data), sse), "prompt_tokens": usage.get("prompt_tokens"),
+                     "cached_tokens": (usage.get("prompt_tokens_details") or {}).get("cached_tokens"), "bytes_sent": len(body)}
             if resp.status != 200:
                 entry["error"] = bytes(data[:400]).decode("utf8", "replace")
             with lock, open(LOG, "a") as f:

@@ -1,7 +1,7 @@
 {
   "coding": {
     "title": "5 real coding tasks, total time",
-    "subtitle": "fix a bug, build a site, refactor, count functions, make a package \u00b7 all 5 pass in every row",
+    "subtitle": "fix a bug, build a site, refactor, count functions, make a package · all 5 pass in every row",
     "rows": [
       {
         "label": "first version",
@@ -102,7 +102,7 @@
   },
   "compare": {
     "title": "Prism vs Aider, one pinned model",
-    "subtitle": "nemotron-3-ultra via NVIDIA only \u00b7 one run each \u00b7 2 tasks re-run after 429s",
+    "subtitle": "nemotron-3-ultra via NVIDIA only · one run each · 2 tasks re-run after 429s",
     "rows": [
       {
         "harness": "prism",
@@ -188,7 +188,7 @@
   },
   "harness": {
     "title": "Prism vs other coding agents, same free models",
-    "subtitle": "5 tasks \u00d7 3 runs each \u00b7 all through the same router \u00b7 median seconds \u00b7 bench/harness (22 Oct 2026)",
+    "subtitle": "5 tasks × 3 runs each · all through the same router · median seconds · bench/harness (22 Oct 2026)",
     "rows": [
       {
         "harness": "prism",
@@ -217,7 +217,7 @@
       {
         "harness": "prism",
         "task": "explain",
-        "seconds": 29.0,
+        "seconds": 29,
         "passed": 3,
         "runs": 3,
         "pass": true
@@ -241,7 +241,7 @@
       {
         "harness": "opencode",
         "task": "website",
-        "seconds": 21.0,
+        "seconds": 21,
         "passed": 3,
         "runs": 3,
         "pass": true
@@ -265,7 +265,7 @@
       {
         "harness": "opencode",
         "task": "multifile",
-        "seconds": 16.0,
+        "seconds": 16,
         "passed": 3,
         "runs": 3,
         "pass": true
@@ -349,6 +349,42 @@
         "passed": 3,
         "runs": 3,
         "pass": true
+      }
+    ]
+  },
+  "light": {
+    "title": "Lighter and quicker to start",
+    "subtitle": "bench/perf.py, real program in a terminal, 5 sessions open, same machine. Each row has its own scale.",
+    "rows": [
+      {
+        "label": "prism to first screen",
+        "before": 11,
+        "after": 0.27,
+        "unit": "s"
+      },
+      {
+        "label": "prism status",
+        "before": 10.88,
+        "after": 0.13,
+        "unit": "s"
+      },
+      {
+        "label": "idle CPU, chat screen",
+        "before": 1.3,
+        "after": 0.2,
+        "unit": "%"
+      },
+      {
+        "label": "idle output to terminal",
+        "before": 47,
+        "after": 0,
+        "unit": " KB/s"
+      },
+      {
+        "label": "memory per extra session",
+        "before": 10.9,
+        "after": 9.1,
+        "unit": " MB"
       }
     ]
   }

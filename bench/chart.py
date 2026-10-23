@@ -148,6 +148,7 @@ def bars(name, title, subtitle, rows, unit="s", label_width=230):
 def pairs(name, title, subtitle, rows):
     width, top, row_h, label_width = 900, 110, 52, 300
     height = top + row_h * len(rows) + 40
+    own_scale = any("unit" in r for r in rows)
     longest = max(max(r["before"], r["after"]) for r in rows)
     span = width - label_width - 150
 
@@ -166,18 +167,20 @@ def pairs(name, title, subtitle, rows):
         y = top + i * row_h
         draw.text((32 * SCALE, (y + 22) * SCALE), r["label"], font=font(14), fill=rgb(FG), anchor="ls")
         out.append(f'<text x="32" y="{y + 22}" fill="{FG}" font-size="14">{esc(r["label"])}</text>')
+        unit = r.get("unit", "s")
+        scale = max(r["before"], r["after"]) if own_scale else longest
         for k, (key, alpha) in enumerate([("before", 0.45), ("after", 1.0)]):
-            w = max(3, span * r[key] / longest)
+            w = max(3, span * r[key] / scale)
             by = y + 6 + k * 20
             if key == "after":
                 paint_gradient(img, label_width * SCALE, by * SCALE, round(w * SCALE), 14 * SCALE, 3 * SCALE)
             else:
                 draw.rounded_rectangle([label_width * SCALE, by * SCALE, (label_width + w) * SCALE, (by + 14) * SCALE],
                                        radius=3 * SCALE, fill=mix(MUTED, BG, alpha))
-            draw.text(((label_width + w + 10) * SCALE, (by + 12) * SCALE), f'{r[key]:g}s',
+            draw.text(((label_width + w + 10) * SCALE, (by + 12) * SCALE), f'{r[key]:g}{unit}',
                       font=font(12, key == "after"), fill=rgb(FG if key == "after" else MUTED), anchor="ls")
             out.append(f'<rect x="{label_width}" y="{by}" width="{w:.1f}" height="14" rx="3" fill="{"url(#rainbow)" if key == "after" else MUTED}" opacity="{alpha}"/>')
-            out.append(f'<text x="{label_width + w + 10:.1f}" y="{by + 12}" fill="{FG if key == "after" else MUTED}" font-size="12"{" font-weight=\"700\"" if key == "after" else ""}>{r[key]:g}s</text>')
+            out.append(f'<text x="{label_width + w + 10:.1f}" y="{by + 12}" fill="{FG if key == "after" else MUTED}" font-size="12"{" font-weight=\"700\"" if key == "after" else ""}>{r[key]:g}{unit}</text>')
 
     save(img, name)
     (ROOT / "docs" / name).write_text(frame(width, height, title, subtitle, "\n".join(out)))
@@ -296,6 +299,9 @@ bars("bench-coding.svg", DATA["coding"]["title"], DATA["coding"]["subtitle"], DA
 pairs("bench-chat.svg", DATA["chat"]["title"], DATA["chat"]["subtitle"], DATA["chat"]["rows"])
 bars("bench-website.svg", DATA["website"]["title"], DATA["website"]["subtitle"], DATA["website"]["rows"])
 print("wrote docs/bench-{coding,chat,website}.{svg,png}")
+if "light" in DATA:
+    pairs("bench-light.svg", DATA["light"]["title"], DATA["light"]["subtitle"], DATA["light"]["rows"])
+    print("wrote docs/bench-light.{svg,png}")
 for section, name in (("harness", "bench-harness.svg"), ("compare", "bench-pinned.svg")):
     if section in DATA:
         grouped(name, DATA[section]["title"], DATA[section]["subtitle"], DATA[section]["rows"])
