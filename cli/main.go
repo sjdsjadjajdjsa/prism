@@ -75,7 +75,8 @@ type model struct {
 	web            *webSession
 	ticking        bool
 	active         time.Duration
-	pick           pickerState // the /model picker overlay
+	menu           menuState  // the pick-one-thing overlay; see menu.go
+	fb             filesState // the /files browser and viewer overlay
 }
 
 // idleAfter is how long the screen keeps animating after the last key, event or resize.
@@ -148,16 +149,19 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready, m.offline = msg.ready, msg.err != nil
 	case pickerMsg:
 		m.pickerLoaded(msg)
+	case filesMsg:
+		m.filesLoaded(msg)
 	case modelsMsg:
 		m.entries = append(m.entries, &entry{kind: "models", rows: msg.rows, text: errText(msg.err), more: msg.more, arg: msg.filter})
 		m.scroll = 0
 	case loginsMsg:
+		m.loginsLoaded(msg)
+	case loginOutMsg:
+		text := "signed out of " + msg.id
 		if msg.err != nil {
-			m.entries = append(m.entries, &entry{kind: "note", text: msg.err.Error()})
-			break
+			text = msg.err.Error()
 		}
-		v := loginsView(msg.rows)
-		m.entries = append(m.entries, &entry{kind: "cmd", view: &v})
+		m.entries = append(m.entries, &entry{kind: "note", text: text})
 		m.scroll = 0
 	case loginCodeMsg:
 		if msg.err != nil {
@@ -198,13 +202,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.scroll = 0
 	case keysMsg:
-		if msg.err != nil {
-			m.entries = append(m.entries, &entry{kind: "note", text: msg.err.Error()})
-			break
-		}
-		v := keysView(msg.info)
-		m.entries = append(m.entries, &entry{kind: "cmd", view: &v})
-		m.scroll = 0
+		m.keysLoaded(msg)
 	case keySetMsg:
 		switch {
 		case msg.err != nil:
@@ -249,6 +247,26 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.chat {
 			m.input = append(m.input, []rune(strings.ReplaceAll(msg.Content, "\r\n", "\n"))...)
 		}
+	case tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg:
+		return m.mouse(msg)
+	case tea.KeyPressMsg:
+		return m.key(msg)
+	}
+	return m, nil
+}
+
+// mouse sends the pointer to the open overlay, or else to the chat: a click
+// opens or closes a step, the wheel scrolls.
+func (m model) mouse(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.chat && m.web == nil && m.gallery == "" {
+		if m.menu.open {
+			return m.menuMouse(msg)
+		}
+		if m.fb.open {
+			return m.filesMouse(msg)
+		}
+	}
+	switch msg := msg.(type) {
 	case tea.MouseClickMsg:
 		if mouse := tea.Mouse(msg); m.chat && mouse.Button == tea.MouseLeft {
 			lines, start, end, top, _ := m.visible(themes[m.theme])
@@ -265,8 +283,6 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.MouseWheelDown:
 			m.scrollBy(-3)
 		}
-	case tea.KeyPressMsg:
-		return m.key(msg)
 	}
 	return m, nil
 }
@@ -308,8 +324,11 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if m.pick.open {
-		return m.pickerKey(msg)
+	if m.menu.open {
+		return m.menuKey(msg)
+	}
+	if m.fb.open {
+		return m.filesKey(msg)
 	}
 	switch k {
 	case "ctrl+t":
@@ -597,6 +616,11 @@ func (m model) View() tea.View {
 	v.WindowTitle = "prism"
 	if m.chat {
 		v.MouseMode = tea.MouseModeCellMotion
+		if m.menu.open || m.fb.open {
+			// an overlay highlights the row under the pointer, so it needs
+			// motion without a button held
+			v.MouseMode = tea.MouseModeAllMotion
+		}
 	}
 	return v
 }

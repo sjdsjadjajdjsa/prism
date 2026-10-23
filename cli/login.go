@@ -146,10 +146,25 @@ func pollLogin(api, id string, interval, expires int, browser bool) tea.Cmd {
 	}
 }
 
-// loginCommand runs /login: list accounts, start a device-code sign-in, or sign out.
+// loginOutMsg is the router's answer to a sign-out.
+type loginOutMsg struct {
+	id  string
+	err error
+}
+
+// loginCommand runs /login: pick an account, start a sign-in, or sign out.
 func (m *model) loginCommand(fields []string) tea.Cmd {
 	api := m.agent.api
 	if len(fields) == 1 {
+		m.openMenu(menuState{
+			kind:       "login",
+			title:      "subscriptions",
+			hint:       "↑↓ move · enter sign in · esc close",
+			filterable: true,
+			noun:       "account",
+			empty:      "the router lists no subscription accounts",
+			loading:    true,
+		})
 		return func() tea.Msg {
 			rows, err := fetchLogins(api)
 			return loginsMsg{rows: rows, err: err}
@@ -161,22 +176,7 @@ func (m *model) loginCommand(fields []string) tea.Cmd {
 			m.entries = append(m.entries, &entry{kind: "note", text: "usage: /login rm <name> · /login lists them all"})
 			return nil
 		}
-		out := struct {
-			OK    bool `json:"ok"`
-			Error *struct {
-				Message string `json:"message"`
-			} `json:"error"`
-		}{}
-		if err := loginRound(api, map[string]any{"id": fields[2], "signOut": true}, &out); err != nil {
-			m.entries = append(m.entries, &entry{kind: "note", text: err.Error()})
-			return nil
-		}
-		if out.Error != nil {
-			m.entries = append(m.entries, &entry{kind: "note", text: out.Error.Message})
-			return nil
-		}
-		m.entries = append(m.entries, &entry{kind: "note", text: "signed out of " + fields[2]})
-		return nil
+		return signOut(api, fields[2])
 	}
 	if len(fields) != 2 {
 		m.entries = append(m.entries, &entry{kind: "note", text: "usage: /login <name> · /login lists them all"})
@@ -202,6 +202,61 @@ func (m *model) loginCommand(fields []string) tea.Cmd {
 		}
 		return loginCodeMsg{id: id, code: out.UserCode, url: out.VerificationURI, expires: out.Expires, browser: out.UserCode == ""}
 	}
+}
+
+// signOut asks the router to forget an account, off the UI goroutine.
+func signOut(api, id string) tea.Cmd {
+	return func() tea.Msg {
+		out := struct {
+			OK    bool `json:"ok"`
+			Error *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}{}
+		if err := loginRound(api, map[string]any{"id": id, "signOut": true}, &out); err != nil {
+			return loginOutMsg{id: id, err: err}
+		}
+		if out.Error != nil {
+			return loginOutMsg{id: id, err: errors.New(out.Error.Message)}
+		}
+		return loginOutMsg{id: id}
+	}
+}
+
+// loginsLoaded fills the /login menu: every account with its state and last
+// error; enter signs in like /login <id>, and a signed-in account gets a
+// "sign out of" row under it.
+func (m *model) loginsLoaded(msg loginsMsg) {
+	m.fillMenu("login", loginItems(msg.rows), msg.err)
+}
+
+func loginItems(rows []loginRow) []menuItem {
+	var items []menuItem
+	for _, row := range rows {
+		id, name := row.ID, row.Name
+		if name == "" {
+			name = id
+		}
+		it := menuItem{label: id, detail: name, dot: "◌", state: "not signed in"}
+		if row.SignedIn {
+			it.dot, it.dotTone, it.stateTone = "●", toneOK, toneOK
+			it.state = "signed in · no models listed yet"
+			if row.Models > 0 {
+				it.state = fmt.Sprintf("signed in · %d models", row.Models)
+			}
+		}
+		if row.Error != "" {
+			it.dotTone, it.stateTone = toneErr, toneErr
+			it.state += " · " + row.Error
+		}
+		it.run = func(m *model) tea.Cmd { return m.loginCommand([]string{"/login", id}) }
+		items = append(items, it)
+		if row.SignedIn {
+			items = append(items, menuItem{sub: true, label: "sign out of " + name, match: id + " " + name + " sign out",
+				run: func(m *model) tea.Cmd { return signOut(m.agent.api, id) }})
+		}
+	}
+	return items
 }
 
 func loginsView(rows []loginRow) cmdView {

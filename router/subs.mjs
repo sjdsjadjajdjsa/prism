@@ -70,7 +70,7 @@ export const SUBSCRIPTIONS = [
       'x-stainless-arch': 'x64',
     },
     apiUserAgent: 'claude-cli/2.1.280 (external, cli)',
-    models: ['claude-sonnet-5.5', 'claude-opus-5.5', 'claude-haiku-5.5'],
+    models: ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5'],
   },
   {
     id: 'grok',
@@ -89,29 +89,28 @@ export const SUBSCRIPTIONS = [
     models: ['grok-4.7'],
   },
   {
-    id: 'gemini',
-    name: 'Gemini (Code Assist)',
+    id: 'antigravity',
+    name: 'Antigravity (Google)',
     kind: 'browser',
     authorizeURL: 'https://accounts.google.com/o/oauth2/v2/auth',
     tokenURL: 'https://oauth2.googleapis.com/token',
-    // Google's push protection blocks committing the gemini-cli's public client,
-    // so it comes from keys.conf (GEMINI_OAUTH_CLIENT_ID / _SECRET), read live.
-    clientIDEnv: 'GEMINI_OAUTH_CLIENT_ID',
-    get clientID() {
-      return process.env.GEMINI_OAUTH_CLIENT_ID ?? ''
-    },
-    get clientSecret() {
-      return process.env.GEMINI_OAUTH_CLIENT_SECRET ?? ''
-    },
-    redirectPort: 0,
-    redirectPath: '/oauth2callback',
-    scopes: 'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile',
+    // Antigravity's own public IDE client (constants.go), written directly in
+    // the code the way the IDE ships it.
+    clientID: '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com',
+    clientSecret: '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',
+    redirectPort: 51121,
+    redirectHost: 'localhost',
+    redirectPath: '/oauth-callback',
+    scopes:
+      'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs',
     extraAuth: { access_type: 'offline', prompt: 'consent' },
-    apiBase: 'https://cloudcode-pa.googleapis.com',
-    wire: 'gemini',
-    register: true,
-    apiUserAgent: 'gemini-cli/1.4.0 (oauth)',
-    models: ['gemini-3.8-flash'],
+    // The daily endpoint is the one the Antigravity IDE talks to; the prod one
+    // answers subscription accounts with RESOURCE_EXHAUSTED (429).
+    apiBase: 'https://daily-cloudcode-pa.googleapis.com',
+    wire: 'antigravity',
+    onboard: true,
+    apiUserAgent: 'antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=arm64; cl=1000335682)',
+    models: ['gemini-3.8-flash', 'gemini-4-argon', 'claude-sonnet-5-5', 'claude-opus-5-5'],
   },
 ]
 
@@ -224,14 +223,16 @@ const browserPending = new Map()
 const loginErrors = new Map()
 export const loginError = id => loginErrors.get(id) ?? null
 
+const escapeHTML = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
 const loginPage = (ok, message) =>
-  `<html><body style="font-family:sans-serif;background:#1c1c28;color:#eee;display:flex;align-items:center;justify-content:center;height:100vh"><p>${ok ? 'signed in — you can close this tab' : `sign-in failed: ${message}`}</p></body></html>`
+  `<html><body style="font-family:sans-serif;background:#1c1c28;color:#eee;display:flex;align-items:center;justify-content:center;height:100vh"><p>${ok ? 'signed in — you can close this tab' : `sign-in failed: ${escapeHTML(message)}`}</p></body></html>`
 
 // startBrowserLogin builds an authorize URL (PKCE) and waits for the vendor's
 // redirect. Fixed-port providers (ChatGPT 1455, Grok 56121) get their own
 // listener; the rest ride on the router's own port via handleOAuthCallback.
 export const startBrowserLogin = async sub => {
-  if (!sub.clientID) return { error: `${sub.name} needs its sign-in client: add ${sub.clientIDEnv} and ${sub.clientIDEnv.replace('_ID', '_SECRET')} to keys.conf (the gemini-cli's public Desktop client, or your own)` }
+  loginErrors.delete(sub.id)
   const verifier = randomUUID() + randomUUID()
   const challenge = createHash('sha256').update(verifier).digest('base64url')
   const state = randomUUID()
@@ -259,14 +260,21 @@ export const startBrowserLogin = async sub => {
         res.writeHead(404)
         return res.end()
       }
-      const result = await finishBrowserLogin(url.searchParams.get('code'), url.searchParams.get('state'))
+      const result = await finishSafely(sub, url)
       res.writeHead(200, { 'content-type': 'text/html' })
       res.end(loginPage(!result?.error, result?.error ?? ''))
     })
-    await new Promise((resolve, reject) => {
-      entry.server.once('error', reject)
-      entry.server.listen(sub.redirectPort, listen, resolve)
-    })
+    try {
+      await new Promise((resolve, reject) => {
+        entry.server.once('error', reject)
+        entry.server.listen(sub.redirectPort, listen, resolve)
+      })
+    } catch (error) {
+      closeBrowserLogin(entry)
+      const message = error.code === 'EADDRINUSE' ? `port ${sub.redirectPort} is busy (another sign-in or app is using it); close it and try again` : `could not start the sign-in: ${error.message}`
+      loginErrors.set(sub.id, message)
+      return { error: message }
+    }
     entry.until = Date.now() + 10 * 60_000
     setTimeout(() => closeBrowserLogin(entry), 10 * 60_000).unref?.()
   }
@@ -282,17 +290,29 @@ const closeBrowserLogin = entry => {
 }
 
 // handleOAuthCallback serves the redirect for providers that ride on the
-// router's own port (Claude, Gemini). Returns true when it handled the path.
+// router's own port (Claude). Returns true when it handled the path.
 export const handleOAuthCallback = async (req, res, pathname) => {
   const url = new URL(req.url, 'http://router')
   for (const entry of browserPending.values()) {
     if (entry.sub.redirectPort || url.pathname !== entry.sub.redirectPath) continue
-    const result = await finishBrowserLogin(url.searchParams.get('code'), url.searchParams.get('state'))
+    const result = await finishSafely(entry.sub, url)
     res.writeHead(200, { 'content-type': 'text/html' })
     res.end(loginPage(!result?.error, result?.error ?? ''))
     return true
   }
   return false
+}
+
+// finishSafely never throws: a failed save or a bad reply becomes a login error
+// the user can read, instead of an unhandled rejection that kills the router.
+const finishSafely = async (sub, url) => {
+  try {
+    return await finishBrowserLogin(url.searchParams.get('code'), url.searchParams.get('state'))
+  } catch (error) {
+    const message = `sign-in could not be saved: ${error.message}`
+    loginErrors.set(sub.id, message)
+    return { error: message }
+  }
 }
 
 // pendingLoginURL tells the launcher which page to open in the user's browser.
@@ -334,8 +354,8 @@ const finishBrowserLogin = async (code, state) => {
     loginErrors.set(sub.id, message)
     return { error: message }
   }
-  if (data.error) {
-    const message = data.error_description ?? data.error
+  if (data.error || !data.access_token) {
+    const message = data.error_description ?? data.error ?? `${sub.name} returned no access token`
     loginErrors.set(sub.id, message)
     return { error: message }
   }
@@ -354,11 +374,12 @@ const finishBrowserLogin = async (code, state) => {
   }
   const file = subsPath()
   saveSubs(file, { ...loadSubs(file), [sub.id]: account })
-  if (sub.register) await registerGemini(sub, account)
+  // Antigravity binds the account to a cloud project right after sign-in.
+  const projectId = sub.onboard ? await onboardAntigravity(sub, account) : undefined
   const models = await probeSubModels(sub)
   const list = models.models?.length ? models.models : sub.models
-  const fresh = { ...loadSubs(file), [sub.id]: { ...account, models: list } }
-  saveSubs(file, fresh)
+  const fresh = { ...loadSubs(file), [sub.id]: { ...account, ...(projectId && { projectId }), models: list } }
+    saveSubs(file, fresh)
   return { ok: true, models: list, note: models.error }
 }
 
@@ -384,31 +405,91 @@ const accountUuidOf = idToken => {
   }
 }
 
-// registerGemini binds the Google account to the Code Assist surface, the same
-// call the gemini-cli makes after sign-in.
-const registerGemini = async (sub, account) => {
+// projectOf reads the cloudaicompanion project id out of a loadCodeAssist or
+// onboardUser response: three accepted keys, as a string or an {id} object.
+const projectOf = data => {
+  for (const key of ['cloudaicompanionProject', 'projectId', 'project']) {
+    const value = data?.[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+    if (value && typeof value === 'object' && typeof value.id === 'string' && value.id.trim()) return value.id.trim()
+  }
+  return ''
+}
+
+// onboardAntigravity does the post-sign-in onboarding the Antigravity IDE does:
+// loadCodeAssist for an existing project, then onboardUser (polled) when there
+// is none yet. Returns the project id, or undefined when it could not be found;
+// failures land in loginErrors so /login can say what went wrong.
+const onboardAntigravity = async (sub, account) => {
   try {
-    const res = await fetch(`${sub.apiBase}/v1internal:register`, {
+    const load = await fetch(`${sub.apiBase}/v1internal:loadCodeAssist`, {
       method: 'POST',
-      headers: { authorization: `Bearer ${account.accessToken}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ toolId: 'gemini-cli', apiKey: '', useMutualTLS: false }),
-      signal: AbortSignal.timeout(10_000),
+      headers: { authorization: `Bearer ${account.accessToken}`, 'content-type': 'application/json', 'user-agent': sub.apiUserAgent ?? 'prism-router' },
+      body: JSON.stringify({ metadata: { ideType: 'ANTIGRAVITY' } }),
+      signal: AbortSignal.timeout(15_000),
     })
-    const data = await res.json().catch(() => ({}))
-    if (data.apiKey) {
-      const file = subsPath()
-      saveSubs(file, { ...loadSubs(file), [sub.id]: { ...loadSubs(file)[sub.id], apiKey: data.apiKey } })
+    const data = await load.json().catch(() => ({}))
+    let project = projectOf(data)
+    if (!project) {
+      const tier = (Array.isArray(data.allowedTiers) ? data.allowedTiers : []).find(t => t?.isDefault)?.id ?? data.currentTier?.id ?? 'free-tier'
+      const body = JSON.stringify({ tier_id: tier, metadata: { ide_type: 'ANTIGRAVITY', ide_version: '2.24.0', ide_name: 'antigravity' } })
+      for (let attempt = 0; attempt < 5 && !project; attempt++) {
+        const res = await fetch(`${sub.apiBase}/v1internal:onboardUser`, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${account.accessToken}`,
+            accept: '*/*',
+            'content-type': 'application/json',
+            'user-agent': `${sub.apiUserAgent ?? 'prism-router'} google-api-nodejs-client/10.3.0`,
+            'x-goog-api-client': 'gl-node/22.21.1',
+          },
+          body,
+          signal: AbortSignal.timeout(30_000),
+        })
+        if (!res.ok) throw new Error(`onboardUser answered ${res.status}`)
+        const polled = await res.json().catch(() => ({}))
+        if (polled.done) {
+          project = projectOf(polled.response)
+          break
+        }
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
     }
-  } catch {}
+    if (!project) throw new Error('no project id in loadCodeAssist or onboardUser response')
+    const file = subsPath()
+    saveSubs(file, { ...loadSubs(file), [sub.id]: { ...loadSubs(file)[sub.id], projectId: project } })
+    return project
+  } catch (error) {
+    loginErrors.set(sub.id, `antigravity onboarding failed: ${error.message}`)
+    return undefined
+  }
+}
+
+// Models a plan lists that are not worth picking: internal helpers, autocomplete
+// and preview slots, and retired generations. Lower current tiers stay visible.
+const HIDDEN = {
+  all: [/embed|whisper|tts|transcri|rerank|moderat|dall-e|image|voice|guard|audio|realtime|search-preview/i],
+  chatgpt: [/^codex-auto-review$/, /^gpt-reserve$/, /^gpt-[1-4]/, /^gpt-5(\.[0-5])?-/, /^o\d/],
+  claude: [/-20\d{6}$/, /^claude-[0-3]-/, /^claude-(opus|sonnet|haiku)-4-[0-6]$/, /^claude-haiku-4/],
+  antigravity: [/^gpt-oss/, /^tab_/, /^chat_\d+/, /lite/, /^gemini-[0-2]\./, /^gemini-3-/, /^gemini-3\.[0-5]-/, /-tiered$/, /-extra-low$/, /-agent$/, /-thinking$/],
+  copilot: [/^gpt-3/, /^gpt-4(?!\.1)/, /^o1/, /^text-/, /^copilot-/],
+  grok: [/^grok-[0-2]/, /^grok-3/, /mini-fast/],
+}
+
+// visibleModels keeps the models worth showing for an account.
+export const visibleModels = (id, list) => {
+  const kept = (list ?? []).filter(name => ![...HIDDEN.all, ...(HIDDEN[id] ?? [])].some(rule => rule.test(name)))
+  // Antigravity lists its models in no particular order; group them by name.
+  return id === 'antigravity' ? kept.sort((a, b) => a.localeCompare(b, 'en', { numeric: true })) : kept
 }
 
 // subscriptionProviders turns signed-in accounts into router providers. Their
 // routes are paid-marked: they answer when picked by name, never for auto.
 export const subscriptionProviders = () =>
-  SUBSCRIPTIONS.filter(sub => (loadSubs()[sub.id]?.models ?? []).length).map(sub => ({
+  SUBSCRIPTIONS.filter(sub => visibleModels(sub.id, loadSubs()[sub.id]?.models).length).map(sub => ({
     name: sub.id,
     baseURL: loadSubs()[sub.id].apiBase ?? sub.apiBase,
-    models: loadSubs()[sub.id].models.map(name => ({ name, family: name.split('/').pop().split(/[-_.]/)[0], roles: [], vision: false })),
+    models: visibleModels(sub.id, loadSubs()[sub.id].models).map(name => ({ name, family: name.split('/').pop().split(/[-_.]/)[0], roles: [], vision: false })),
     mark: { subscription: sub.id, paid: true, source: 'subscription' },
   }))
 
@@ -493,6 +574,23 @@ const probeSubModels = async sub => {
   try {
     const { token } = await subToken(sub)
     const stored = loadSubs()[sub.id] ?? {}
+    // Antigravity lists models the way its IDE does: a POST to fetchAvailableModels
+    // scoped to the onboarding project, with the model ids as the keys of `models`.
+    if (sub.wire === 'antigravity') {
+      const res = await fetch(`${sub.apiBase}/v1internal:fetchAvailableModels`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'user-agent': sub.apiUserAgent ?? 'prism-router' },
+        body: JSON.stringify({ project: stored.projectId ?? '' }),
+        signal: AbortSignal.timeout(10_000),
+      })
+      if (!res.ok) return { error: `the service answered ${res.status}` }
+      const data = await res.json()
+      const ids = Object.keys(data.models ?? {})
+        .map(id => id.trim())
+        .filter(Boolean)
+      const chat = ids.filter(id => !/embed|whisper|tts|transcri|rerank|moderat|dall-e|image|voice|guard/i.test(id))
+      return chat.length ? { models: [...new Set(chat)].slice(0, 300) } : { error: 'the service listed no chat models' }
+    }
     const res = await fetch(`${sub.apiBase}/models${sub.modelsQuery ? `?${new URLSearchParams(sub.modelsQuery)}` : ''}`, {
       headers: {
         authorization: `Bearer ${token}`,

@@ -26,7 +26,7 @@ test('the subscription catalog is sane', () => {
     if (sub.deviceURL) assert.match(sub.deviceURL, /^https:\/\//)
     if (sub.kind === 'browser') assert.match(sub.authorizeURL, /^https:\/\//)
     assert.match(sub.tokenURL, /^https:\/\//)
-    assert.ok(sub.clientID || sub.clientIDEnv)
+    assert.ok(sub.clientID)
     assert.match(sub.apiBase, /^https:\/\//)
   }
 })
@@ -297,6 +297,163 @@ test('server: a wired chatgpt route translates responses to chat chunks', async 
   assert.match(text, /\[DONE\]/)
 })
 
+test('an antigravity sign-in onboards the project and lists models by POST', async () => {
+  const token = await upstream((req, res) => {
+    let body = ''
+    req.on('data', chunk => (body += chunk))
+    req.on('end', () => {
+      assert.ok(body.includes('grant_type=authorization_code'))
+      assert.ok(body.includes('client_secret='))
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ access_token: 'ag-at-123', refresh_token: 'ag-rt-123', expires_in: 3600 }))
+    })
+  })
+  let onboarded = 0
+  const api = await upstream((req, res) => {
+    let body = ''
+    req.on('data', chunk => (body += chunk))
+    req.on('end', () => {
+      if (req.url === '/v1internal:loadCodeAssist') {
+        assert.equal(req.method, 'POST')
+        assert.equal(req.headers.authorization, 'Bearer ag-at-123')
+        assert.deepEqual(JSON.parse(body), { metadata: { ideType: 'ANTIGRAVITY' } })
+        // No project yet: onboarding must kick in with the default tier.
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ allowedTiers: [{ id: 'free-tier', isDefault: true }] }))
+        return
+      }
+      if (req.url === '/v1internal:onboardUser') {
+        onboarded++
+        assert.equal(req.method, 'POST')
+        assert.equal(req.headers['x-goog-api-client'], 'gl-node/22.21.1')
+        assert.match(req.headers['user-agent'], /google-api-nodejs-client\/10\.3\.0$/)
+        const parsed = JSON.parse(body)
+        assert.equal(parsed.tier_id, 'free-tier')
+        assert.equal(parsed.metadata.ide_type, 'ANTIGRAVITY')
+        assert.equal(parsed.metadata.ide_name, 'antigravity')
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ done: true, response: { cloudaicompanionProject: 'proj-77' } }))
+        return
+      }
+      if (req.url === '/v1internal:fetchAvailableModels') {
+        assert.equal(req.method, 'POST')
+        assert.equal(req.headers.authorization, 'Bearer ag-at-123')
+        assert.deepEqual(JSON.parse(body), { project: 'proj-77' })
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ webSearchModelIds: [], models: { 'gemini-3.8-flash': {}, 'claude-sonnet-5-5': {}, 'text-embedding-004': {} } }))
+        return
+      }
+      res.writeHead(404)
+      res.end()
+    })
+  })
+  const probe = http.createServer().listen(0, '127.0.0.1')
+  await new Promise(resolve => probe.once('listening', resolve))
+  const port = probe.address().port
+  await new Promise(resolve => probe.close(resolve))
+  const file = write('{}')
+  process.env.PRISM_SUBS_FILE = file
+  const sub = {
+    id: 'fake',
+    name: 'Fake',
+    kind: 'browser',
+    authorizeURL: 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenURL: token,
+    clientID: 'cid',
+    clientSecret: 'sec',
+    redirectPort: port,
+    redirectPath: '/oauth-callback',
+    scopes: 'openid',
+    apiBase: api,
+    wire: 'antigravity',
+    onboard: true,
+    apiUserAgent: 'antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=arm64; cl=1000335682)',
+    models: ['fallback-model'],
+  }
+  const started = await startBrowserLogin(sub)
+  const state = new URL(started.url).searchParams.get('state')
+  const res = await fetch(`http://127.0.0.1:${port}/oauth-callback?code=the-code&state=${state}`)
+  assert.equal(res.status, 200)
+  let saved = {}
+  for (let i = 0; i < 50; i++) {
+    await new Promise(r => setTimeout(r, 100))
+    saved = loadSubs(file)
+    if (saved.fake?.models?.length) break
+  }
+  assert.equal(onboarded, 1)
+  assert.equal(saved.fake.projectId, 'proj-77')
+  assert.deepEqual(saved.fake.models, ['gemini-3.8-flash', 'claude-sonnet-5-5'])
+  delete process.env.PRISM_SUBS_FILE
+})
+
+test('server: a wired antigravity route streams the envelope and unwraps chunks', async () => {
+  const { spawn } = await import('node:child_process')
+  const upstreamSeen = []
+  const api = await upstream((req, res) => {
+    let body = ''
+    req.on('data', chunk => (body += chunk))
+    req.on('end', () => {
+      upstreamSeen.push({ url: req.url, ua: req.headers['user-agent'], body: JSON.parse(body) })
+      assert.equal(req.url, '/v1internal:streamGenerateContent?alt=sse')
+      assert.equal(req.headers.authorization, 'Bearer ag-t')
+      assert.match(req.headers['user-agent'], /^antigravity\/hub\//)
+      const parsed = JSON.parse(body)
+      assert.equal(parsed.model, 'gemini-test')
+      assert.equal(parsed.project, 'proj-9')
+      assert.equal(parsed.requestType, 'agent')
+      assert.equal(parsed.userAgent, 'antigravity')
+      assert.match(parsed.requestId, /^agent-/)
+      assert.equal(parsed.request.contents[0].parts[0].text, 'hi')
+      res.writeHead(200, { 'content-type': 'text/event-stream' })
+      res.end(
+        'data: {"response":{"candidates":[{"content":{"parts":[{"text":"hello "}]}}]},"traceId":"t1"}\n\n' +
+          'data: {"response":{"candidates":[{"content":{"parts":[{"text":"world"}]}}]},"traceId":"t2"}\n\n' +
+          'data: {"response":{"candidates":[{"content":{"parts":[]}}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":2}},"traceId":"t3"}\n\n',
+      )
+    })
+  })
+  const dir = mkdtempSync(join(tmpdir(), 'ag-server-'))
+  for (const f of ['server.mjs', 'custom.mjs', 'subs.mjs', 'wire.mjs']) copyFileSync(new URL(`./${f}`, import.meta.url), join(dir, f))
+  writeFileSync(join(dir, 'providers.json'), JSON.stringify({ providers: [] }))
+  const subsFile = join(dir, 'subscriptions.json')
+  writeFileSync(subsFile, JSON.stringify({ antigravity: { accessToken: 'ag-t', projectId: 'proj-9', models: ['gemini-test'], apiBase: api } }))
+  const probe = http.createServer().listen(0, '127.0.0.1')
+  await new Promise(resolve => probe.once('listening', resolve))
+  const port = probe.address().port
+  await new Promise(resolve => probe.close(resolve))
+  const child = spawn(process.execPath, ['server.mjs'], { cwd: dir, env: { ...process.env, PORT: String(port), STATS_FILE: '', PRISM_SUBS_FILE: subsFile } })
+  servers.push({ close: () => child.kill() })
+  const base = `http://127.0.0.1:${port}`
+  for (let i = 0; i < 50; i++) {
+    try { if ((await fetch(base + '/health')).ok) break } catch {}
+    await new Promise(r => setTimeout(r, 100))
+  }
+  const res = await fetch(base + '/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ model: 'antigravity/gemini-test', messages: [{ role: 'user', content: 'hi' }], stream: true }),
+  })
+  assert.equal(res.status, 200)
+  assert.match(res.headers.get('content-type'), /event-stream/)
+  const text = await res.text()
+  assert.equal(upstreamSeen.length, 1)
+  assert.match(text, /"content":"hello "/)
+  assert.match(text, /"content":"world"/)
+  assert.match(text, /finish_reason/)
+  assert.match(text, /\[DONE\]/)
+})
+
 test('cleanup after the late tests', () => {
   for (const s of servers) s.close()
+})
+
+test('visibleModels hides helpers, previews and retired generations', async () => {
+  const { visibleModels } = await import('./subs.mjs')
+  assert.deepEqual(visibleModels('chatgpt', ['gpt-6.1-sol', 'codex-auto-review', 'gpt-reserve', 'gpt-5.6-luna', 'gpt-4o']), ['gpt-6.1-sol', 'gpt-5.6-luna'])
+  assert.deepEqual(visibleModels('claude', ['claude-opus-5-5', 'claude-opus-4-7', 'claude-sonnet-4-5-20250929', 'claude-opus-4-6']), ['claude-opus-5-5', 'claude-opus-4-7'])
+  assert.deepEqual(
+    visibleModels('antigravity', ['tab_flash_lite_preview', 'gemini-4-argon-low', 'chat_20706', 'gemini-2.5-pro', 'claude-opus-5-5-high', 'gpt-oss-120b-medium', 'gemini-3.8-flash-tiered']),
+    ['claude-opus-5-5-high', 'gemini-4-argon-low'],
+  )
+  assert.deepEqual(visibleModels('grok', ['grok-4.7', 'text-embedding-x']), ['grok-4.7'])
 })

@@ -101,6 +101,8 @@ func (s *server) handler(port string) http.Handler {
 	mux.HandleFunc("GET /api/ping", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.HandleFunc("GET /api/info", s.info)
 	mux.HandleFunc("GET /api/tree", s.tree)
+	mux.HandleFunc("GET /api/file", s.readFile)
+	mux.HandleFunc("POST /api/file", s.saveFile)
 	mux.HandleFunc("GET /tree.js", treeAsset("tree.js", "text/javascript"))
 	mux.HandleFunc("GET /tree.css", treeAsset("tree.css", "text/css"))
 	mux.HandleFunc("GET /api/history", s.history)
@@ -206,6 +208,77 @@ func (s *server) tree(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("content-type", "application/json")
 	w.Header().Set("cache-control", "no-store")
 	w.Write(a.tree.json())
+}
+
+// fileStatus maps a viewer error to an HTTP status.
+func fileStatus(err error) int {
+	switch {
+	case errors.Is(err, errOutside):
+		return http.StatusForbidden
+	case errors.Is(err, os.ErrNotExist):
+		return http.StatusNotFound
+	}
+	return http.StatusBadRequest
+}
+
+// readFile serves one project file for the browser viewer: its text, or a
+// note when it is binary or over the size limit (then it is not editable).
+func (s *server) readFile(w http.ResponseWriter, r *http.Request) {
+	fc, err := readProjectFile(s.agent.dir, r.URL.Query().Get("path"))
+	if err != nil {
+		http.Error(w, err.Error(), fileStatus(err))
+		return
+	}
+	out := map[string]any{"path": fc.rel, "size": fc.size, "editable": fc.note == ""}
+	if fc.note != "" {
+		out["note"] = fc.note
+	} else {
+		out["content"] = fc.text
+	}
+	w.Header().Set("cache-control", "no-store")
+	writeJSON(w, out)
+}
+
+// saveFile writes an existing project file from the browser editor. The path
+// guard and size limit match readFile; binary files cannot be overwritten.
+func (s *server) saveFile(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 6*viewLimit+4096)
+	var req struct {
+		Path    string  `json:"path"`
+		Content *string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Content == nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if len(*req.Content) > viewLimit {
+		http.Error(w, "file is over the 1 MB limit", http.StatusRequestEntityTooLarge)
+		return
+	}
+	fc, err := readProjectFile(s.agent.dir, req.Path)
+	if err != nil {
+		http.Error(w, err.Error(), fileStatus(err))
+		return
+	}
+	if fc.note != "" {
+		http.Error(w, "this file can't be edited here: "+fc.note, http.StatusUnprocessableEntity)
+		return
+	}
+	abs, rel, err := projectPath(s.agent.dir, req.Path)
+	if err != nil {
+		http.Error(w, err.Error(), fileStatus(err))
+		return
+	}
+	st, err := os.Stat(abs)
+	if err != nil {
+		http.Error(w, err.Error(), fileStatus(err))
+		return
+	}
+	if err := os.WriteFile(abs, []byte(*req.Content), st.Mode().Perm()); err != nil {
+		http.Error(w, pathErr(rel, err).Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"path": rel, "size": len(*req.Content)})
 }
 
 func (s *server) info(w http.ResponseWriter, r *http.Request) {

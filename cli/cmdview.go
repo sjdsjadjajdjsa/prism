@@ -333,27 +333,37 @@ func helpView() cmdView {
 		label string
 		names []string
 	}{
-		{"chat", []string{"/new", "/resume", "/clear", "/compact", "/undo", "/quit"}},
-		{"tabs", []string{"/tabs", "/rename", "/ask"}},
-		{"project", []string{"/init", "/tree", "/memory", "/skills"}},
-		{"tools", []string{"/mcp", "/web", "/usage", "/models"}},
-		{"look", []string{"/theme", "/beam", "/quiet", "/help"}},
+		{"chat", []string{"/new", "/resume", "/clear", "/compact", "/undo", "/tabs", "/rename", "/ask", "/quit"}},
+		{"models and accounts", []string{"/models", "/model", "/key", "/login", "/usage"}},
+		{"project", []string{"/init", "/tree", "/files", "/open", "/memory", "/skills", "/mcp", "/web"}},
+		{"settings", []string{"/theme", "/beam", "/quiet", "/help"}},
 	}
+	byName := map[string]command{}
+	for _, c := range commands {
+		byName[c.name] = c
+	}
+	listed := map[string]bool{}
 	var blocks []cmdBlock
 	for _, g := range groups {
 		blk := cmdBlock{title: g.label}
 		for _, name := range g.names {
-			for _, c := range commands {
-				if c.name == name {
-					blk.items = append(blk.items, cmdItem{
-						name: c.name,
-						desc: c.help,
-					})
-					break
-				}
+			if c, ok := byName[name]; ok {
+				listed[name] = true
+				blk.items = append(blk.items, cmdItem{name: c.name, desc: c.help})
 			}
 		}
 		blocks = append(blocks, blk)
+	}
+	// a command added to the list but missing from the groups above still shows
+	var more cmdBlock
+	for _, c := range commands {
+		if !listed[c.name] {
+			more.items = append(more.items, cmdItem{name: c.name, desc: c.help})
+		}
+	}
+	if len(more.items) > 0 {
+		more.title = "more"
+		blocks = append(blocks, more)
 	}
 	return cmdView{
 		title:  "commands",

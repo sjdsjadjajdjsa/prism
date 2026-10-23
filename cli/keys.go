@@ -101,10 +101,19 @@ func postKey(api, id, value string) (keySetMsg, error) {
 	return msg, nil
 }
 
-// keyCommand runs /key: list, set, or remove a provider key.
+// keyCommand runs /key: pick a provider, set, or remove a provider key.
 func (m *model) keyCommand(fields []string) tea.Cmd {
 	api := m.agent.api
 	if len(fields) == 1 {
+		m.openMenu(menuState{
+			kind:       "key",
+			title:      "keys",
+			hint:       "↑↓ move · enter type the key · esc close",
+			filterable: true,
+			noun:       "provider",
+			empty:      "the router lists no providers",
+			loading:    true,
+		})
 		return func() tea.Msg {
 			info, err := fetchKeys(api)
 			return keysMsg{info: info, err: err}
@@ -142,6 +151,48 @@ func (m *model) keyCommand(fields []string) tea.Cmd {
 		}
 		return msg
 	}
+}
+
+// keysLoaded fills the /key menu.
+func (m *model) keysLoaded(msg keysMsg) {
+	m.fillMenu("key", keyMenuItems(msg.info), msg.err)
+}
+
+// keyMenuItems lists the built-in free providers and the presets with their
+// masked state. Enter puts "/key <id> " in the input box so the secret is
+// typed or pasted there, never shown here; a set key also gets a remove row.
+func keyMenuItems(info keysInfo) []menuItem {
+	var items []menuItem
+	add := func(row keyRow, detail string) {
+		id := row.ID
+		it := menuItem{label: id, detail: detail, dot: "◌", state: "not set"}
+		if row.Set != "" {
+			it.dot, it.dotTone, it.state, it.stateTone = "●", toneOK, row.Set, toneOK
+		}
+		it.run = func(m *model) tea.Cmd {
+			m.input = []rune("/key " + id + " ")
+			return nil
+		}
+		items = append(items, it)
+		if row.Set != "" {
+			items = append(items, menuItem{sub: true, label: "remove " + id + " key", match: id + " remove",
+				run: func(m *model) tea.Cmd { return m.keyCommand([]string{"/key", "rm", id}) }})
+		}
+	}
+	for _, row := range info.Free {
+		add(row, "free")
+	}
+	for _, row := range info.Presets {
+		if row.Keyless {
+			continue
+		}
+		detail := row.Name
+		if detail == "" || detail == row.ID {
+			detail = "your own"
+		}
+		add(row, detail)
+	}
+	return items
 }
 
 func keyItem(row keyRow) cmdItem {

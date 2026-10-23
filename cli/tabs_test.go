@@ -175,9 +175,13 @@ func TestTabAutoNameAndRename(t *testing.T) {
 		t.Fatalf("rename: %q", m.name)
 	}
 	m.command("/tabs")
-	last := m.entries[len(m.entries)-1]
-	if last.kind != "info" || !strings.Contains(strings.Join(last.lines, "\n"), "checkout") {
-		t.Fatalf("/tabs: %+v", last)
+	if !m.menu.open || m.menu.kind != "tabs" || !strings.Contains(strings.Join(menuLabels(m.menu), "\n"), "checkout") {
+		t.Fatalf("/tabs menu: %v", menuLabels(m.menu))
+	}
+	m.menu.sel = 0
+	m.menuRun()
+	if m.tabIndex(m.tab) != 0 || m.menu.open {
+		t.Fatalf("/tabs enter should switch to tab 1, on %d", m.tabIndex(m.tab))
 	}
 }
 

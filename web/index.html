@@ -51,6 +51,19 @@
   <aside id="files-panel" class="files-panel" hidden aria-label="Project files">
     <div class="files-panel-head"><span class="grad">project files</span><span class="muted" id="files-live">live</span><button id="files-close" class="files-close" type="button" aria-label="Close files">×</button></div>
     <div id="files-tree" class="files-tree"></div>
+    <section id="file-view" class="file-view" hidden aria-label="File viewer">
+      <div class="file-view-head">
+        <button id="file-back" class="file-btn" type="button" aria-label="Back to the file tree">‹ files</button>
+        <span id="file-path" class="file-path"></span>
+        <span id="file-msg" class="file-msg muted" role="status"></span>
+        <button id="file-edit" class="file-btn" type="button">Edit</button>
+        <button id="file-save" class="file-btn primary" type="button" hidden>Save</button>
+        <button id="file-cancel" class="file-btn" type="button" hidden>Cancel</button>
+      </div>
+      <div id="file-note" class="file-note muted" hidden></div>
+      <div id="file-code" class="file-code" tabindex="0"><pre id="file-gutter" class="file-gutter" aria-hidden="true"></pre><pre id="file-text" class="file-text"></pre></div>
+      <textarea id="file-editor" class="file-editor" spellcheck="false" hidden aria-label="Edit file"></textarea>
+    </section>
   </aside>
 
   <main class="column">

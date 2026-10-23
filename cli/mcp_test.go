@@ -1058,13 +1058,13 @@ func TestMCPCommandShapes(t *testing.T) {
 		t.Errorf("/mcp remove web shape = %v", got)
 	}
 
-	// Terminal: same text, on the entry list.
+	// Terminal: /mcp add picks from the same catalog in a menu.
 	m := &model{tab: &tab{agent: a, events: make(chan any, 4)}}
 	m.command("/mcp add")
-	e := m.entries[len(m.entries)-1]
-	if e.kind != "info" || !strings.Contains(strings.Join(e.lines, "\n"), "fetch") {
-		t.Errorf("terminal /mcp add entry = %+v", e)
+	if !m.menu.open || m.menu.kind != "mcp" || !strings.Contains(strings.Join(menuLabels(m.menu), "\n"), "fetch") {
+		t.Errorf("terminal /mcp add menu = %v", menuLabels(m.menu))
 	}
+	m.closeMenu()
 	m.command("/mcp remove nothing-here")
 	if e := m.entries[len(m.entries)-1]; e.kind != "error" {
 		t.Errorf("terminal error entry = %+v", e)

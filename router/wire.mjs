@@ -2,11 +2,17 @@
 // backends speak Responses (ChatGPT/Codex), Anthropic Messages, or Gemini
 // generateContent. Each adapter converts a chat request one way and its SSE
 // stream back into chat.completion.chunk events.
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
 
 const decode = new TextDecoder()
 
 const text = value => String(value ?? '')
+
+// Gemini signs its tool calls; the signature has to come back with the call or
+// the next turn is refused. Prism carries it inside the tool call id as
+// "<id>~<signature>", and every other wire sends just the id part.
+const callId = id => text(id).split('~')[0]
+const callSignature = id => text(id).split('~').slice(1).join('~')
 
 // --- ChatGPT (Codex / Responses API) ----------------------------------------------
 
@@ -22,9 +28,9 @@ export const toCodex = body => {
       input.push({ role: 'user', content: [{ type: 'input_text', text: text(m.content) }] })
     } else if (m.role === 'assistant') {
       if (text(m.content)) input.push({ role: 'assistant', content: [{ type: 'output_text', text: text(m.content) }] })
-      for (const call of m.tool_calls ?? []) input.push({ type: 'function_call', call_id: call.id, name: call.function?.name, arguments: text(call.function?.arguments) })
+      for (const call of m.tool_calls ?? []) input.push({ type: 'function_call', call_id: callId(call.id), name: call.function?.name, arguments: text(call.function?.arguments) })
     } else if (m.role === 'tool') {
-      input.push({ type: 'function_call_output', call_id: m.tool_call_id, output: text(m.content) })
+      input.push({ type: 'function_call_output', call_id: callId(m.tool_call_id), output: text(m.content) })
     }
   }
   // Codex models always reason: without a reasoning block the backend returns
@@ -105,11 +111,11 @@ export const toAnthropic = body => {
         try {
           input = JSON.parse(text(call.function?.arguments) || '{}')
         } catch {}
-        content.push({ type: 'tool_use', id: call.id, name: call.function?.name, input })
+        content.push({ type: 'tool_use', id: callId(call.id), name: call.function?.name, input })
       }
       messages.push({ role: 'assistant', content })
     } else if (m.role === 'tool') {
-      messages.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: m.tool_call_id, content: text(m.content) }] })
+      messages.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: callId(m.tool_call_id), content: text(m.content) }] })
     }
   }
   const out = { model: body.model, max_tokens: body.max_tokens ?? 16384, messages, stream: true }
@@ -184,11 +190,15 @@ export const toGemini = body => {
         try {
           args = JSON.parse(text(call.function?.arguments) || '{}')
         } catch {}
-        parts.push({ functionCall: { name: call.function?.name, args } })
+        parts.push({ functionCall: { id: callId(call.id), name: call.function?.name, args }, thoughtSignature: callSignature(call.id) || 'skip_thought_signature_validator' })
       }
       contents.push({ role: 'model', parts })
     } else if (m.role === 'tool') {
-      contents.push({ role: 'user', parts: [{ functionResponse: { name: names.get(m.tool_call_id) ?? m.tool_call_id, response: { result: text(m.content) } } }] })
+      const part = { functionResponse: { id: callId(m.tool_call_id), name: names.get(m.tool_call_id) ?? callId(m.tool_call_id), response: { result: text(m.content) } } }
+      // Answers to parallel calls travel together in one turn.
+      const last = contents[contents.length - 1]
+      if (last?.role === 'user' && last.parts.every(p => p.functionResponse)) last.parts.push(part)
+      else contents.push({ role: 'user', parts: [part] })
     }
   }
   const out = { contents }
@@ -224,18 +234,103 @@ export class GeminiStream {
         continue
       }
       const push = delta => out.push(`data: ${JSON.stringify({ id: 'chatcmpl-gemini', object: 'chat.completion.chunk', choices: [{ index: 0, delta, finish_reason: null }] })}\n\n`)
-      const parts = event.candidates?.[0]?.content?.parts ?? []
-      for (const part of parts) {
-        if (part.text) push({ content: part.text })
+      const candidate = event.candidates?.[0] ?? {}
+      for (const part of candidate.content?.parts ?? []) {
+        // Thinking parts are the model's private reasoning, not the reply.
+        if (part.text && part.thought) push({ reasoning_content: part.text })
+        else if (part.text) push({ content: part.text })
         if (part.functionCall) {
-          push({ tool_calls: [{ index: this.calls++, id: `call_${randomUUID().slice(0, 8)}`, type: 'function', function: { name: part.functionCall.name, arguments: JSON.stringify(part.functionCall.args ?? {}) } }] })
+          const id = part.functionCall.id || `call_${randomUUID().slice(0, 8)}`
+          push({ tool_calls: [{ index: this.calls++, id: part.thoughtSignature ? `${id}~${part.thoughtSignature}` : id, type: 'function', function: { name: part.functionCall.name, arguments: JSON.stringify(part.functionCall.args ?? {}) } }] })
         }
       }
-      if (event.usageMetadata) {
-        out.push(`data: ${JSON.stringify({ id: 'chatcmpl-gemini', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: this.calls ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: event.usageMetadata.promptTokenCount ?? 0, completion_tokens: event.usageMetadata.candidatesTokenCount ?? 0 } })}\n\n`)
-        out.push('data: [DONE]\n\n')
-        this.done = true
+      if (event.usageMetadata) this.usage = event.usageMetadata
+      // Usage rides on every chunk; only finishReason marks the end of the reply.
+      if (candidate.finishReason) out.push(this.finish())
+    }
+    return out.join('')
+  }
+
+  finish() {
+    if (this.done) return ''
+    const usage = this.usage ? { prompt_tokens: this.usage.promptTokenCount ?? 0, completion_tokens: this.usage.candidatesTokenCount ?? 0 } : undefined
+    this.done = true
+    return `data: ${JSON.stringify({ id: 'chatcmpl-gemini', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: this.calls ? 'tool_calls' : 'stop' }], ...(usage && { usage }) })}\n\ndata: [DONE]\n\n`
+  }
+}
+
+// --- Antigravity (Google Code Assist, Gemini envelope) ---------------------------
+
+// Antigravity wraps the Gemini body in the project-scoped envelope its IDE sends
+// (request.go geminiToAntigravity): {model, project, requestType, requestId,
+// userAgent, request: <gemini body>}, with a stable session id on the request.
+export const toAntigravity = (body, project) => {
+  const request = toGemini(body)
+  request.sessionId = stableSessionId(request)
+  return {
+    model: body.model,
+    ...(project && { project }),
+    requestType: 'agent',
+    requestId: `agent-${randomUUID()}`,
+    userAgent: 'antigravity',
+    request,
+  }
+}
+
+// stableSessionId derives the conversation session from the first user turn, the
+// way the reference does: a hash of that text, as a negative decimal string.
+const stableSessionId = request => {
+  for (const content of request.contents ?? []) {
+    if (content.role !== 'user') continue
+    const text = content.parts?.[0]?.text
+    if (!text) continue
+    const hash = createHash('sha256').update(text).digest()
+    return `-${BigInt(`0x${hash.subarray(0, 8).toString('hex')}`) & 0x7fffffffffffffffn}`
+  }
+  return `-${Math.floor(Math.random() * 9_000_000_000_000_000_000)}`
+}
+
+// Antigravity SSE chunks wrap the Gemini payload in a `response` field (with a
+// traceId beside it); unwrap each chunk and hand it to the Gemini stream logic.
+export class AntigravityStream {
+  constructor() {
+    this.inner = new GeminiStream()
+    this.buffer = ''
+  }
+
+  get done() {
+    return this.inner.done
+  }
+
+  finish() {
+    return this.inner.finish()
+  }
+
+  write(chunk) {
+    this.buffer += typeof chunk === 'string' ? chunk : decode.decode(chunk)
+    const out = []
+    let index
+    while ((index = this.buffer.indexOf('\n')) >= 0) {
+      const line = this.buffer.slice(0, index).trim()
+      this.buffer = this.buffer.slice(index + 1)
+      if (!line.startsWith('data:')) continue
+      const payload = line.slice(5).trim()
+      if (!payload || payload === '[DONE]') continue
+      let event
+      try {
+        event = JSON.parse(payload)
+      } catch {
+        continue
       }
+      // An error chunk ends the reply as an error the agent can show, not as an
+      // empty answer.
+      if (event?.error) {
+        this.inner.done = true
+        out.push(`data: ${JSON.stringify({ error: { message: `antigravity: ${event.error.message ?? 'request failed'}` } })}\n\ndata: [DONE]\n\n`)
+        continue
+      }
+      const inner = event && typeof event.response === 'object' && event.response ? event.response : event
+      out.push(this.inner.write(`data: ${JSON.stringify(inner)}\n\n`))
     }
     return out.join('')
   }
@@ -243,4 +338,4 @@ export class GeminiStream {
 
 const max = (a, b) => (a > b ? a : b)
 
-export const wireFor = name => ({ codex: { to: toCodex, stream: CodexStream }, anthropic: { to: toAnthropic, stream: AnthropicStream }, gemini: { to: toGemini, stream: GeminiStream } }[name] ?? null)
+export const wireFor = name => ({ codex: { to: toCodex, stream: CodexStream }, anthropic: { to: toAnthropic, stream: AnthropicStream }, gemini: { to: toGemini, stream: GeminiStream }, antigravity: { to: toAntigravity, stream: AntigravityStream } }[name] ?? null)

@@ -2,7 +2,7 @@ import http from 'node:http'
 import { readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { customProviders, eligible, PRESETS, maskKey, syncKeys, setKeyVar, keysPath, customFilePath, upsertPresetEntry, probeModels } from './custom.mjs'
-import { SUBSCRIPTIONS, subscriptionProviders, startLogin, pollLogin, signOut, loadSubs, subToken, startBrowserLogin, handleOAuthCallback, pendingLoginURL, loginError } from './subs.mjs'
+import { SUBSCRIPTIONS, subscriptionProviders, startLogin, pollLogin, signOut, loadSubs, subToken, startBrowserLogin, handleOAuthCallback, pendingLoginURL, loginError, visibleModels } from './subs.mjs'
 import { wireFor } from './wire.mjs'
 
 const config = JSON.parse(readFileSync(new URL('./providers.json', import.meta.url), 'utf8'))
@@ -204,7 +204,16 @@ const complete = async (req, res) => {
         ...(key && { authorization: `Bearer ${key}` }),
         ...(attempt.route.sub && { 'editor-version': 'prism/1.0', 'copilot-integration-id': 'prism' }),
       }
-      let body = { ...rest, ...(quick && attempt.route.quick), model: attempt.route.model }
+      // Gemini tool calls carry their signature in the id ("<id>~<sig>"); plain
+      // OpenAI-style routes only get the id part.
+      const messages = Array.isArray(rest.messages)
+        ? rest.messages.map(m => ({
+            ...m,
+            ...(m.tool_call_id && { tool_call_id: String(m.tool_call_id).split('~')[0] }),
+            ...(Array.isArray(m.tool_calls) && { tool_calls: m.tool_calls.map(c => ({ ...c, id: String(c.id ?? '').split('~')[0] })) }),
+          }))
+        : rest.messages
+      let body = { ...rest, messages, ...(quick && attempt.route.quick), model: attempt.route.model }
     if (!key && attempt.route.sub) {
       const sub = SUBSCRIPTIONS.find(s => s.id === attempt.route.sub)
       try {
@@ -216,7 +225,8 @@ const complete = async (req, res) => {
       const wire = sub.wire ? wireFor(sub.wire) : null
       if (wire) {
           attempt.wireStream = new wire.stream()
-          body = wire.to({ ...rest, ...(quick && attempt.route.quick), model: attempt.route.model })
+          // The antigravity wire takes the onboarding project as a second argument.
+          body = wire.to({ ...rest, ...(quick && attempt.route.quick), model: attempt.route.model }, stored.projectId)
           headers = {
             'content-type': 'application/json',
             'user-agent': 'free-ai-router',
@@ -235,7 +245,12 @@ const complete = async (req, res) => {
             }
             headers['x-client-request-id'] = randomUUID()
           }
-          else if (sub.wire === 'gemini') url = `${attempt.route.baseURL}/v1internal/models/${attempt.route.model}:streamGenerateContent?alt=sse`
+          else if (sub.wire === 'antigravity') {
+            // Antigravity sends the whole Gemini body to one endpoint, in its own
+            // envelope, with the IDE's user-agent (request.go buildRequest).
+            url = `${attempt.route.baseURL}/v1internal:streamGenerateContent?alt=sse`
+            headers['user-agent'] = sub.apiUserAgent ?? 'free-ai-router'
+          }
         } else {
           headers = {
             'content-type': 'application/json',
@@ -315,8 +330,18 @@ const complete = async (req, res) => {
           attempt.controller.abort()
           break
         }
-        if (chunk.done) break
+        if (chunk.done) {
+          // A wired stream that ended cleanly without its own end marker still
+          // closes the reply, so the agent does not read it as cut off.
+          if (attempt.wireStream?.finish && !attempt.wireStream.done) res.write(attempt.wireStream.finish())
+          break
+        }
         res.write(attempt.wireStream ? attempt.wireStream.write(chunk.value) : chunk.value)
+        // A wired reply is complete once its end marker went out.
+        if (attempt.wireStream?.done) {
+          reader.cancel().catch(() => {})
+          break
+        }
       }
     } catch {}
     res.end()
@@ -504,7 +529,7 @@ const loginsRoute = async (req, res) => {
   const sub = SUBSCRIPTIONS.find(s => s.id === String(body?.id ?? '').trim())
   if (req.method === 'GET') {
     if (new URL(req.url, 'http://router').pathname === '/logins/pending') return send(res, 200, { url: pendingLoginURL() })
-    return send(res, 200, { subscriptions: SUBSCRIPTIONS.map(s => ({ id: s.id, name: s.name, signedIn: Boolean(loadSubs()[s.id]?.accessToken), models: loadSubs()[s.id]?.models?.length ?? 0, error: loginError(s.id) })) })
+    return send(res, 200, { subscriptions: SUBSCRIPTIONS.map(s => ({ id: s.id, name: s.name, signedIn: Boolean(loadSubs()[s.id]?.accessToken), models: visibleModels(s.id, loadSubs()[s.id]?.models).length, error: loginError(s.id) })) })
   }
   if (!sub) return send(res, 404, { error: { message: `no subscription called "${body?.id}"`, type: 'not_found' } })
   if (body?.signOut === true) {

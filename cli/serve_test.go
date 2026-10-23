@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -728,5 +729,113 @@ func TestHistoryRaceNonDefaultTab(t *testing.T) {
 	entry, _ := entries[0].(map[string]any)
 	if entry["kind"] != "user" || entry["text"] != "hello" {
 		t.Fatalf("unexpected snapshot entry: %v", entry)
+	}
+}
+
+func TestFileEndpointRead(t *testing.T) {
+	h, s, port := testServer(t)
+	host := "127.0.0.1:" + port
+	dir := s.agent.dir
+	os.MkdirAll(filepath.Join(dir, "src"), 0o755)
+	os.WriteFile(filepath.Join(dir, "src", "a.go"), []byte("package a\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "bin"), []byte{0, 1, 2}, 0o644)
+	os.WriteFile(filepath.Join(dir, "big"), make([]byte, viewLimit+10), 0o644)
+
+	rec := do(t, h, http.MethodGet, "/api/file?path=src/a.go", host, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("read: %d %s", rec.Code, rec.Body.String())
+	}
+	out := decode(t, rec)
+	if out["content"] != "package a\n" || out["editable"] != true || out["path"] != "src/a.go" {
+		t.Errorf("read body: %v", out)
+	}
+	for _, p := range []string{"bin", "big"} {
+		out := decode(t, do(t, h, http.MethodGet, "/api/file?path="+p, host, "", ""))
+		if out["editable"] != false || out["note"] == nil || out["content"] != nil {
+			t.Errorf("%s: %v", p, out)
+		}
+	}
+	if got := do(t, h, http.MethodGet, "/api/file?path=missing", host, "", "").Code; got != http.StatusNotFound {
+		t.Errorf("missing: %d", got)
+	}
+	if got := do(t, h, http.MethodGet, "/api/file?path=src/a.go", "evil.com", "", "").Code; got != http.StatusForbidden {
+		t.Errorf("bad host: %d", got)
+	}
+}
+
+func TestFileEndpointRejectsEscapes(t *testing.T) {
+	h, s, port := testServer(t)
+	host := "127.0.0.1:" + port
+	origin := "http://127.0.0.1:" + port
+	dir := s.agent.dir
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret")
+	os.WriteFile(secret, []byte("keep"), 0o644)
+	linked := os.Symlink(outside, filepath.Join(dir, "link")) == nil
+
+	paths := []string{"../secret", "..%2Fsecret", "src%2F..%2F..%2Fx", secret}
+	if linked {
+		paths = append(paths, "link/secret")
+	}
+	for _, p := range paths {
+		if got := do(t, h, http.MethodGet, "/api/file?path="+p, host, "", "").Code; got != http.StatusForbidden {
+			t.Errorf("GET %s: %d, want 403", p, got)
+		}
+		raw, _ := url.QueryUnescape(p)
+		body, _ := json.Marshal(map[string]string{"path": raw, "content": "pwned"})
+		if got := do(t, h, http.MethodPost, "/api/file", host, origin, string(body)).Code; got != http.StatusForbidden {
+			t.Errorf("POST %s: %d, want 403", p, got)
+		}
+	}
+	if b, _ := os.ReadFile(secret); string(b) != "keep" {
+		t.Fatalf("file outside the project was changed: %q", b)
+	}
+}
+
+func TestFileEndpointSave(t *testing.T) {
+	h, s, port := testServer(t)
+	host := "127.0.0.1:" + port
+	origin := "http://127.0.0.1:" + port
+	dir := s.agent.dir
+	target := filepath.Join(dir, "note.txt")
+	os.WriteFile(target, []byte("old"), 0o600)
+	os.WriteFile(filepath.Join(dir, "bin"), []byte{0, 1}, 0o644)
+	body := `{"path":"note.txt","content":"new text\n"}`
+
+	if got := do(t, h, http.MethodPost, "/api/file", host, "", body).Code; got != http.StatusForbidden {
+		t.Errorf("no origin: %d", got)
+	}
+	if got := do(t, h, http.MethodPost, "/api/file", host, "http://evil.com", body).Code; got != http.StatusForbidden {
+		t.Errorf("evil origin: %d", got)
+	}
+	if b, _ := os.ReadFile(target); string(b) != "old" {
+		t.Fatalf("rejected POST still wrote: %q", b)
+	}
+	rec := do(t, h, http.MethodPost, "/api/file", host, origin, body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save: %d %s", rec.Code, rec.Body.String())
+	}
+	if b, _ := os.ReadFile(target); string(b) != "new text\n" {
+		t.Errorf("saved %q", b)
+	}
+	if st, _ := os.Stat(target); st.Mode().Perm() != 0o600 {
+		t.Errorf("mode changed to %v", st.Mode().Perm())
+	}
+	for _, tc := range []struct {
+		body string
+		want int
+	}{
+		{`{"path":"missing.txt","content":"x"}`, http.StatusNotFound},
+		{`{"path":"bin","content":"x"}`, http.StatusUnprocessableEntity},
+		{`{"path":"note.txt"}`, http.StatusBadRequest},
+		{`not json`, http.StatusBadRequest},
+	} {
+		if got := do(t, h, http.MethodPost, "/api/file", host, origin, tc.body).Code; got != tc.want {
+			t.Errorf("%s: %d, want %d", tc.body, got, tc.want)
+		}
+	}
+	big, _ := json.Marshal(map[string]string{"path": "note.txt", "content": strings.Repeat("a", viewLimit+1)})
+	if got := do(t, h, http.MethodPost, "/api/file", host, origin, string(big)).Code; got != http.StatusRequestEntityTooLarge {
+		t.Errorf("oversize: %d", got)
 	}
 }

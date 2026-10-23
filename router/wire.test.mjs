@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { toCodex, CodexStream, toAnthropic, AnthropicStream, toGemini, GeminiStream, wireFor } from './wire.mjs'
+import { toCodex, CodexStream, toAnthropic, AnthropicStream, toGemini, GeminiStream, toAntigravity, AntigravityStream, wireFor } from './wire.mjs'
 
 const chat = {
   model: 'm',
@@ -71,18 +71,80 @@ test('chat becomes a Gemini request and back', () => {
   assert.equal(out.contents[1].parts[1].functionCall.name, 'read')
   assert.equal(out.contents[2].parts[0].functionResponse.name, 'read')
   const s = new GeminiStream()
-  const streamed = s.write('data: {"candidates":[{"content":{"parts":[{"text":"hey"},{"functionCall":{"name":"read","args":{"path":"a.go"}}}]}}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":6}}\n\n')
+  const streamed = s.write('data: {"candidates":[{"content":{"parts":[{"text":"hey"},{"functionCall":{"name":"read","args":{"path":"a.go"}},"thoughtSignature":"SIG/1+x="}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":6}}\n\n')
   const lines = streamed.split('\n\n').filter(l => l && l !== 'data: [DONE]')
   const deltas = lines.map(l => JSON.parse(l.slice(6)).choices[0].delta)
   assert.equal(deltas[0].content, 'hey')
   assert.equal(deltas[1].tool_calls[0].function.name, 'read')
+  assert.match(deltas[1].tool_calls[0].id, /~SIG\/1\+x=$/)
   assert.equal(JSON.parse(lines[2].slice(6)).choices[0].finish_reason, 'tool_calls')
   assert.equal(s.done, true)
+})
+
+test('a Gemini tool call signature survives the round trip and stays off other wires', () => {
+  const id = 'call_ab12~SIG/1+x='
+  const history = {
+    model: 'm',
+    messages: [
+      { role: 'user', content: 'go' },
+      { role: 'assistant', content: '', tool_calls: [{ id, type: 'function', function: { name: 'read', arguments: '{}' } }, { id: 'call_cd34', type: 'function', function: { name: 'grep', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: id, content: 'a' },
+      { role: 'tool', tool_call_id: 'call_cd34', content: 'b' },
+    ],
+  }
+  const g = toGemini(history)
+  assert.deepEqual(g.contents[1].parts[0], { functionCall: { id: 'call_ab12', name: 'read', args: {} }, thoughtSignature: 'SIG/1+x=' })
+  assert.equal(g.contents[1].parts[1].thoughtSignature, 'skip_thought_signature_validator')
+  assert.equal(g.contents.length, 3, 'parallel answers share one turn')
+  assert.deepEqual(g.contents[2].parts.map(p => p.functionResponse.id), ['call_ab12', 'call_cd34'])
+  assert.equal(toAnthropic(history).messages[1].content[0].id, 'call_ab12')
+  assert.equal(toAnthropic(history).messages[2].content[0].tool_use_id, 'call_ab12')
+  assert.equal(toCodex(history).input.find(i => i.type === 'function_call').call_id, 'call_ab12')
 })
 
 test('wireFor maps the names', () => {
   assert.equal(wireFor('codex').to, toCodex)
   assert.equal(wireFor('anthropic').to, toAnthropic)
   assert.equal(wireFor('gemini').to, toGemini)
+  assert.equal(wireFor('antigravity').to, toAntigravity)
   assert.equal(wireFor('nope'), null)
+})
+
+test('chat becomes an Antigravity envelope around the Gemini body', () => {
+  const out = toAntigravity(chat, 'proj-9')
+  assert.equal(out.model, 'm')
+  assert.equal(out.project, 'proj-9')
+  assert.equal(out.requestType, 'agent')
+  assert.equal(out.userAgent, 'antigravity')
+  assert.match(out.requestId, /^agent-/)
+  // The Gemini body rides under `request`, with a stable session id.
+  assert.deepEqual(out.request.systemInstruction, { parts: [{ text: 'be nice' }] })
+  assert.equal(out.request.tools[0].functionDeclarations[0].name, 'read')
+  assert.equal(out.request.contents[1].parts[1].functionCall.name, 'read')
+  assert.match(out.request.sessionId, /^-\d+$/)
+  // The same first user turn derives the same session id.
+  assert.equal(out.request.sessionId, toAntigravity(chat, 'proj-9').request.sessionId)
+  // Without a project the field is omitted entirely.
+  assert.equal('project' in toAntigravity(chat), false)
+})
+
+test('antigravity stream unwraps the response field around each chunk', () => {
+  const s = new AntigravityStream()
+  const out = s.write(
+    'data: {"response":{"candidates":[{"content":{"parts":[{"text":"hey"}]}}]},"traceId":"t1"}\n\n' +
+      'data: {"response":{"candidates":[{"content":{"parts":[{"functionCall":{"name":"read","args":{"path":"a.go"}}}]}}]},"traceId":"t2"}\n\n' +
+      'data: {"response":{"candidates":[{"content":{"parts":[]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":6}},"traceId":"t3"}\n\n',
+  )
+  const lines = out.split('\n\n').filter(l => l && l !== 'data: [DONE]')
+  const deltas = lines.map(l => JSON.parse(l.slice(6)).choices[0].delta)
+  assert.equal(deltas[0].content, 'hey')
+  assert.equal(deltas[1].tool_calls[0].function.name, 'read')
+  assert.equal(JSON.parse(lines[2].slice(6)).choices[0].finish_reason, 'tool_calls')
+  assert.ok(out.includes('data: [DONE]'))
+  assert.equal(s.done, true)
+  // A bare Gemini chunk (no wrapper) still parses.
+  const bare = new AntigravityStream()
+  const plain = bare.write('data: {"candidates":[{"content":{"parts":[{"text":"raw"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1}}\n\n')
+  assert.match(plain, /"content":"raw"/)
+  assert.equal(bare.done, true)
 })

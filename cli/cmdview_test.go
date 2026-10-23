@@ -190,12 +190,11 @@ func TestMcpViewReady(t *testing.T) {
 
 func TestHelpViewGroups(t *testing.T) {
 	v := helpView()
-	// Should have chat, tabs, project, tools, look groups
 	labels := map[string]bool{}
 	for _, blk := range v.blocks {
 		labels[blk.title] = true
 	}
-	for _, want := range []string{"chat", "tabs", "project", "tools", "look"} {
+	for _, want := range []string{"chat", "models and accounts", "project", "settings"} {
 		if !labels[want] {
 			t.Errorf("helpView missing group %q; got %v", want, labels)
 		}
@@ -210,6 +209,36 @@ func TestHelpViewGroups(t *testing.T) {
 	for _, width := range []int{60, 100, 140} {
 		checkNoOverflow(t, "/help", v, width)
 	}
+}
+
+func TestHelpViewListsEveryCommand(t *testing.T) {
+	v := helpView()
+	seen := map[string]int{}
+	for _, blk := range v.blocks {
+		if blk.title == "more" {
+			t.Errorf("command missing from the help groups: %+v", blk.items)
+		}
+		for _, it := range blk.items {
+			seen[it.name]++
+		}
+	}
+	for _, c := range commands {
+		if seen[c.name] != 1 {
+			t.Errorf("help lists %s %d times, want once", c.name, seen[c.name])
+		}
+	}
+	for _, width := range []int{60, 100} {
+		rendered := renderCmdView(v, width)
+		for _, c := range commands {
+			if !strings.Contains(rendered, c.name) {
+				t.Errorf("@%d: rendered help is missing %s", width, c.name)
+			}
+		}
+	}
+}
+
+func TestHelpViewNoOverflow60(t *testing.T) {
+	checkNoOverflow(t, "/help", helpView(), 60)
 }
 
 // ── wrapWords ─────────────────────────────────────────────────────────────────

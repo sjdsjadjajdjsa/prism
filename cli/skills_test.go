@@ -1,9 +1,13 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -216,21 +220,134 @@ func TestSkillIndexListsSkills(t *testing.T) {
 	if !strings.Contains(idx, "Skills:") {
 		t.Error("index missing header")
 	}
-	for _, principle := range []string{"Verify meaningful changes", "When a fix fails", "For substantial unfinished work"} {
-		if !strings.Contains(idx, principle) || strings.Index(idx, principle) > strings.Index(idx, "Skills:") {
-			t.Errorf("index missing workflow principle before skill listing: %q", principle)
-		}
-	}
 	if strings.Contains(idx, "MUST call the skill tool first") || strings.Contains(idx, "Pick by the exact words") {
 		t.Error("index still forces exact-word or mandatory upfront loading")
 	}
-	if !strings.Contains(idx, "Choose task-specific skills by intent") || !strings.Contains(idx, "need not be loaded at the start") {
-		t.Error("index missing intent-based optional lifecycle policy")
+	if !strings.Contains(idx, "matched by intent") || !strings.Contains(idx, "simple requests need none") {
+		t.Error("index missing intent-based, optional loading policy")
+	}
+	// The workflow rules moved into the base prompt; they must still be sent.
+	base := basePrompt("/p")
+	for _, rule := range []string{"if a fix fails, read the error and change approach", "If you could not run a check, say so", "If you must stop early, say what is left", "never secrets"} {
+		if !strings.Contains(base, rule) {
+			t.Errorf("base prompt lost workflow rule %q", rule)
+		}
+	}
+	if strings.Contains(idx, "Workflow:") {
+		t.Error("skill index repeats workflow guidance the base prompt already gives")
 	}
 	for _, s := range skills {
 		line := "- " + s.name + ": " + s.description
 		if !strings.Contains(idx, line) {
 			t.Errorf("index missing line %q", line)
+		}
+	}
+}
+
+// Size budgets for what every request carries with the built-in skills. Before the
+// trim: index 2491 B, system prompt 4744 B. Raise only on purpose.
+const (
+	skillHeaderBudget = 160
+	skillIndexBudget  = 2150
+	systemBudget      = 4600
+)
+
+func TestSkillPromptBudget(t *testing.T) {
+	skillsEnv(t)
+	dir := t.TempDir()
+	a := &Agent{dir: dir, skills: loadSkills(dir)}
+	idx, sys := skillIndex(a.skills), a.systemPrompt()
+	lines := 0
+	for _, s := range a.skills {
+		lines += len("- " + s.name + ": " + s.description + "\n")
+	}
+	spec, _ := json.Marshal(skillSpec)
+	t.Logf("skills=%d index=%d B (header %d B) (~%d tok), skill tool %d B, system=%d B (~%d tok)",
+		len(a.skills), len(idx), len(idx)-lines, len(idx)/4, len(spec), len(sys), len(sys)/4)
+	if h := len(idx) - lines; h > skillHeaderBudget {
+		t.Errorf("skill index header is %d B; keep it under %d", h, skillHeaderBudget)
+	}
+	if len(idx) > skillIndexBudget {
+		t.Errorf("skill index is %d B; keep it under %d (shorten skill descriptions)", len(idx), skillIndexBudget)
+	}
+	if len(sys) > systemBudget {
+		t.Errorf("system prompt with built-in skills is %d B; keep it under %d", len(sys), systemBudget)
+	}
+	for _, s := range a.skills {
+		if strings.Contains(sys, s.body) {
+			t.Errorf("system prompt contains the body of skill %q; bodies load only through the skill tool", s.name)
+		}
+	}
+}
+
+// TestPromptStableAcrossTurns: system prompt and tools must be byte-identical on every
+// request of a chat, each turn must resend the previous turn's request as an exact
+// prefix (even with a tabs brief), and no skill body is sent unless the model asks.
+func TestPromptStableAcrossTurns(t *testing.T) {
+	skillsEnv(t)
+	var mu sync.Mutex
+	type req struct {
+		Messages []Message `json:"messages"`
+		Tools    []any     `json:"tools"`
+	}
+	var seen []req
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body req
+		json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		seen = append(seen, body)
+		mu.Unlock()
+		w.Header().Set("content-type", "text/event-stream")
+		w.Write([]byte(delta(`{"content":"hello"}`) + "\n" + sseDone + "\n"))
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	a := newAgent(srv.URL, dir, dir)
+	a.skills = loadSkills(dir)
+	a.messages[0].Content = a.systemPrompt()
+	h := newTabHub()
+	a.hub, a.tabID = h, h.add("self")
+	other := h.add("other")
+	h.setStatus(other, "working", "first task")
+	if _, err := collect(a, "hi"); err != nil {
+		t.Fatal(err)
+	}
+	h.setStatus(other, "done", "a different task")
+	if _, err := collect(a, "thanks"); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 2 {
+		t.Fatalf("requests = %d, want 2", len(seen))
+	}
+	sys0, sys1 := seen[0].Messages[0].Content, seen[1].Messages[0].Content
+	if sys0 != sys1 {
+		t.Errorf("system prompt changed between turns:\n%q\n%q", sys0, sys1)
+	}
+	t0, _ := json.Marshal(seen[0].Tools)
+	t1, _ := json.Marshal(seen[1].Tools)
+	if string(t0) != string(t1) {
+		t.Error("tools changed between turns")
+	}
+	if !strings.Contains(string(t0), `"skill"`) {
+		t.Error("skill tool not offered")
+	}
+	for i, m := range seen[0].Messages {
+		if i >= len(seen[1].Messages) || seen[1].Messages[i].Content != m.Content || seen[1].Messages[i].Role != m.Role {
+			t.Errorf("turn 2 does not resend turn 1's message %d byte-for-byte (cache prefix broken)", i)
+		}
+	}
+	if !strings.Contains(seen[1].Messages[len(seen[1].Messages)-1].Content, "a different task") {
+		t.Error("turn 2 lacks the fresh tabs brief")
+	}
+	for _, r := range seen {
+		var all strings.Builder
+		for _, m := range r.Messages {
+			all.WriteString(m.Content)
+		}
+		for _, s := range a.skills {
+			if strings.Contains(all.String(), s.body[:min(len(s.body), 80)]) {
+				t.Errorf("skill %q body was sent without a skill tool call", s.name)
+			}
 		}
 	}
 }

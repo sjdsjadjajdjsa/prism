@@ -4,7 +4,39 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	tea "charm.land/bubbletea/v2"
 )
+
+// openThemeMenu is /theme with no name: moving the highlight previews a
+// theme, enter keeps it, esc (or a click outside) puts the old one back.
+func (m *model) openThemeMenu() {
+	orig := m.theme
+	var items []menuItem
+	for i, t := range themes {
+		it := menuItem{label: t.name, dot: "◆", dotTone: toneAccent}
+		if i == orig {
+			it.state = "current"
+		}
+		it.hover = func(m *model) { m.theme = i }
+		it.run = func(m *model) tea.Cmd {
+			m.theme = i
+			saveTheme(themes[i].name)
+			return nil
+		}
+		items = append(items, it)
+	}
+	m.openMenu(menuState{
+		kind:       "theme",
+		title:      "theme",
+		hint:       "↑↓ preview · enter keep · esc undo",
+		filterable: true,
+		noun:       "theme",
+		items:      items,
+		sel:        orig,
+		onClose:    func(m *model) { m.theme = orig },
+	})
+}
 
 type rgb struct{ r, g, b uint8 }
 

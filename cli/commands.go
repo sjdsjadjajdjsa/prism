@@ -35,6 +35,8 @@ var commands = []command{
 	{"/memory", "see what prism remembers · /memory forget 2 removes one"},
 	{"/usage", "free AI used today"},
 	{"/tree", "project files · /tree changed · /tree <text>"},
+	{"/files", "browse the project and read any file · type to filter · enter opens"},
+	{"/open", "read a file in the viewer · /open <path>"},
 	{"/theme", "switch theme, or /theme <name>"},
 	{"/beam", "turn the finish beam on or off"},
 	{"/quiet", "turn Shard's lines on or off"},
@@ -144,22 +146,14 @@ func (m *model) command(text string) tea.Cmd {
 				m.entries = append(m.entries, &entry{kind: "note", text: "no chat with that number · try /resume"})
 				return nil
 			}
-			sess, err := m.agent.store.loadSession(others[k-1].ID)
-			if err != nil {
-				m.entries = append(m.entries, &entry{kind: "error", text: "couldn't reopen that chat: " + err.Error()})
-				return nil
-			}
-			m.agent.resume(sess)
-			m.entries = append(entriesFrom(m.agent.messages), &entry{kind: "note", text: "chat reopened · keep going"})
-			m.tokens, m.scroll = m.agent.tokens, 0
+			m.reopen(others[k-1].ID)
 			return nil
 		}
 		if len(others) == 0 {
 			m.entries = append(m.entries, &entry{kind: "note", text: "no earlier chats in this folder yet"})
 			return nil
 		}
-		v := resumeView(others)
-		m.entries = append(m.entries, &entry{kind: "cmd", view: &v})
+		m.openResumeMenu(others)
 	case "/init":
 		if m.busy {
 			m.input = nil
@@ -188,6 +182,10 @@ func (m *model) command(text string) tea.Cmd {
 	case "/web":
 		m.startWeb()
 	case "/mcp":
+		if len(fields) == 2 && strings.ToLower(fields[1]) == "add" {
+			m.openMCPMenu()
+			return nil
+		}
 		res, follow := mcpCommand(m.agent, fields)
 		if follow != nil {
 			quick, done := follow(400 * time.Millisecond)
@@ -244,6 +242,13 @@ func (m *model) command(text string) tea.Cmd {
 			rows, more := filterRoutes(rows, filter)
 			return modelsMsg{rows: rows, err: err, filter: filter, more: more}
 		}
+	case "/files":
+		return m.openFiles()
+	case "/open":
+		if len(fields) == 1 {
+			return m.openFiles()
+		}
+		return m.openFile(strings.Join(fields[1:], " "))
 	case "/model":
 		if len(fields) == 1 {
 			return m.openPicker()
@@ -254,11 +259,11 @@ func (m *model) command(text string) tea.Cmd {
 	case "/login", "/logins":
 		return m.loginCommand(fields)
 	case "/theme", "/themes":
-		if len(fields) > 1 {
-			m.theme = themeIndex(fields[1])
-		} else {
-			m.theme = (m.theme + 1) % len(themes)
+		if len(fields) == 1 {
+			m.openThemeMenu()
+			return nil
 		}
+		m.theme = themeIndex(fields[1])
 		saveTheme(themes[m.theme].name)
 	case "/beam":
 		m.beamOn = !m.beamOn
@@ -291,6 +296,47 @@ func (m *model) command(text string) tea.Cmd {
 		m.entries = append(m.entries, &entry{kind: "help", text: name + " isn't a command"})
 	}
 	return nil
+}
+
+// openResumeMenu is /resume with no number: pick an earlier chat (the same
+// list and numbering /resume <number> uses); enter reopens it.
+func (m *model) openResumeMenu(others []session) {
+	var items []menuItem
+	for k, s := range others {
+		title := s.Title
+		if title == "" {
+			title = "untitled chat"
+		}
+		id := s.ID
+		items = append(items, menuItem{
+			dot: fmt.Sprint(k + 1), dotTone: toneAccent, label: title, state: ago(s.Updated),
+			match: title,
+			run: func(m *model) tea.Cmd {
+				m.reopen(id)
+				return nil
+			},
+		})
+	}
+	m.openMenu(menuState{
+		kind:       "resume",
+		title:      "earlier chats",
+		hint:       "↑↓ move · enter reopen · esc close",
+		filterable: true,
+		noun:       "chat",
+		items:      items,
+	})
+}
+
+// reopen loads an earlier chat into this tab, like /resume <number>.
+func (m *model) reopen(id string) {
+	sess, err := m.agent.store.loadSession(id)
+	if err != nil {
+		m.entries = append(m.entries, &entry{kind: "error", text: "couldn't reopen that chat: " + err.Error()})
+		return
+	}
+	m.agent.resume(sess)
+	m.entries = append(entriesFrom(m.agent.messages), &entry{kind: "note", text: "chat reopened · keep going"})
+	m.tokens, m.scroll = m.agent.tokens, 0
 }
 
 func fetchRoutes(api string) ([]routeRow, error) {

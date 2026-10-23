@@ -492,9 +492,12 @@ func drawChat(cv *canvas, t theme, m model) {
 		}
 	}
 
-	if m.pick.open {
-		drawPicker(cv, t, m, cx, boxY, colW, top)
-	} else {
+	switch {
+	case m.menu.open:
+		drawMenu(cv, t, m, cx, boxY, colW, top)
+	case m.fb.open:
+		drawFiles(cv, t, m, cx, boxY, colW, top)
+	default:
 		drawSuggestions(cv, t, m, cx, boxY, colW)
 	}
 	drawInput(cv, t, m, cx, boxY, colW, boxH, n, enter)

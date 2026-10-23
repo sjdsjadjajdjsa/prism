@@ -52,7 +52,135 @@
     }
   }
 
+  // File viewer: click a file in the tree to read it; Edit switches to a textarea with Save/Cancel.
+  const fv = {
+    pane: document.getElementById('file-view'), path: document.getElementById('file-path'),
+    msg: document.getElementById('file-msg'), note: document.getElementById('file-note'),
+    code: document.getElementById('file-code'), gutter: document.getElementById('file-gutter'),
+    text: document.getElementById('file-text'), editor: document.getElementById('file-editor'),
+    edit: document.getElementById('file-edit'), save: document.getElementById('file-save'),
+    cancel: document.getElementById('file-cancel'), back: document.getElementById('file-back'),
+  }
+  let current = null, editing = false, seq = 0
+
+  const say = (text, err) => { fv.msg.textContent = text || ''; fv.msg.classList.toggle('err', !!err) }
+
+  function render() {
+    const f = current
+    fv.path.textContent = f ? f.path : ''
+    fv.path.title = fv.path.textContent
+    const note = f && (f.error || f.note)
+    fv.note.hidden = !note
+    fv.note.textContent = note || ''
+    fv.code.hidden = !!note || editing
+    fv.editor.hidden = !editing
+    fv.edit.hidden = editing
+    fv.edit.disabled = !f || !f.editable
+    fv.save.hidden = fv.cancel.hidden = !editing
+    if (!note && !editing && f) {
+      const lines = f.content.replace(/\r?\n$/, '').split(/\r?\n/)
+      fv.gutter.textContent = lines.map((_, i) => i + 1).join('\n')
+      fv.text.textContent = lines.join('\n')
+    }
+  }
+
+  async function openFile(path) {
+    if (editing && fv.editor.value !== current.content && !confirm('Discard your unsaved changes?')) return
+    const id = ++seq
+    editing = false
+    current = { path, editable: false, content: '' }
+    panel.classList.add('viewing')
+    fv.pane.hidden = false
+    say('loading…')
+    render()
+    try {
+      const res = await fetch('/api/file?path=' + encodeURIComponent(path), { cache: 'no-store' })
+      if (id !== seq) return
+      if (!res.ok) throw new Error((await res.text()).trim() || res.status)
+      const data = await res.json()
+      current = { path: data.path, editable: !!data.editable, content: data.content || '', note: data.note }
+      say('')
+    } catch (e) {
+      if (id !== seq) return
+      current = { path, editable: false, content: '', error: "couldn't open this file · " + e.message }
+      say('')
+    }
+    render()
+    fv.code.scrollTop = 0
+  }
+
+  function closeFile() {
+    if (editing && fv.editor.value !== current.content && !confirm('Discard your unsaved changes?')) return false
+    seq++
+    editing = false
+    current = null
+    fv.pane.hidden = true
+    panel.classList.remove('viewing')
+    const row = box.querySelector('.ptree-row.sel') || box.querySelector('.ptree-row')
+    if (row && row.focus) row.focus()
+    return true
+  }
+
+  function startEdit() {
+    if (!current || !current.editable) return
+    editing = true
+    fv.editor.value = current.content
+    say('')
+    render()
+    fv.editor.focus()
+  }
+
+  function cancelEdit() {
+    if (fv.editor.value !== current.content && !confirm('Discard your unsaved changes?')) return
+    editing = false
+    say('')
+    render()
+  }
+
+  async function saveEdit() {
+    if (fv.save.disabled || !current) return
+    const file = current
+    const content = fv.editor.value
+    fv.save.disabled = true
+    say('saving…')
+    try {
+      const res = await fetch('/api/file', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path: file.path, content }),
+      })
+      if (!res.ok) throw new Error((await res.text()).trim() || res.status)
+      file.content = content
+      // Another file was opened while this one saved: leave that view alone.
+      if (file !== current) return
+      editing = false
+      render()
+      say('saved ' + new Date().toLocaleTimeString())
+    } catch (e) {
+      say("couldn't save · " + e.message, true)
+    } finally {
+      fv.save.disabled = false
+    }
+  }
+
+  if (fv.pane) {
+    const fileRow = e => {
+      const r = e.target.closest && e.target.closest('.ptree-row')
+      return r && !r.classList.contains('dir') && r.dataset.path ? r.dataset.path : null
+    }
+    box.addEventListener('click', e => { const p = fileRow(e); if (p) openFile(p) })
+    box.addEventListener('keydown', e => { if (e.key === 'Enter') { const p = fileRow(e); if (p) openFile(p) } })
+    fv.back.addEventListener('click', closeFile)
+    fv.edit.addEventListener('click', startEdit)
+    fv.cancel.addEventListener('click', cancelEdit)
+    fv.save.addEventListener('click', saveEdit)
+    fv.editor.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveEdit() }
+      else if (e.key === 'Tab' && !e.shiftKey) { e.preventDefault(); document.execCommand('insertText', false, '\t') }
+    })
+  }
+
   function hide() {
+    if (fv.pane && !fv.pane.hidden && !closeFile()) return
     open = false
     poll++
     panel.hidden = true
@@ -62,5 +190,13 @@
 
   toggle.addEventListener('click', () => (open ? hide() : show()))
   document.getElementById('files-close').addEventListener('click', hide)
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && open && !box.contains(document.activeElement)) hide() })
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || !open) return
+    if (fv.pane && !fv.pane.hidden) {
+      if (editing) cancelEdit(); else closeFile()
+      e.stopPropagation()
+      return
+    }
+    if (!box.contains(document.activeElement)) hide()
+  })
 })()

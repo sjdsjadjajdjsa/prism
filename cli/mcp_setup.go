@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 //go:embed mcp_catalog.json
@@ -566,6 +568,33 @@ func mcpCommand(a *Agent, fields []string) (mcpReply, func(time.Duration) (mcpRe
 		return mcpReply{title: "testing " + arg}, mcpFollow(a.mcp, arg)
 	}
 	return mcpFail("/mcp doesn't know \""+sub+"\"", "/mcp · /mcp add · /mcp add <name or number> · /mcp key NAME value · /mcp remove <name> · /mcp test <name>")
+}
+
+// openMCPMenu is /mcp add with no name: pick a catalog server; enter adds it
+// exactly like /mcp add <name>.
+func (m *model) openMCPMenu() {
+	cfg, _ := loadMCPConfig(m.agent.dir)
+	var items []menuItem
+	for _, e := range mcpCatalog() {
+		it := menuItem{label: e.ID, detail: e.About, dot: "◌"}
+		if _, on := cfg[e.ID]; on {
+			it.dot, it.dotTone, it.state, it.stateTone = "●", toneOK, "added", toneOK
+		} else if len(e.Needs) > 0 {
+			it.state = "needs a free key"
+		}
+		id := e.ID
+		it.run = func(m *model) tea.Cmd { return m.command("/mcp add " + id) }
+		items = append(items, it)
+	}
+	m.openMenu(menuState{
+		kind:       "mcp",
+		title:      "add a tool server",
+		hint:       "↑↓ move · enter add · esc close",
+		filterable: true,
+		noun:       "server",
+		empty:      "the catalog is empty",
+		items:      items,
+	})
 }
 
 func mcpCatalogReply(dir string) mcpReply {

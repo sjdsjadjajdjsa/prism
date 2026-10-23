@@ -402,22 +402,36 @@ func (m *model) saveTabs() {
 	m.agent.store.saveOpenTabs(list)
 }
 
-// tabsCommand is /tabs.
+// tabsCommand is /tabs: pick an open chat to switch to.
 func (m *model) tabsCommand() {
-	var lines []string
+	var items []menuItem
+	cur := 0
 	for i, t := range m.tabs {
-		mark := " "
-		if t == m.tab {
-			mark = "›"
-		}
 		task := t.task
 		if task == "" {
 			task = "—"
 		}
-		lines = append(lines, fmt.Sprintf("%s %d  %-16s %-8s %s", mark, i+1, clipText(t.name, 16), t.status(), clipText(task, 60)))
+		it := menuItem{dot: "◌", label: fmt.Sprintf("%d  %s", i+1, clipText(t.name, 16)), detail: t.status(), state: clipText(task, 60)}
+		if t == m.tab {
+			it.dot, it.dotTone, it.state, cur = "●", toneAccent, "current · "+it.state, i
+		}
+		target := t
+		it.run = func(m *model) tea.Cmd {
+			m.switchTo(m.tabIndex(target))
+			m.saveTabs()
+			return nil
+		}
+		items = append(items, it)
 	}
-	lines = append(lines, "", "ctrl+t new · ctrl+w close · alt+1..9 jump · ctrl+pgup/pgdown switch · /rename <name> · /ask <n> <question>")
-	m.entries = append(m.entries, &entry{kind: "info", text: "tabs", lines: lines})
+	m.openMenu(menuState{
+		kind:  "tabs",
+		title: "tabs",
+		hint:  "enter switch · ctrl+t new · ctrl+w close · alt+1..9 jump",
+		empty: "no open chats",
+		items: items,
+		sel:   cur,
+		noun:  "tab",
+	})
 }
 
 // askCommand is /ask <n> <question>: a read-only copy of tab n's chat answers
