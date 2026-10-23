@@ -2,6 +2,8 @@
 
 This guide gets you from a fresh Windows PC to a working Prism. You do not need Docker experience. Follow the steps in order; each one says what you should see.
 
+**Prefer to watch?** The [demo video](prism-demo.mp4) (51 seconds, no sound) shows Prism on Linux; on Windows it looks the same inside the Ubuntu app.
+
 You will need Windows 10 (version 2004 or newer) or Windows 11, and about 4 GB of free disk space.
 
 ---
@@ -60,25 +62,36 @@ sudo apt update && sudo apt install -y curl git
 docker ps
 ```
 
-You should see a header line like `CONTAINER ID   IMAGE   COMMAND ...`. If you see an error instead, go back to step 3.
+You should see a header line like `CONTAINER ID   IMAGE   COMMAND ...`. If you see an error instead, go back to step 3. (If it says `docker: command not found`, the toggle in step 3 is off or Docker Desktop is not running. Docker Desktop must be open.)
 
 ---
 
 ## Step 5: Install and start Prism
 
-Paste this into the Ubuntu window:
+Paste this into the Ubuntu window (right-click pastes in Ubuntu):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sjdsjadjajdjsa/prism/main/install.sh | bash
 ```
 
-When it finishes, run:
+Near the end you should see a line starting with **Done.**
+
+**Now close the Ubuntu window and open a new one** from the Start menu. The installer adds the `prism` command to your terminal's startup file, and only a new window picks it up.
+
+Optional: add free API keys for faster models:
 
 ```bash
 prism setup
 ```
 
-This walks you through optional free API keys. Keys are invisible while you paste them; that is normal. Press Enter to skip any key you do not have yet.
+Keys are invisible while you paste them; that is normal. Press Enter to skip any key you do not have yet. Prism also works with no keys at all.
+
+Prism will not start in your home folder, so make a practice folder and go into it first:
+
+```bash
+mkdir ~/prism-test
+cd ~/prism-test
+```
 
 Then start Prism:
 
@@ -86,7 +99,9 @@ Then start Prism:
 prism
 ```
 
-The first start takes a few minutes while Docker builds Prism. Later starts are quick. When the rainbow PRISM logo appears, press any key and type what you want.
+The first start takes a few minutes while Docker builds Prism. Later starts are quick. When the rainbow PRISM logo appears, press any key and type what you want. Type `/quit` or press `Ctrl + C` to close Prism.
+
+Keep your projects inside Ubuntu (under `~`, like above) rather than in `/mnt/c/...`, which is much slower.
 
 ---
 
@@ -128,7 +143,11 @@ Docker Desktop is not connected to your distro. Go back to step 3 and make sure 
 
 ### `prism: command not found`
 
-Close the Ubuntu window and open a new one. If it still does not work, use the full path the installer printed at the end (it looks like `~/.local/bin/prism` or `~/.prism/prism`).
+Close the Ubuntu window and open a new one. If it still does not work, run `~/.prism/prism install`, then open a new Ubuntu window again.
+
+### `Prism won't start in your home folder`
+
+Prism refuses to run in `~` or `/`. Use `cd` to go into a project folder first, for example `mkdir -p ~/prism-test && cd ~/prism-test`.
 
 ---
 

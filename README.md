@@ -3,7 +3,7 @@
 <h3 align="center">Free AI that codes, beautifully.</h3>
 <p align="center">No subscription. No credit card. No account needed.</p>
 
-<p align="center"><img src="docs/demo.gif" alt="Prism fixing a bug with free AI" width="820"></p>
+<p align="center"><img src="docs/prism-demo.gif" alt="Prism builds a todo app with free AI, then the app is used in Firefox" width="820"></p>
 
 Prism is a coding assistant for your terminal that runs entirely on **free AI**. It reads your code, edits files, runs commands and checks its own work.
 
@@ -35,7 +35,7 @@ cd ~/my-project
 prism
 ```
 
-The first start takes a few minutes while Docker builds Prism; later starts are instant.
+The first start takes a few minutes while Docker builds Prism; later starts take a few seconds.
 
 | System | Status |
 | --- | --- |
@@ -45,7 +45,11 @@ The first start takes a few minutes while Docker builds Prism; later starts are 
 
 New to Docker on Windows? See the [Windows beginner guide](docs/WINDOWS.md).
 
-Tried it on Mac or Windows? Please open an issue with how it went.
+Prefer to watch? The [demo video](docs/prism-demo.mp4) (51s, no sound) is a real screen recording on Linux: start Prism, ask for an app, then use it in the browser. The two waits are sped up.
+
+[![Prism demo video](docs/prism-demo.png)](docs/prism-demo.mp4)
+
+Tried it on a Mac? Please open an issue with how it went.
 
 <details><summary>Install by hand</summary>
 
@@ -92,9 +96,21 @@ A small router picks the model for every step:
 
 Each row is one run of the same tasks on the same computer. A task only counts if a script confirms the result works.
 
-<p align="center"><img src="docs/bench-coding.svg" alt="Coding benchmark: 465s at first, 115s now with a free NVIDIA key, 168s with no keys" width="820"></p>
-<p align="center"><img src="docs/bench-chat.svg" alt="Simple questions: 10.7s to 0.4s" width="820"></p>
-<p align="center"><img src="docs/bench-website.svg" alt="One website task: 1171s to 24s" width="820"></p>
+<p align="center"><img src="docs/bench-coding.png" alt="Coding benchmark: 465s at first, 115s now with a free NVIDIA key, 168s with no keys" width="820"></p>
+<p align="center"><img src="docs/bench-chat.png" alt="Simple questions: 10.7s to 0.4s" width="820"></p>
+<p align="center"><img src="docs/bench-website.png" alt="One website task: 1171s to 24s" width="820"></p>
+
+### Against other coding agents
+
+Same five tasks, same free models, only the agent changes. Every agent went through the same router, three runs per task (60 runs in all).
+
+<p align="center"><img src="docs/bench-harness.png" alt="Prism, opencode, Aider and mini-swe-agent on five tasks: Prism passes 15 of 15 but opencode and Aider are faster on most tasks" width="820"></p>
+
+Prism passed every run, but it is not the fastest: opencode was quicker on 4 of 5 tasks and Aider on 3. Prism runs and checks its work, which costs time. Method, versions and every run: [bench/harness](bench/harness/README.md).
+
+With one model pinned (no router), Prism against Aider:
+
+<p align="center"><img src="docs/bench-pinned.png" alt="Prism 5 of 5 against Aider 4 of 5 with one pinned model; Aider faster on three tasks" width="820"></p>
 
 Free models are shared, so the same run can be 30% faster or slower on another day. Compare rows loosely. The raw numbers are in [bench/history.json](bench/history.json), `python3 bench/chart.py` redraws the charts, and `bench/run.sh` and `bench/chat.sh` measure your own setup.
 
@@ -117,12 +133,23 @@ Skills are short playbooks Prism follows for common jobs. It picks the right one
 | `automate-task` | a Python script to automate file chores with dry-run |
 | `portfolio-site` | a personal resume or portfolio page with print CSS |
 | `learn-mode` | teach by building in small steps with explanations |
+| `prove-it` | check the result for real before saying done |
+| `retry-ladder` | when a fix fails, change the approach instead of repeating it |
+| `handoff-note` | leave a short resume note when work stops unfinished |
+| `test-my-app` | use your app like a real user and list what breaks |
+| `security-review` | find leaked keys, injection and risky settings |
+| `accessibility-review` | check keyboard use, labels and contrast on a web page |
+| `release-check` | a go/no-go list before you publish |
+| `docker-help` | explain and fix Docker problems, cleaning up safely |
+| `use-an-api` | call a web API from a script, keys kept out of the code |
+| `clean-data` | clean a CSV, JSON or Excel file into a new file |
+| `game-rewrite` | plan and check a game port or rewrite you are allowed to make |
 
 `/skills` lists them. Add your own as `.prism/skills/<name>.md` in a project or `~/.config/prism/skills/<name>.md`. See [cli/skills/README.md](cli/skills/README.md) for the format.
 
 ## Tools and plugins (MCP)
 
-Prism can connect MCP servers to give the AI extra tools such as file access, web pages, git, a browser or GitHub. Add a `.prism/mcp.json` like this to connect the filesystem server:
+Prism can connect MCP servers to give the AI extra tools such as file access, web pages, library docs, git or GitHub. Add a `.prism/mcp.json` like this to connect the filesystem server:
 
 ```json
 {
@@ -153,16 +180,16 @@ Prism normally lives in a Docker box and can't see your computer. `prism fix` ru
 prism web
 ```
 
-The same Prism, Shard and beam included, in your browser. It opens by itself; the address is printed in the terminal (usually http://127.0.0.1:4849, but the exact port is printed in the terminal). It only listens on your own computer.
+The same Prism, Shard and beam included, in your browser. It opens by itself; the address is printed in the terminal (usually http://127.0.0.1:4849; if that port is taken it uses the next free one up to 4899, and the terminal shows the exact address). It only listens on your own computer.
 
 <p align="center"><img src="docs/web.png" alt="Prism in the browser, firing the Last Prism beam" width="820"></p>
 
-Inside the terminal app, `/web` moves the current chat to your browser (same history and memory). Close the tab or press enter in the terminal to come back, and everything done in the browser is there. The browser version now understands the same slash commands, with the same suggestion list.
+Inside the terminal app, `/web` moves the current chat to your browser (same history and memory). Close the tab or press enter in the terminal to come back, and everything done in the browser is there. The browser version understands the same slash commands, with the same suggestion list.
 
 ## Memory
 
 - **`PRISM.md`**: rules for your project that Prism always follows. `/init` writes one for you. It also reads `AGENTS.md` and `CLAUDE.md`.
-- **Automatic memory**: after each task Prism saves what it learned about the project, so a new chat already knows how your project works. `/memory` shows it, `/memory forget` clears it.
+- **Automatic memory**: after each task Prism saves what it learned about the project, so a new chat already knows how your project works. `/memory` lists numbered memories, `/memory forget <n>` deletes one (or several: `forget 2 5`), `/memory forget all` clears everything.
 - **Every chat is saved.** `/resume` reopens one, `prism continue` picks up the last.
 - **Saves free usage**: old file reads are trimmed and long chats are summarized, keeping your latest request word for word. `/usage` shows what you used today.
 

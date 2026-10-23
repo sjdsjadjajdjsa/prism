@@ -6,101 +6,161 @@ A short guide for contributors. No prior knowledge assumed.
 
 | Name | What it is |
 |---|---|
-| **prism** | Bash launcher. Starts Docker services, picks a free port, mounts the project folder, and execs the agent container. |
-| **router container** | Node.js HTTP server (`router/server.mjs`). Accepts OpenAI-compatible `/v1/chat/completions` requests and races up to 3 providers in parallel, returning the first good stream. |
-| **agent container** | Runs the Go CLI binary. Mounts the project folder read-write. Talks to the router over the Docker network. |
-| **CLI Go app** (`cli/`) | The Go binary. Drives the TUI, the agent loop, tools, memory, skills, MCP, and the optional web server. |
-| **web front end** (`web/`) | Static HTML/CSS/JS served by the Go binary on demand. Talks to the same agent via a JSON HTTP API. |
+| **prism** | Bash launcher. Starts the router with Docker Compose, picks a free port, mounts the project folder, and runs the agent container (`compose run --rm agent`). |
+| **router container** | Node.js HTTP server (`router/server.mjs`) on port 4848. Accepts OpenAI-compatible `POST /v1/chat/completions` requests and races free providers (up to 3 at once), streaming back the first one that answers. |
+| **agent container** | Runs the Go CLI binary (`agent/Dockerfile`). Mounts the project folder read-write at `/workspace`. Talks to the router at `PRISM_API` (`http://router:4848/v1`). |
+| **CLI Go app** (`cli/`) | The Go binary. Drives the TUI, the agent loop, tools, memory, skills, MCP, crew, and the web server. |
+| **web front end** (`web/`) | Static HTML/CSS/JS (no build step) served by the Go binary. Talks to the same agent through a JSON HTTP API with an SSE chat stream. |
 
 ## Message flow
 
 ```mermaid
 sequenceDiagram
-    participant TUI as TUI (bubbletea)
+    participant UI as TUI (bubbletea) / web / run
     participant Loop as agent loop
     participant Router as router (Node.js)
     participant Provider as AI provider
-    participant Tools as tools / MCP
+    participant Tools as tools / skills / crew / MCP
     participant Memory as memory (files)
 
-    TUI->>Loop: user prompt
-    Loop->>Router: POST /v1/chat/completions (SSE)
-    Router->>Provider: race up to 3 providers
-    Provider-->>Router: first-byte wins, others aborted
-    Router-->>Loop: stream chunks (evText / evReasoning)
-    Loop->>Tools: tool calls (bash, read, write, edit, skill, MCP)
+    UI->>Loop: user prompt (Agent.Run)
+    Loop->>Router: POST /v1/chat/completions (stream)
+    Router->>Provider: race providers (hedged)
+    Provider-->>Router: first byte wins, others aborted
+    Router-->>Loop: SSE chunks + x-free-route header
+    Loop-->>UI: evRoute / evThinking / evReasoning / evText / evDraft
+    Loop->>Tools: tool calls
     Tools-->>Loop: tool results
+    Loop-->>UI: evToolStart / evToolDone / evUsage / evNote
     Loop->>Router: next completion with results
-    Loop-->>TUI: evToolStart / evToolDone / evDone
-    Loop->>Memory: saveSession + background memoryJob
+    Loop->>Memory: saveSession
+    Loop-->>UI: evDone
+    UI->>Memory: background memoryJob
 ```
 
-Steps in `agent.go`:
-1. `Run` appends the user message and calls `loop`.
-2. `loop` calls `completeRetry` (up to 3 retries on dropped replies, avoiding the last failing route each time).
-3. `complete` posts to the router and reads the SSE stream via `readStream`, emitting `evText`/`evReasoning`/`evRoute` events.
-4. Tool calls are dispatched: built-in tools via `runTool`, skills via `useSkill`, MCP tools via `mcp.run`. `bash`, `write`, and `edit` require approval in fix/system mode.
-5. When context exceeds 70% of the window, `compact` summarises the conversation in place.
-6. After `Run` returns, a background `memoryJob` asks the model to update the persistent memory summary.
+Steps in `cli/agent.go`:
+1. `Run` appends the user message, calls `loop`, then `saveSession` and emits `evDone`. If the run was cancelled, `stopped` closes any pending tool calls first.
+2. `loop` runs up to `maxSteps` (80) steps. Each step calls `prune` (trims old tool output), compacts if needed, then `completeRetry`.
+3. `completeRetry` calls `complete` up to 3 times when a reply is dropped, sending the routes that already failed as `prism_avoid`. A `routerError` (the router's own 503) is not retried.
+4. `complete` posts to `<api>/chat/completions` with `model` (`auto` unless a crew role sets one), the tool specs from `tools()`, and optional `prism_quick` / `prism_exclude_families`. It reads the route from the `x-free-route` header, then parses the body with `readStream` (SSE) or `readWhole` (plain JSON).
+5. Tool calls are dispatched in `loop`: `skill` (or a skill name) → `useSkill`; `crew` → `runCrew`; MCP tools → `mcp.run`; `screenshot` → `(*Agent).screenshot`; everything else → `runTool`. When `approve` is set (system mode), `bash`, `write`, `edit` and every MCP tool ask first.
+6. When the token count passes 70% of the window (`PRISM_CONTEXT`, default 128000), `compact` asks the model for a summary and replaces the history with it.
+7. After the run, the caller (TUI `handle`, `runPlain`, or the web `chat` handler) runs `memoryJob` in the background to update the project memory. It is skipped when `PRISM_MEMORY=off` or the store can't persist (`store.persists`).
+
+## Router
+
+`router/server.mjs`:
+- `routes()` builds the route list from `router/providers.json` plus the user's own providers (`customProviders()` from `router/custom.mjs`, read from `custom-providers.json`). Providers with `requires` are used only when that env key is set (from `keys.conf`).
+- `complete` orders routes with `ordered` (rank + learned first-byte speed, skipping cooldowns), then `launch` starts one route and hedges another after `HEDGE_MS` (6 s) or `COLD_HEDGE_MS` (2 s), up to 3 live at once and at most `PRISM_PROVIDER_INFLIGHT` per provider. The first route to send a byte wins (`pump`); the rest are aborted.
+- Request fields: `prism_quick` merges the provider's `quick` params, `prism_avoid` moves routes to the back, `prism_exclude_families` drops families. `model` may be `auto`, `auto:code|fast|review` (role-ranked), `auto:vision`, or an exact route id. Requests with `x-prism-crew: 1` don't hedge.
+- Failures set cooldowns via `pauseFor` (429 → retry-after, 401/402/403 → 15 min, 404 → 1 h, 5xx/network → 30 s). Speed stats persist to `STATS_FILE` (`/data/speed.json` in Docker).
+- Endpoints: `POST /v1/chat/completions`, `GET /v1/models`, `GET /status` (JSON, or text with `?format=text`), `GET /health`.
+- `router/check.mjs` sends a tiny request to every model in `providers.json` and prints a report.
 
 ## Files map
 
 | File | Purpose |
 |---|---|
-| `prism` | Bash launcher: Docker orchestration, port allocation, fix mode binary extraction |
-| `router/server.mjs` | Provider race, cooldowns, speed stats, `/status` and `/health` endpoints |
-| `router/providers.json` | List of providers and models; env-var keys; `quick` overrides for fast paths |
-| `cli/main.go` | Entry point, TUI model (bubbletea), `runPlain` for headless `run` subcommand |
-| `cli/agent.go` | Agent struct, `Run`/`loop`/`complete`/`compact`, SSE stream reader, approval logic |
-| `cli/tools.go` | Built-in tool specs and `runTool` dispatcher (list, grep, read, edit, write, bash, skill plus MCP tools) |
-| `cli/memory.go` | File store (JSON/markdown under `~/.config/prism/projects/`): sessions, memory summary, usage counters, `writeAtomic` |
-| `cli/skills.go` | Load and parse skill markdown files (built-ins embedded, user and project overrides) |
-| `cli/mcp.go` | MCP client: stdio and HTTP/SSE transports, tool discovery, `mcpHub` |
-| `cli/commands.go` | Slash-command parser and handlers (`/model`, `/skills`, `/resume`, `/web`, ...) |
-| `cli/serve.go` | HTTP server for the web front end: JSON API, SSE event stream |
-| `cli/handoff.go` | `/web` command: starts the HTTP server and hands the session to the browser |
-| `cli/chat.go` | TUI chat rendering: message list, tool groups, scroll, highlight |
-| `cli/canvas.go` | Low-level terminal canvas: wrap, visible lines, mouse hit-testing |
-| `cli/splash.go` | Splash screen animation |
-| `cli/buddy.go` | Buddy character animation |
-| `cli/shard.go` | Shard/beam visual effect |
-| `cli/theme.go` | Color theme definitions |
+| `prism` | Bash launcher: `start_router`, `run_agent`, `web`, `fix`, `install`, `setup`, `keys`, `status`, `logs`, `stop`, `update`; port allocation (`free_port`), host-network fallback (`network_mode`) |
+| `docker-compose.yml` | Defines the `router` and `agent` services and the `router-data` / `prism-config` volumes |
+| `docker-compose.host.yml` | Override used when Docker's bridge network can't reach the internet: both services use host networking |
+| `agent/Dockerfile` | Builds the CLI, cross-compiles host binaries into `/opt/prism/hosts/`, copies `web/` to `/usr/share/prism/web` |
+| `install.sh` | Clones the repo to `~/.prism` (or `PRISM_HOME`), then runs `prism install`, which symlinks `prism` into `~/.local/bin` |
+| `router/server.mjs` | Provider race, hedging, cooldowns, speed stats, `/v1/models`, `/status`, `/health` |
+| `router/custom.mjs` | User-added providers (`prism keys add`): presets, validation, `customProviders`, `eligible` (paid routes only with `PRISM_USE_PAID=1` or an exact pin) |
+| `router/providers.json` | Built-in providers and models; env-var keys (`requires`); per-model `family`, `roles`, `vision`; provider `quick` overrides |
+| `router/check.mjs` | One-shot health check of every configured model |
+| `cli/main.go` | Entry point and flags (`-system`, `-continue`, `-theme`, `-api`), `serve` and `run` subcommands, TUI model (`Update`, `handle`, `View`), `runPlain` |
+| `cli/agent.go` | `Agent` struct, `Run`/`loop`/`completeRetry`/`complete`/`compact`, `readStream`/`readWhole`, event types, approval text |
+| `cli/tools.go` | Built-in tool specs (`toolSpecs`: screenshot, list, grep, read, edit, write, bash) and the `runTool` dispatcher |
+| `cli/screenshot.go` | `screenshot` tool: headless Chromium (downloaded on first use), local file server and URL policy, desktop capture in system mode, sends the image to `auto:vision` |
+| `cli/crew.go` | `crew` tool: `runCrew` runs 2–3 worker agents in parallel on disjoint files, then an optional read-only review (`runReview`) and `repair` round |
+| `cli/crewui.go` | Crew panel state (`crewBlock`) for the TUI and its JSON form for the web (`crewWire`) |
+| `cli/memory.go` | File store under `<config>/prism/projects/<name>-<hash>/`: sessions, memory summary, daily usage, `writeAtomic`, `projectRules` (PRISM.md / AGENTS.md), `memoryJob` |
+| `cli/skills.go` | Parse and load skill markdown files (`loadSkills`, `useSkill`) |
+| `cli/skills/` | Built-in skill files, embedded at compile time |
+| `cli/mcp.go` | MCP client: `startMCP`, stdio and HTTP transports, tool discovery, `mcpHub` |
+| `cli/mcp_setup.go` | `/mcp` command: catalog (`mcp_catalog.json`), add/remove/test servers, secrets, restart |
+| `cli/commands.go` | Slash commands (`/models`, `/new`, `/resume`, `/init`, `/skills`, `/web`, `/mcp`, `/memory`, `/usage`, `/theme`, `/beam`, `/quiet`, `/help`, `/quit`) and error wording (`friendly`) |
+| `cli/serve.go` | HTTP server for the web front end: JSON API, SSE chat stream, `localOnly` host/origin checks, `webDir` |
+| `cli/handoff.go` | `/web` from the TUI: `startWeb`, `checkWeb`, `endWeb`, handoff screen |
+| `cli/chat.go` | TUI chat rendering: transcript, markdown, tool groups, input, status bar, highlight |
+| `cli/canvas.go` | Low-level terminal canvas: cells, text, links, gradients |
+| `cli/splash.go` | Splash screen |
+| `cli/buddy.go` | Buddy (Shard) moods, poses and speech |
+| `cli/shard.go` | Shard character and finish-beam drawing |
+| `cli/theme.go` | Color themes |
 | `web/index.html` | Single-page web UI shell |
-| `web/app.js` | Web UI logic: SSE consumer, message rendering, send |
-| `docker-compose.yml` | Defines `router` and `agent` services |
-| `install.sh` | Clones the repo to `~/.prism`, then runs `prism install` which symlinks `prism` into `~/.local/bin` |
+| `web/app.js` | Web UI logic: `/api/chat` SSE consumer, message rendering, history, stop/new |
+| `web/commands.js` | Slash-command menu for the web; sends `/api/command` |
+| `web/beam.js` | Finish-beam animation |
+| `web/style.css`, `web/commands.css` | Styles |
+| `bench/run.sh` | Five coding tasks run through `prism run` in the agent container; writes `bench/results-<label>.txt` |
+| `bench/chat.sh` | Simple questions; time to first word and total |
+| `bench/compare.sh` | Runs the `run.sh` tasks through another harness (aider, claude-code, …) via a pinning proxy |
+| `bench/chart.py` | Renders the benchmark charts in `docs/` from `bench/history.json` |
+| `bench/harness/` | Harness comparison (Prism vs aider, mini-swe-agent, opencode): `run.sh`, `entry.py`, `proxy.py`, `summarize.py`, `tasks/`; see its `README.md` |
+
+## Run modes
+
+- `prism [folder]` / `prism continue`: `run_agent` starts the TUI in the agent container with `PRISM_WEB_LISTEN` set to a free port so `/web` works.
+- `prism web [folder]`: runs `agent serve`, which calls `serve` (`serve.go`) on `PRISM_LISTEN` (default `127.0.0.1:4849`) without the TUI.
+- `prism run <message>` (binary subcommand, used by the benches): `runPlain` prints the reply and tool steps to stdout, then a stats line and a bounded memory update.
+
+## Web API
+
+`server.handler` (`serve.go`) serves the files from `webDir()` (`PRISM_WEB`, `/usr/share/prism/web`, `web`, `../web`) and:
+
+| Route | Purpose |
+|---|---|
+| `GET /api/info` | Project name, theme, number of ready models, handoff flag |
+| `GET /api/history` | Conversation entries |
+| `POST /api/chat` | Runs `Agent.Run` and streams events as SSE (`route`, `text`, `reasoning`, `tool_start`, `tool_done`, `usage`, `done`, `error`, crew events) |
+| `POST /api/stop` | Cancels the running chat |
+| `POST /api/new` | Starts a fresh session |
+| `POST /api/command` | Runs a slash command |
+| `GET /api/ping` | Keep-alive; updates last-seen |
+
+`localOnly` rejects any Host other than loopback on the public port and any POST without a loopback Origin.
 
 ## /web handoff
 
-Typing `/web` in the TUI calls `startWeb` (`handoff.go`). It finds the embedded web assets via `webDir()`, binds a TCP listener on `PRISM_WEB_LISTEN` (default `127.0.0.1:4849`), and starts an HTTP server backed by the same `Agent` instance. The TUI stays alive but idles; the browser tab takes over the conversation. The server sets `handoff: true` so it shuts down automatically after 8 seconds of inactivity once the browser disconnects.
-
-`prism web <folder>` skips the TUI entirely and runs `agent serve` directly.
+Typing `/web` in the TUI calls `startWeb` (`handoff.go`). It finds the web files via `webDir()`, listens on `PRISM_WEB_LISTEN` (default `127.0.0.1:4849`), and serves a `server` (from `newServer`) backed by the same `Agent`, with `handoff = true` and an extra `/api/handoff-open` endpoint. The TUI shows the handoff screen while the browser takes over. `checkWeb` calls `endWeb` once the browser has been silent for 8 seconds (`handoffIdle`) and no chat is running; `endWeb` stops the server and rebuilds the TUI transcript from the agent's messages.
 
 ## Fix mode (prism fix)
 
-`prism fix` extracts the native binary from the agent Docker image (`/opt/prism/hosts/prism-<os>-<arch>`), copies it to `.bin/`, and runs it directly on the host with `PRISM_PROJECT="this computer"` and `-system`. The binary runs outside Docker so it can see the real filesystem and run `sudo`. Every `bash`, `write`, and `edit` call is gated behind an approval prompt.
+`prism fix` copies the native binary out of the `prism-agent` image (`/opt/prism/hosts/prism-<os>-<arch>`) into `.bin/` and runs it on the host from `$HOME` with `PRISM_PROJECT="this computer"` and `-system`. Outside Docker it can see the real filesystem. In system mode `main` sets `agent.approve`, so every `bash`, `write`, `edit` and MCP call asks for approval (in the TUI via `evApprove`, in `run` via `askOnTerminal`).
 
 ## MCP
 
-`startMCP` (`mcp.go`) reads `~/.config/prism/mcp.json` and `.prism/mcp.json` in the project directory. Each entry is either a stdio process (`command`/`args`) or an HTTP/SSE URL. Tools are discovered via the MCP `tools/list` call and exposed to the agent with names in the form `server__toolname`. The `__` separator is how `isMCP` identifies them for approval routing.
+`startMCP` (`mcp.go`) merges `<config>/prism/mcp.json` and `<project>/.prism/mcp.json` (key `mcpServers`; the project wins on name clashes). Each entry is a stdio process (`command`/`args`/`env`) or an HTTP `url` (with `headers`); `disabled: true` turns one off. Servers connect in the background; `tools/list` results are exposed with wire names `server__tool` (`mcpWireName`, de-duplicated by `dedupWireNames`). The loop checks `mcp.has` to route calls; `isMCP` (the `__` separator) is used to block MCP tools for crew workers and to format approval text. `/mcp` (`mcp_setup.go`) adds servers from the built-in catalog into the project file.
 
 ## Skills
 
-Skills are markdown files with YAML front matter (`name`, `description`) followed by a prompt body. Built-ins are embedded at compile time from `cli/skills/`. User skills live in `~/.config/prism/skills/`; project skills in `<project>/.prism/skills/`. Project skills override user skills, which override built-ins, by name. The agent calls the `skill` tool with a name; `useSkill` injects the body as a user message.
+Skills are markdown files with front matter (`name`, `description`) followed by a prompt body. Built-ins are embedded from `cli/skills/*.md`. User skills live in `<config>/prism/skills/`; project skills in `<project>/.prism/skills/`. Project skills override user skills, which override built-ins, by name. `skillIndex` lists them in the system prompt; the model calls the `skill` tool (or a skill's name directly) and `useSkill` returns the body as the tool result.
+
+`<config>` is `os.UserConfigDir()` — `~/.config` on Linux; in the agent container it is the `prism-config` volume.
 
 ## Tests
 
 | File | What it covers |
 |---|---|
-| `cli/agent_test.go` | Agent loop, compact, stream parsing |
-| `cli/tools_test.go` | Built-in tool execution |
-| `cli/mcp_test.go` | MCP stdio and HTTP transports |
-| `cli/skills_test.go` | Skill parsing and loading |
-| `cli/commands_test.go` | Slash-command matching and handlers |
-| `cli/handoff_test.go` | Web handoff HTTP API |
-| `cli/serve_test.go` | HTTP server endpoints |
+| `cli/agent_test.go` | Stream parsing, split tool calls, cut-off retry with avoid, router 503, full loop |
+| `cli/tools_test.go` | Built-in tools, edit diffs, bash timeouts/background, symlink escape |
+| `cli/screenshot_test.go` | Screenshot tool: URL policy, file server, desktop capture, browser download, vision |
+| `cli/crew_test.go` | Crew parallel workers, ownership, review/repair, concurrency, retries |
+| `cli/crewui_test.go` | Crew panel rendering and wire format |
+| `cli/memory_test.go` | Store, sessions, usage, project rules, prune, memory job |
+| `cli/mcp_test.go` | MCP stdio and HTTP transports, wire names, catalog, `/mcp` command |
+| `cli/skills_test.go` | Skill parsing, loading and overrides |
+| `cli/commands_test.go` | Slash-command matching, `/memory`, `/skills new`, helpers |
+| `cli/handoff_test.go` | Web handoff flow and handoff screen layout |
+| `cli/serve_test.go` | Web server host/origin checks, static files, `/api/command` |
+| `cli/shard_test.go` | Shard drawing |
+| `router/server.test.mjs` | Router race, roles, vision, pins, avoid/exclude, hedging, limits |
+| `router/custom.test.mjs` | Custom provider validation and loading |
 
-Run all tests:
+Run the Go tests:
 
 ```sh
 cd cli && go test ./...
@@ -112,4 +172,4 @@ With race detector:
 cd cli && go test -race ./...
 ```
 
-The router has tests in `router/server.test.mjs` (run `node --test router/`); you can also verify it live with `prism status`.
+Router tests: `node --test router/`. You can also check a live router with `prism status`.

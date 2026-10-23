@@ -2,6 +2,8 @@
 
 New to Docker? This guide gets you from nothing to a working Prism. Pick your system and follow the steps in order. Each step says what you should see, so you know it worked.
 
+**Prefer to watch?** The [demo video](prism-demo.mp4) (51 seconds, no sound) shows Prism on Linux, from typing `prism` to a working app.
+
 You'll copy commands into a **terminal**: the window where you type commands.
 
 - **Linux:** search your apps for "Terminal".
@@ -51,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/sjdsjadjajdjsa/prism/main/install.s
 
 Now jump to [Your first run](#your-first-run).
 
-> Other Linux (Fedora, Arch, …): install Docker with the [official guide](https://docs.docker.com/engine/install/), then follow steps 2 to 5.
+> Other Linux (Fedora, Arch, …): install Docker (with the Compose plugin, so that `docker compose version` works), `git` and `curl` using the [official guide](https://docs.docker.com/engine/install/) and your system's package manager, then follow steps 2 to 5. On Debian 12, `docker-compose-v2` may not exist; use the official guide instead.
 
 ---
 
@@ -128,7 +130,7 @@ curl -fsSL https://raw.githubusercontent.com/sjdsjadjajdjsa/prism/main/install.s
 
 Always use Prism from the **Ubuntu** app, not PowerShell, and keep Docker Desktop running.
 
-> Windows support is new and hasn't been tested yet. If something breaks, please [open an issue](https://github.com/sjdsjadjajdjsa/prism/issues).
+> Tested on Windows 11 inside WSL (Debian) with Docker Desktop. If something breaks, please [open an issue](https://github.com/sjdsjadjajdjsa/prism/issues).
 
 ---
 
@@ -181,6 +183,6 @@ If you see a red message, find the closest match below.
 | "no free models ready" or "every free AI model is busy" | Check your internet, wait a minute and try again. `prism status` shows each model. Adding a free key with `prism setup` helps a lot. |
 | "Prism won't start in your home folder" | Prism won't run in your home folder or `/`. Use `cd` to go into a project folder first. |
 
-**Uninstall:** run `prism stop`, then `rm -rf ~/.prism ~/.local/bin/prism`. To also delete Prism's saved chats and memory: `docker volume rm prism_prism-config prism_router-data`. To free the disk space Docker used for Prism: `docker rmi prism-agent prism-router`. The installer also added one `export PATH=...` line to `~/.bashrc` (or `~/.zshrc` on Mac); you can delete it.
+**Uninstall:** run `prism stop`, then `rm -rf ~/.prism ~/.local/bin/prism`. To also delete Prism's saved chats and memory: `docker volume rm prism_prism-config prism_router-data`. To free the disk space Docker used for Prism: `docker rmi prism-agent prism-router`. The installer may also have added one `export PATH=...` line to `~/.bashrc` (or `~/.zshrc` if you use zsh, or `~/.bash_profile` on a Mac using bash); you can delete it.
 
 Still stuck? [Open an issue](https://github.com/sjdsjadjajdjsa/prism/issues) and paste what the terminal showed. Remove any keys first.
