@@ -23,8 +23,10 @@
     const stats = el('span', 'ptree-stats')
     const search = el('input', 'ptree-search'); search.type = 'search'; search.placeholder = 'Search files and symbols   /'; search.setAttribute('aria-label', 'Search files')
     const chips = el('div', 'ptree-chips')
-    const modes = [['all', 'All'], ['changed', 'Changed'], ['touched', 'Touched by Prism']]
+    const modes = [['all', 'All'], ['changed', 'Changed'], ['touched', 'Touched by Prism'], ['claimed', 'Claimed']]
     const chipEls = modes.map(([id, label]) => { const b = el('button', 'ptree-chip', label); b.type = 'button'; b.dataset.mode = id; chips.append(b); return b })
+    // Hide the Claimed chip until at least one node has a tab claim.
+    const claimedChip = chipEls[3]
     head.append(title, stats, search, chips)
     const list = el('div', 'ptree-list'); list.tabIndex = 0; list.setAttribute('role', 'tree'); list.setAttribute('aria-label', 'Project files')
     const rows = el('div', 'ptree-rows'); list.append(rows)
@@ -58,13 +60,16 @@
         const v = k === 'changed' ? (s.modified || 0) + (s.added || 0) + (s.untracked || 0) : (s[k] || 0)
         const span = el('span'); const b = el('b', null, String(v)); span.append(b, ' ' + label); stats.append(span)
       }
+      // Show/hide the Claimed chip based on whether any files are claimed.
+      claimedChip.hidden = !(s.claimed > 0)
     }
 
     function matches(n) {
       if (mode === 'changed' && !changed(n)) return false
       if (mode === 'touched' && !n.agent) return false
+      if (mode === 'claimed' && !n.tab) return false
       if (!query) return true
-      return n.path.toLowerCase().includes(query) || (n.symbols || []).some(s => s.toLowerCase().includes(query))
+        return n.path.toLowerCase().includes(query) || (n.symbols || []).some(s => s.toLowerCase().includes(query))
     }
 
     // keep: files that match and every folder above one.
@@ -119,6 +124,7 @@
       r.append(twist, iconFor(n), name)
       if (n.git) { const b = el('span', 'ptree-badge ' + (n.git === '?' ? 'Q' : n.git), n.git === '?' ? 'new' : n.git); b.title = { M: 'modified', A: 'added', D: 'deleted', '?': 'not in git yet' }[n.git] || ''; r.append(b) }
       if (n.agent) { const d = el('span', 'ptree-dot' + (n.agent === 'read' ? ' read' : '')); d.title = 'Prism ' + (n.agent === 'read' ? 'read' : 'changed') + ' this'; r.append(d) }
+      if (n.tab) { const chip = el('span', 'ptree-tab-chip', String(n.tab)); chip.title = 'tab ' + n.tab + ' · ' + (n.tabName || 'another tab') + ' is editing this'; r.append(chip) }
       r.append(el('span', 'ptree-spacer'))
       if (n.dir) {
         const count = countFiles(n.path); r.append(el('span', 'ptree-badge n', String(count)))
@@ -176,6 +182,7 @@
       else { fact(size(n.size)); if (n.lang) fact(n.lang) }
       if (n.git) fact({ M: 'modified', A: 'added', D: 'deleted', '?': 'new, not in git' }[n.git])
       if (n.agent) fact({ write: 'written by Prism', edit: 'edited by Prism', read: 'read by Prism' }[n.agent])
+      if (n.tab) fact('tab ' + n.tab + (n.tabName ? ' · ' + n.tabName : '') + ' is editing this')
       if (n.rank) fact('importance ' + Math.round(n.rank * 100) + '%')
       detail.append(facts)
       const section = (label, items, link) => {

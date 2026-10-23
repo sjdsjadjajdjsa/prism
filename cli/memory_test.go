@@ -1186,3 +1186,168 @@ func TestLoadSessionErrors(t *testing.T) {
 		})
 	}
 }
+
+// ---- open tabs ---------------------------------------------------------------
+
+func saveTabSession(t *testing.T, s *store, id string) {
+	t.Helper()
+	sess := session{
+		ID:      id,
+		Title:   id,
+		Updated: time.Now(),
+		Messages: []Message{
+			{Role: "system", Content: "sys"},
+			{Role: "user", Content: "hi"},
+		},
+	}
+	if err := s.saveSession(sess); err != nil {
+		t.Fatalf("saveSession %s: %v", id, err)
+	}
+}
+
+func TestOpenTabsRoundtrip(t *testing.T) {
+	s := tempStore(t, "/proj/tabs")
+	saveTabSession(t, s, "tab-a")
+	saveTabSession(t, s, "tab-b")
+
+	tabs := []openTab{
+		{Session: "tab-a", Name: "router fix", Active: true},
+		{Session: "tab-b", Name: "add tests", Active: false},
+	}
+	if err := s.saveOpenTabs(tabs); err != nil {
+		t.Fatalf("saveOpenTabs: %v", err)
+	}
+	got := s.loadOpenTabs()
+	if !reflect.DeepEqual(got, tabs) {
+		t.Fatalf("loadOpenTabs = %+v, want %+v", got, tabs)
+	}
+
+	// The file lives per project, next to the sessions, and leaves no tmp files.
+	if _, err := os.Stat(s.path("tabs.json")); err != nil {
+		t.Errorf("tabs.json missing: %v", err)
+	}
+	entries, _ := os.ReadDir(s.dir)
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("leftover tmp file: %s", e.Name())
+		}
+	}
+}
+
+func TestLoadOpenTabsSkipsMissingSessions(t *testing.T) {
+	s := tempStore(t, "/proj/tabs-missing")
+	saveTabSession(t, s, "keep-me")
+
+	tabs := []openTab{
+		{Session: "keep-me", Name: "kept", Active: true},
+		{Session: "gone", Name: "deleted session"},
+		{Session: "", Name: "no session id"},
+	}
+	if err := s.saveOpenTabs(tabs); err != nil {
+		t.Fatalf("saveOpenTabs: %v", err)
+	}
+	got := s.loadOpenTabs()
+	if len(got) != 1 {
+		t.Fatalf("loadOpenTabs returned %d tabs, want 1: %+v", len(got), got)
+	}
+	if got[0].Session != "keep-me" || got[0].Name != "kept" || !got[0].Active {
+		t.Errorf("surviving tab = %+v, want keep-me/kept/active", got[0])
+	}
+}
+
+func TestLoadOpenTabsCapsAtNine(t *testing.T) {
+	s := tempStore(t, "/proj/tabs-cap")
+	var tabs []openTab
+	for i := 0; i < maxOpenTabs+3; i++ {
+		id := fmt.Sprintf("cap-%02d", i)
+		saveTabSession(t, s, id)
+		tabs = append(tabs, openTab{Session: id, Name: id})
+	}
+	if err := s.saveOpenTabs(tabs); err != nil {
+		t.Fatalf("saveOpenTabs: %v", err)
+	}
+	got := s.loadOpenTabs()
+	if len(got) != maxOpenTabs {
+		t.Fatalf("loadOpenTabs returned %d tabs, want %d", len(got), maxOpenTabs)
+	}
+	for i, tb := range got {
+		if want := fmt.Sprintf("cap-%02d", i); tb.Session != want {
+			t.Errorf("tab %d = %q, want %q (order preserved, oldest dropped)", i, tb.Session, want)
+		}
+	}
+}
+
+func TestLoadOpenTabsMissingOrCorruptFile(t *testing.T) {
+	s := tempStore(t, "/proj/tabs-absent")
+	if got := s.loadOpenTabs(); got != nil {
+		t.Errorf("no tabs.json: loadOpenTabs = %+v, want nil", got)
+	}
+	if err := writeAtomic(s.path("tabs.json"), []byte("{")); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.loadOpenTabs(); got != nil {
+		t.Errorf("corrupt tabs.json: loadOpenTabs = %+v, want nil", got)
+	}
+}
+
+func TestPruneSessionsKeepsOpenTabs(t *testing.T) {
+	s := tempStore(t, "/proj/tabs-prune")
+	base := time.Now().Add(-time.Hour)
+	for i := 0; i < keepSessions+5; i++ {
+		id := fmt.Sprintf("sess-%03d", i)
+		sess := session{
+			ID:      id,
+			Title:   id,
+			Updated: base.Add(time.Duration(i) * time.Second),
+			Messages: []Message{
+				{Role: "system", Content: "sys"},
+				{Role: "user", Content: "hi"},
+			},
+		}
+		data, _ := json.Marshal(sess)
+		path := s.path("sessions", id+".json")
+		if err := writeAtomic(path, data); err != nil {
+			t.Fatalf("writeAtomic: %v", err)
+		}
+		ts := base.Add(time.Duration(i) * time.Second)
+		os.Chtimes(path, ts, ts)
+	}
+	// The oldest session is an open tab and must survive pruning.
+	if err := s.saveOpenTabs([]openTab{{Session: "sess-000", Name: "pinned", Active: true}}); err != nil {
+		t.Fatalf("saveOpenTabs: %v", err)
+	}
+
+	s.pruneSessions(keepSessions)
+
+	if _, err := os.Stat(s.path("sessions", "sess-000.json")); err != nil {
+		t.Errorf("open tab session sess-000 was pruned: %v", err)
+	}
+	for i := 1; i <= 4; i++ {
+		p := s.path("sessions", fmt.Sprintf("sess-%03d.json", i))
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("session %d should have been pruned", i)
+		}
+	}
+	jsons, _ := filepath.Glob(s.path("sessions", "*.json"))
+	if len(jsons) != keepSessions+1 {
+		t.Errorf("after prune expected %d session files (keep + 1 protected), got %d", keepSessions+1, len(jsons))
+	}
+}
+
+func TestOpenTabsNilStore(t *testing.T) {
+	var s *store
+	if err := s.saveOpenTabs([]openTab{{Session: "x", Name: "x"}}); err != nil {
+		t.Errorf("nil store saveOpenTabs: %v", err)
+	}
+	if got := s.loadOpenTabs(); got != nil {
+		t.Errorf("nil store loadOpenTabs = %+v, want nil", got)
+	}
+
+	empty := &store{} // no dir configured
+	if err := empty.saveOpenTabs([]openTab{{Session: "x"}}); err != nil {
+		t.Errorf("dir-less store saveOpenTabs: %v", err)
+	}
+	if got := empty.loadOpenTabs(); got != nil {
+		t.Errorf("dir-less store loadOpenTabs = %+v, want nil", got)
+	}
+}

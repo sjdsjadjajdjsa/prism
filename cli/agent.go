@@ -149,6 +149,17 @@ type Agent struct {
 	steps     int
 	families  []string
 	avoid     func() []string
+
+	hub   *tabHub
+	tabID int
+
+	// turnBrief is the other tabs' status, read once per turn so every request in a turn
+	// sends the same text and the provider's prompt cache keeps working.
+	turnBrief string
+
+	// undoStack records file snapshots per turn so /undo can restore them.
+	undoStack   *undoStack
+	currentTurn *undoTurn
 }
 
 type evApprove struct {
@@ -164,6 +175,7 @@ func newAgent(api, dir, project string) *Agent {
 	if n, err := strconv.Atoi(os.Getenv("PRISM_CONTEXT")); err == nil && n >= 2000 {
 		a.window = n
 	}
+	a.undoStack = newUndoStack()
 	a.reset()
 	return a
 }
@@ -278,9 +290,72 @@ Work like a careful senior engineer:
 - When finished, reply briefly in plain words: what you changed and how you checked it.`, dir)
 }
 
+// claimFile attempts to claim a file for this tab. Returns "" if fine,
+// or a warning string if another tab already owns the file.
+func (a *Agent) claimFile(path string) string {
+	if a.hub == nil {
+		return ""
+	}
+	owner, ok := a.hub.claim(a.tabID, path)
+	if ok {
+		return ""
+	}
+	// find the owner's 1-based tab-bar position and name
+	name := ""
+	pos := owner
+	a.hub.mu.Lock()
+	posOf := a.hub.posOf
+	a.hub.mu.Unlock()
+	if posOf != nil {
+		pos = posOf(owner)
+	}
+	for _, t := range a.hub.list() {
+		if t.ID == owner {
+			name = t.Name
+			break
+		}
+	}
+	if name != "" {
+		return fmt.Sprintf("tab %d (%s) is editing this file right now; coordinate or pick another file", pos, name)
+	}
+	return fmt.Sprintf("tab %d is editing this file right now; coordinate or pick another file", pos)
+}
+
+// injectBrief returns a copy of msgs with the brief appended to the last user
+// message. It never mutates a.messages so the prompt-cache prefix stays stable
+// and the brief is not saved to the session or history.
+func (a *Agent) injectBrief(msgs []Message) []Message {
+	if a.hub == nil {
+		return msgs
+	}
+	b := a.turnBrief
+	if b == "" {
+		return msgs
+	}
+	// Find the last user message index.
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "user" {
+			// Make a shallow copy of the slice and replace the target message.
+			out := make([]Message, len(msgs))
+			copy(out, msgs)
+			out[i].Content += "\n\n[Prism tabs: " + b + "]"
+			return out
+		}
+	}
+	return msgs
+}
+
 func (a *Agent) Run(ctx context.Context, prompt string, emit func(any)) {
+	// Release all file claims when the turn ends (idempotent).
+	defer a.hub.release(a.tabID)
 	a.messages = append(a.messages, Message{Role: "user", Content: prompt})
+	// Begin a new undo turn for this user request.
+	if a.undoStack != nil {
+		a.currentTurn = a.undoStack.beginTurn()
+	}
+	a.turnBrief = a.hub.brief(a.tabID)
 	err := a.loop(ctx, emit)
+	a.currentTurn = nil // turn is sealed; no more recording
 	if errors.Is(err, context.Canceled) {
 		a.stopped()
 	}
@@ -397,6 +472,10 @@ func (a *Agent) loop(ctx context.Context, emit func(any)) error {
 				result = a.screenshot(ctx, call.Function.Arguments)
 			case call.Function.Name == "browse":
 				result = a.browse(ctx, call.Function.Arguments)
+			case call.Function.Name == "write":
+				result = a.writeToolWithUndo(argsOf(call.Function.Arguments))
+			case call.Function.Name == "edit":
+				result = a.editToolWithUndo(argsOf(call.Function.Arguments))
 			default:
 				result = runTool(ctx, a.dir, call.Function.Name, call.Function.Arguments)
 			}
@@ -421,12 +500,14 @@ func (a *Agent) completeRetry(ctx context.Context, emit func(any)) (Message, err
 	var be *busyError
 	var avoid []string
 	busy := 0
+	// Build the outgoing request with the brief injected (does not mutate a.messages).
+	outgoing := a.injectBrief(a.messages)
 	for attempt := 0; ; attempt++ {
 		var extra map[string]any
 		if all := a.avoidRoutes(avoid); len(all) > 0 {
 			extra = map[string]any{"prism_avoid": all}
 		}
-		reply, err := a.complete(ctx, a.messages, extra, emit)
+		reply, err := a.complete(ctx, outgoing, extra, emit)
 		if a.lastRoute != "" {
 			avoid = append(avoid, a.lastRoute)
 		}

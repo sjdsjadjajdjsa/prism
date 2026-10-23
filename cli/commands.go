@@ -21,6 +21,9 @@ type command struct{ name, help string }
 var commands = []command{
 	{"/models", "see which free AI models are ready"},
 	{"/new", "start a fresh chat"},
+	{"/clear", "clear the screen and start fresh (saves first, like /new)"},
+	{"/compact", "summarise the conversation to free up context · /compact <focus> to guide it"},
+	{"/undo", "undo the file changes prism made in its last turn"},
 	{"/resume", "reopen an earlier chat in this folder"},
 	{"/init", "write PRISM.md, the rules prism always follows here"},
 	{"/skills", "playbooks prism can follow · /skills new <name> to write your own"},
@@ -32,7 +35,10 @@ var commands = []command{
 	{"/theme", "switch theme, or /theme <name>"},
 	{"/beam", "turn the finish beam on or off"},
 	{"/quiet", "turn Shard's lines on or off"},
-	{"/help", "show these commands · keys: ctrl+o open all steps, ctrl+t theme, esc stop"},
+	{"/tabs", "open chats with their status · ctrl+t new, ctrl+w close, alt+1..9 jump"},
+	{"/rename", "name this tab · /rename <name>"},
+	{"/ask", "ask about another tab's chat without disturbing it · /ask <n> <question>"},
+	{"/help", "show these commands · keys: ctrl+t new tab, ctrl+w close tab, ctrl+pgup/pgdown switch, ctrl+o open all steps, ctrl+y theme, esc stop"},
 	{"/quit", "close prism"},
 }
 
@@ -67,9 +73,56 @@ func (m *model) command(text string) tea.Cmd {
 	switch name {
 	case "/quit", "/exit":
 		return tea.Quit
-	case "/new", "/clear":
+	case "/new":
 		m.agent.reset()
 		m.entries, m.tokens, m.route = nil, 0, ""
+	case "/clear":
+		// If a turn is running, cancel it first so the goroutine stops before
+		// we reset the agent (avoids a race on agent.messages).
+		if m.busy && m.cancel != nil {
+			m.cancel()
+		}
+		// Save the current session first (like /new), then clear screen + context.
+		m.agent.saveSession()
+		m.agent.reset()
+		m.entries, m.tokens, m.route = nil, 0, ""
+		m.busy, m.thinking, m.cancel, m.reasoning, m.draft, m.pending, m.queued = false, false, nil, "", nil, nil, nil
+		return tea.ClearScreen
+	case "/compact":
+		focus := strings.Join(fields[1:], " ")
+		m.compactCommand(focus)
+	case "/undo":
+		if m.busy {
+			m.entries = append(m.entries, &entry{kind: "note", text: "wait until prism finishes, then run /undo"})
+			return nil
+		}
+		if m.agent.undoStack == nil || m.agent.undoStack.depth() == 0 {
+			m.entries = append(m.entries, &entry{kind: "note", text: "nothing to undo"})
+			return nil
+		}
+		res, err := m.agent.undoStack.pop(m.agent.dir)
+		if err != nil {
+			m.entries = append(m.entries, &entry{kind: "note", text: err.Error()})
+			return nil
+		}
+		var lines []string
+		for _, f := range res.restored {
+			lines = append(lines, "✓ "+f)
+		}
+		for _, f := range res.refused {
+			lines = append(lines, "✗ "+f)
+		}
+		if len(res.refused) > 0 {
+			lines = append(lines, "", "files marked ✗ were changed after prism wrote them and were not restored")
+		}
+		if m.agent.undoStack.depth() > 0 {
+			lines = append(lines, "", fmt.Sprintf("%d earlier turn(s) available · /undo again to go further back", m.agent.undoStack.depth()))
+		}
+		title := "undo"
+		if len(res.restored) == 0 && len(res.refused) > 0 {
+			title = "undo blocked"
+		}
+		m.entries = append(m.entries, &entry{kind: "info", text: title, lines: lines})
 	case "/resume", "/continue":
 		list := m.agent.store.sessions()
 		var others []session
@@ -100,12 +153,8 @@ func (m *model) command(text string) tea.Cmd {
 			m.entries = append(m.entries, &entry{kind: "note", text: "no earlier chats in this folder yet"})
 			return nil
 		}
-		var lines []string
-		for k, s := range others {
-			lines = append(lines, fmt.Sprintf("%d  %-11s %s", k+1, ago(s.Updated), s.Title))
-		}
-		lines = append(lines, "", "type /resume <number> to reopen one")
-		m.entries = append(m.entries, &entry{kind: "info", text: "earlier chats", lines: lines})
+		v := resumeView(others)
+		m.entries = append(m.entries, &entry{kind: "cmd", view: &v})
 	case "/init":
 		if m.busy {
 			m.input = nil
@@ -127,10 +176,10 @@ func (m *model) command(text string) tea.Cmd {
 			m.entries = append(m.entries, &entry{kind: "note", text: title})
 			return nil
 		}
-		if file, _ := projectRules(m.agent.dir); file != "" {
-			lines = append(lines, "", "also following the rules in "+file)
-		}
-		m.entries = append(m.entries, &entry{kind: "info", text: title, lines: lines})
+		projectFile, _ := projectRules(m.agent.dir)
+		v := memoryView(title, lines, projectFile)
+		// kind "info" keeps e.text+e.lines for web/test compat; view gives richer terminal rendering.
+		m.entries = append(m.entries, &entry{kind: "info", text: title, lines: lines, view: &v})
 	case "/web":
 		m.startWeb()
 	case "/mcp":
@@ -151,35 +200,34 @@ func (m *model) command(text string) tea.Cmd {
 			m.entries = append(m.entries, &entry{kind: "error", text: res.title, arg: strings.Join(res.lines, " · ")})
 			return nil
 		}
-		m.entries = append(m.entries, &entry{kind: "info", text: res.title, lines: res.lines})
+		// Use structured view for /mcp list; fall back to info for add/remove/test results
+		if len(fields) == 1 {
+			var mcpList []mcpStatus
+			if m.agent.mcp != nil {
+				mcpList = m.agent.mcp.status()
+			}
+			v := mcpView(mcpList)
+			m.entries = append(m.entries, &entry{kind: "cmd", view: &v})
+		} else {
+			m.entries = append(m.entries, &entry{kind: "info", text: res.title, lines: res.lines})
+		}
 	case "/skills":
 		if len(fields) > 2 && fields[1] == "new" {
 			m.entries = append(m.entries, &entry{kind: "note", text: newSkill(m.agent, fields[2])})
 			return nil
 		}
-		var lines []string
-		for _, s := range m.agent.skills {
-			lines = append(lines, fmt.Sprintf("%-15s %s  (%s)", s.name, s.description, s.source))
-		}
-		if len(lines) == 0 {
-			lines = []string{"no skills found"}
-		}
-		lines = append(lines, "", "prism picks the right one by itself · add your own: .prism/skills/<name>.md in a project, or ~/.config/prism/skills/")
-		m.entries = append(m.entries, &entry{kind: "info", text: "skills", lines: lines})
+		v := skillsView(m.agent.skills)
+		m.entries = append(m.entries, &entry{kind: "cmd", view: &v})
 	case "/tree":
 		title, lines := treeCommand(m.agent, strings.Join(fields[1:], " "))
 		m.entries = append(m.entries, &entry{kind: "info", text: title, lines: lines})
 	case "/usage":
 		u := todayUsage()
-		lines := []string{
-			fmt.Sprintf("today       %d requests · %s tokens sent", u.Requests, short(u.Tokens)),
-			fmt.Sprintf("this chat   %d requests · %s tokens sent · %s cached", m.agent.requests, short(m.agent.sent), short(m.agent.cached)),
-			"",
-			"all free · limits reset daily · more keys mean more room: prism setup",
-		}
-		m.entries = append(m.entries, &entry{kind: "info", text: "free AI usage", lines: lines})
+		v := usageView(u, m.agent.requests, m.agent.sent, m.agent.cached)
+		m.entries = append(m.entries, &entry{kind: "cmd", view: &v})
 	case "/help":
-		m.entries = append(m.entries, &entry{kind: "help"})
+		v := helpView()
+		m.entries = append(m.entries, &entry{kind: "cmd", view: &v})
 	case "/models", "/model", "/status":
 		api := m.agent.api
 		return func() tea.Msg {
@@ -214,6 +262,12 @@ func (m *model) command(text string) tea.Cmd {
 		if !m.quiet {
 			m.speak("light in. rainbow out.")
 		}
+	case "/tabs":
+		m.tabsCommand()
+	case "/rename":
+		m.renameTab(strings.Join(fields[1:], " "))
+	case "/ask":
+		return m.askCommand(fields)
 	default:
 		m.entries = append(m.entries, &entry{kind: "help", text: name + " isn't a command"})
 	}

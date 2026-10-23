@@ -455,6 +455,50 @@ func readTool(dir string, args map[string]any) toolResult {
 	return toolResult{ok: true, output: b.String(), summary: fmt.Sprintf("%d lines", end-start)}
 }
 
+// writeToolWithUndo wraps writeTool with claimFile and undo recording.
+// It prepends any cross-tab ownership warning to the result output.
+func (a *Agent) writeToolWithUndo(args map[string]any) toolResult {
+	// Use the symlink-resolved path as the claim key so two paths to the same
+	// file collide correctly. resolveDeepest handles files that don't exist yet.
+	path := resolveDeepest(resolve(a.dir, sarg(args, "path")))
+	// Record before the write (outside the lock — see recordBefore).
+	if a.undoStack != nil {
+		a.undoStack.recordBefore(a.currentTurn, path)
+	}
+	result := writeTool(a.dir, args)
+	if result.ok {
+		// Claim only after a successful write; warn but continue if contested.
+		if warn := a.claimFile(path); warn != "" {
+			result.output = "Warning: " + warn + "\n" + result.output
+		}
+		if a.undoStack != nil {
+			a.undoStack.recordAfter(a.currentTurn, path)
+		}
+	}
+	return result
+}
+
+// editToolWithUndo wraps editTool with claimFile and undo recording.
+func (a *Agent) editToolWithUndo(args map[string]any) toolResult {
+	// Use the symlink-resolved path as the claim key.
+	path := resolveDeepest(resolve(a.dir, sarg(args, "path")))
+	// Record before the edit (outside the lock — see recordBefore).
+	if a.undoStack != nil {
+		a.undoStack.recordBefore(a.currentTurn, path)
+	}
+	result := editTool(a.dir, args)
+	if result.ok {
+		// Claim only after a successful edit; warn but continue if contested.
+		if warn := a.claimFile(path); warn != "" {
+			result.output = "Warning: " + warn + "\n" + result.output
+		}
+		if a.undoStack != nil {
+			a.undoStack.recordAfter(a.currentTurn, path)
+		}
+	}
+	return result
+}
+
 func writeTool(dir string, args map[string]any) toolResult {
 	path := resolve(dir, sarg(args, "path"))
 	if outside(dir, path) {

@@ -50,7 +50,7 @@ func TestHandoff(t *testing.T) {
 	ln.Close()
 	t.Setenv("PRISM_WEB_LISTEN", addr)
 
-	m := &model{agent: newAgent(router.URL+"/v1", cfg, "handoff-test")}
+	m := &model{tab: &tab{agent: newAgent(router.URL+"/v1", cfg, "handoff-test")}}
 	m.startWeb()
 	if m.web == nil {
 		t.Fatalf("startWeb did not start a web session: entries %v", m.entries)
@@ -186,6 +186,38 @@ func TestHandoff(t *testing.T) {
 	updated, cmd := m.key(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd != nil || updated.(model).web != nil {
 		t.Fatal("enter did not return to the terminal")
+	}
+}
+
+// TestAgentFor verifies the process-wide agentByID map is updated when tabs
+// open and close, and that agentFor is safe to call from any goroutine.
+func TestAgentFor(t *testing.T) {
+	cfg := testEnv(t)
+	a1 := newAgent("http://x/v1", cfg, "tab-test-1")
+	a2 := newAgent("http://x/v1", cfg, "tab-test-2")
+
+	// Register two agents manually (addTab does this in production).
+	registerAgent(10, a1)
+	registerAgent(11, a2)
+	t.Cleanup(func() { unregisterAgent(10); unregisterAgent(11) })
+
+	if got := agentFor(10); got != a1 {
+		t.Errorf("agentFor(10) = %p, want %p", got, a1)
+	}
+	if got := agentFor(11); got != a2 {
+		t.Errorf("agentFor(11) = %p, want %p", got, a2)
+	}
+	if got := agentFor(99); got != nil {
+		t.Errorf("agentFor(99) = %p, want nil", got)
+	}
+
+	// Unregister one; the other must still be reachable.
+	unregisterAgent(10)
+	if got := agentFor(10); got != nil {
+		t.Errorf("agentFor(10) after unregister = %p, want nil", got)
+	}
+	if got := agentFor(11); got != a2 {
+		t.Errorf("agentFor(11) after unregister of 10 = %p, want %p", got, a2)
 	}
 }
 

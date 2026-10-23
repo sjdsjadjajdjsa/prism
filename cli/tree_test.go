@@ -243,6 +243,99 @@ func TestTreeSnapshotJSON(t *testing.T) {
 	}
 }
 
+func TestTreeClaims(t *testing.T) {
+	tr := treeOf(t, sampleProject(t))
+
+	// Wire a claims func: tab 2 "alice" claims app.py, tab 3 "bob" claims web/app.js.
+	claims := map[string][2]any{
+		"app.py":     {2, "alice"},
+		"web/app.js": {3, "bob"},
+	}
+	tr.claims = func(p string) (int, string, bool) {
+		if v, ok := claims[p]; ok {
+			return v[0].(int), v[1].(string), true
+		}
+		return 0, "", false
+	}
+
+	// JSON snapshot must include tab/tabName fields and claimed stat.
+	var got struct {
+		Stats map[string]int64
+		Nodes []struct {
+			Path    string
+			Tab     int    `json:"tab"`
+			TabName string `json:"tabName"`
+		}
+	}
+	if err := json.Unmarshal(tr.json(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Stats["claimed"] != 2 {
+		t.Errorf("stats[claimed] = %d, want 2", got.Stats["claimed"])
+	}
+	nodeMap := map[string]struct {
+		Tab     int
+		TabName string
+	}{}
+	for _, n := range got.Nodes {
+		nodeMap[n.Path] = struct {
+			Tab     int
+			TabName string
+		}{n.Tab, n.TabName}
+	}
+	if n := nodeMap["app.py"]; n.Tab != 2 || n.TabName != "alice" {
+		t.Errorf("app.py tab=%d tabName=%q, want 2/alice", n.Tab, n.TabName)
+	}
+	if n := nodeMap["web/app.js"]; n.Tab != 3 || n.TabName != "bob" {
+		t.Errorf("web/app.js tab=%d tabName=%q, want 3/bob", n.Tab, n.TabName)
+	}
+	if n := nodeMap["lib/util.py"]; n.Tab != 0 {
+		t.Errorf("lib/util.py should have no tab claim, got %d", n.Tab)
+	}
+
+	// ASCII tree must mark claimed files with circled digits.
+	lines := tr.asciiTree("", nil, 100)
+	text := strings.Join(lines, "\n")
+	if !strings.Contains(text, "app.py ②") {
+		t.Errorf("ascii missing ② for app.py:\n%s", text)
+	}
+	if !strings.Contains(text, "app.js") || !strings.Contains(text, "③") {
+		t.Errorf("ascii missing ③ for web/app.js:\n%s", text)
+	}
+	// Verify ③ appears on the app.js line specifically.
+	for _, line := range lines {
+		if strings.Contains(line, "app.js") && !strings.Contains(line, "③") {
+			t.Errorf("app.js line missing ③: %q", line)
+		}
+	}
+	if strings.Contains(text, "util.py ") && strings.ContainsAny(text, "①②③④⑤⑥⑦⑧⑨") {
+		// util.py should not have a circled digit
+		for _, line := range lines {
+			if strings.Contains(line, "util.py") {
+				for _, r := range "①②③④⑤⑥⑦⑧⑨" {
+					if strings.ContainsRune(line, r) {
+						t.Errorf("util.py should not be claimed: %q", line)
+					}
+				}
+			}
+		}
+	}
+
+	// "claimed" filter should show only claimed files.
+	filtered := strings.Join(tr.asciiTree("claimed", nil, 100), "\n")
+	if !strings.Contains(filtered, "app.py") {
+		t.Errorf("claimed filter missing app.py:\n%s", filtered)
+	}
+	if strings.Contains(filtered, "util.py") {
+		t.Errorf("claimed filter should not show util.py:\n%s", filtered)
+	}
+
+	// tabCircled helper.
+	if tabCircled(1) != "①" || tabCircled(9) != "⑨" {
+		t.Errorf("tabCircled: got %q %q", tabCircled(1), tabCircled(9))
+	}
+}
+
 func TestPromptBudget(t *testing.T) {
 	testEnv(t)
 	dir := sampleProject(t)

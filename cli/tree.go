@@ -31,6 +31,8 @@ type treeNode struct {
 	Symbols    []string `json:"symbols,omitempty"`
 	Imports    []string `json:"imports,omitempty"`
 	ImportedBy []string `json:"importedBy,omitempty"`
+	Tab        int      `json:"tab,omitempty"`
+	TabName    string   `json:"tabName,omitempty"`
 	mod        time.Time
 	rawImports []string
 }
@@ -39,14 +41,17 @@ type treeNode struct {
 // git status, top symbols, local imports and an importance rank. It is built once with
 // scan and then kept current by refresh (per changed path) or a watcher.
 type projectTree struct {
-	mu        sync.Mutex
-	root      string
-	nodes     map[string]*treeNode
-	ignore    *ignoreSet
-	module    string
-	version   int
-	changed   chan struct{}
-	agent     func() map[string]string
+	mu      sync.Mutex
+	root    string
+	nodes   map[string]*treeNode
+	ignore  *ignoreSet
+	module  string
+	version int
+	changed chan struct{}
+	agent   func() map[string]string
+	// claims returns (tabID, tabName, true) when path is claimed by a tab, or (0,"",false).
+	// nil means no multi-tab claims are available.
+	claims    func(path string) (tab int, name string, ok bool)
 	truncated bool
 	watchOnce sync.Once
 	kids      map[string][]*treeNode
@@ -390,6 +395,11 @@ func (t *projectTree) snapshot() map[string]any {
 	for _, n := range t.nodes {
 		c := *n
 		c.Agent = agent[c.Path]
+		if t.claims != nil {
+			if tabID, tabName, ok := t.claims(c.Path); ok {
+				c.Tab, c.TabName = tabID, tabName
+			}
+		}
 		nodes = append(nodes, c)
 		if c.Dir {
 			stats["dirs"]++
@@ -407,6 +417,9 @@ func (t *projectTree) snapshot() map[string]any {
 		}
 		if c.Agent != "" {
 			stats["touched"]++
+		}
+		if c.Tab != 0 {
+			stats["claimed"]++
 		}
 	}
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].Path < nodes[j].Path })
@@ -920,6 +933,14 @@ func (t *projectTree) topIn(dir string, n int) []string {
 	return out
 }
 
+// tabCircled returns the circled digit for tab numbers 1–9 (e.g. ① for 1).
+func tabCircled(n int) string {
+	if n >= 1 && n <= 9 {
+		return string(rune('\u2460' + n - 1)) // ①…⑨
+	}
+	return fmt.Sprintf("[%d]", n)
+}
+
 // treeCommand is /tree in the terminal and the browser: the live tree as text.
 func treeCommand(a *Agent, filter string) (string, []string) {
 	if a.mapReady != nil {
@@ -936,7 +957,11 @@ func treeCommand(a *Agent, filter string) (string, []string) {
 	if len(lines) == 0 {
 		lines = []string{"nothing matches " + filter}
 	}
-	return "project files · " + head, append(lines, "", "M changed · ? new · ● prism edited · ◦ prism read · ★ many files use it · /tree changed · /tree <text>")
+	legend := "M changed · ? new · ● prism edited · ◦ prism read · ★ many files use it · /tree changed · /tree <text>"
+	if snap["claimed"] > 0 {
+		legend += " · ①…⑨ tab editing"
+	}
+	return "project files · " + head, append(lines, "", legend)
 }
 
 // asciiTree is the human view for /tree and `prism tree`: every file with git and agent marks.
@@ -952,7 +977,8 @@ func (t *projectTree) asciiTree(filter string, agent map[string]string, maxLines
 		}
 		ok := filter == "" ||
 			(filter == "changed" && (n.Git != "" || agent[p] == "edit" || agent[p] == "write")) ||
-			(filter != "changed" && strings.Contains(strings.ToLower(p), filter))
+			(filter == "claimed" && t.claims != nil && func() bool { _, _, ok := t.claims(p); return ok }()) ||
+			(filter != "changed" && filter != "claimed" && strings.Contains(strings.ToLower(p), filter))
 		if ok {
 			for q := p; q != "." && q != ""; q = path.Dir(q) {
 				keep[q] = true
@@ -996,6 +1022,11 @@ func (t *projectTree) asciiTree(filter string, agent map[string]string, maxLines
 			}
 			if n.Rank >= 0.5 {
 				marks += " ★"
+			}
+			if t.claims != nil {
+				if tabID, _, ok := t.claims(n.Path); ok {
+					marks += " " + tabCircled(tabID)
+				}
 			}
 			lines = append(lines, prefix+branch+name+marks)
 		}

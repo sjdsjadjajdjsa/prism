@@ -24,7 +24,7 @@ const (
 )
 
 type tickMsg time.Time
-type agentMsg struct{ event any }
+
 type statusMsg struct {
 	ready int
 	err   error
@@ -42,30 +42,21 @@ type entry struct {
 	rows  []routeRow
 	lines []string
 	crew  *crewBlock
+	view  *cmdView // structured command output (kind=="cmd")
 }
 
 type model struct {
+	*tab                  // the chat on screen; see tabs.go
+	tabs           []*tab // every open chat, in tab bar order
+	hub            *tabHub
+	spawn          func() *Agent // a fresh agent for a new tab
+	closeAsk       bool          // ctrl+w on a busy tab is waiting for y/n
 	w, h           int
 	theme          int
 	start          time.Time
 	now            time.Duration
 	chat           bool
 	chatAt         time.Duration
-	input          []rune
-	entries        []*entry
-	busy           bool
-	busySince      time.Duration
-	thinking       bool
-	reasoning      string
-	thinkSince     time.Duration
-	waited         time.Duration
-	cancel         context.CancelFunc
-	events         chan any
-	agent          *Agent
-	route          string
-	tokens         int
-	window         int
-	scroll         int
 	ready          int
 	offline        bool
 	project        string
@@ -77,19 +68,10 @@ type model struct {
 	beamAt         time.Duration
 	beamOn         bool
 	quiet          bool
-	turnTools      int
-	turnTests      bool
-	turnFailed     bool
 	proud          bool
 	lastTextAt     time.Duration
 	surprisedUntil time.Duration
-	draft          *evDraft
-	answering      bool
-	scrollPos      float64
-	expandAll      bool
 	web            *webSession
-	pending        *evApprove
-	queued         []*evApprove
 	ticking        bool
 	active         time.Duration
 }
@@ -102,12 +84,13 @@ func tick(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
-func (m model) wait() tea.Cmd {
-	events := m.events
-	return func() tea.Msg { return agentMsg{<-events} }
+func (m model) Init() tea.Cmd {
+	cmds := []tea.Cmd{tick(fastFrame), fetchStatus(m.agent.api)}
+	for _, t := range m.tabs {
+		cmds = append(cmds, waitTab(t))
+	}
+	return tea.Batch(cmds...)
 }
-
-func (m model) Init() tea.Cmd { return tea.Batch(tick(fastFrame), m.wait(), fetchStatus(m.agent.api)) }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, isTick := msg.(tickMsg); !isTick && !m.ticking {
@@ -129,7 +112,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // idle reports whether nothing on screen is moving and nothing is waiting on a timer.
 func (m model) idle() bool {
-	return m.web == nil && m.gallery == "" && !m.busy && !m.animating() && m.now-m.active > idleAfter &&
+	return m.web == nil && m.gallery == "" && !m.anyBusy() && !m.animating() && m.now-m.active > idleAfter &&
 		m.now-m.sayAt > 5*time.Second && m.now >= m.sleepyUntil &&
 		(m.chat || m.now > 15*time.Second) && m.scrollPos == float64(m.scroll)
 }
@@ -164,9 +147,29 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case modelsMsg:
 		m.entries = append(m.entries, &entry{kind: "models", rows: msg.rows, text: errText(msg.err)})
 		m.scroll = 0
-	case agentMsg:
-		m.handle(msg.event)
-		return m, m.wait()
+	case tabMsg:
+		if m.tabIndex(msg.t) < 0 {
+			return m, nil // closed meanwhile
+		}
+		if ev, ok := msg.event.(evSaved); ok {
+			// Snapshot session id and message count onto the tab struct so
+			// saveTabs can read them safely without touching agent fields.
+			msg.t.session = ev.session
+			msg.t.msgLen = ev.msgLen
+			m.saveTabs()
+			return m, waitTab(msg.t)
+		}
+		if msg.t == m.tab {
+			m.handle(msg.event)
+		} else {
+			// a background tab: apply the event to that tab, keep this one on screen
+			shown, scrollPos := m.tab, m.scrollPos
+			m.tab = msg.t
+			m.handle(msg.event)
+			m.tab, m.scrollPos = shown, scrollPos
+		}
+		m.syncTab(msg.t)
+		return m, waitTab(msg.t)
 	case tea.PasteMsg:
 		if m.chat {
 			m.input = append(m.input, []rune(strings.ReplaceAll(msg.Content, "\r\n", "\n"))...)
@@ -203,7 +206,7 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	if m.gallery != "" {
-		if k == "ctrl+t" {
+		if k == "ctrl+y" || k == "ctrl+t" {
 			m.theme = (m.theme + 1) % len(themes)
 		}
 		return m, nil
@@ -223,6 +226,31 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.closeAsk {
+		m.closeAsk = false
+		if k == "y" || k == "Y" || k == "enter" {
+			m.closeTab(true)
+		}
+		return m, nil
+	}
+	switch k {
+	case "ctrl+t":
+		return m, m.newChatTab()
+	case "ctrl+w":
+		m.closeTab(false)
+		return m, nil
+	case "ctrl+tab", "ctrl+pgdown":
+		m.cycleTab(1)
+		return m, nil
+	case "ctrl+shift+tab", "ctrl+pgup":
+		m.cycleTab(-1)
+		return m, nil
+	}
+	if d, ok := strings.CutPrefix(k, "alt+"); ok && len(d) == 1 && d >= "1" && d <= "9" {
+		m.switchTo(int(d[0] - '1'))
+		m.saveTabs()
+		return m, nil
+	}
 	if m.pending != nil {
 		switch k {
 		case "y", "Y", "enter":
@@ -230,6 +258,7 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "n", "N", "esc":
 			m.answer(false)
 		}
+		m.syncTab(m.tab)
 		return m, nil
 	}
 	switch k {
@@ -237,7 +266,7 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.cancel != nil {
 			m.cancel()
 		}
-	case "ctrl+t":
+	case "ctrl+y":
 		m.theme = (m.theme + 1) % len(themes)
 		saveTheme(themes[m.theme].name)
 	case "enter":
@@ -289,9 +318,16 @@ func (m *model) submit() tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel, m.busy, m.thinking, m.busySince, m.thinkSince, m.reasoning = cancel, true, true, m.now, m.now, ""
 	m.turnTools, m.turnTests, m.turnFailed, m.answering = 0, false, false, false
+	m.started(text)
 	m.speak("refracting…")
 	events, agent := m.events, m.agent
-	go agent.Run(ctx, text, func(e any) { events <- e })
+	go func() {
+		agent.Run(ctx, text, func(e any) { events <- e })
+		// Run has returned: agent.session and agent.messages are stable now.
+		// Snapshot them into evSaved so the UI goroutine never reads agent fields
+		// while another goroutine might be appending (data-race fix).
+		events <- evSaved{session: agent.session, msgLen: len(agent.messages)}
+	}()
 	return nil
 }
 
@@ -369,6 +405,7 @@ func (m *model) handle(event any) {
 		m.thinking, m.thinkSince, m.answering = true, m.now, false
 	case evUsage:
 		m.tokens, m.window = e.tokens, e.window
+		m.maybeNudgeCompact()
 	case evNote:
 		m.entries = append(m.entries, &entry{kind: "note", text: e.text})
 		if strings.HasPrefix(e.text, "compacting") {
@@ -381,6 +418,12 @@ func (m *model) handle(event any) {
 	case evDone:
 		m.busy, m.thinking, m.cancel, m.reasoning, m.draft, m.pending, m.queued = false, false, nil, "", nil, nil, nil
 		m.settleCrews()
+		m.result = "done"
+		if e.err != nil && !errors.Is(e.err, context.Canceled) {
+			m.result = "error"
+		} else if e.err != nil {
+			m.result = ""
+		}
 		switch {
 		case e.err == nil:
 			m.entries = append(m.entries, &entry{kind: "meta", text: fmt.Sprintf("%.1fs", (m.now - m.busySince).Seconds()), arg: m.route})
@@ -460,6 +503,8 @@ func (m model) View() tea.View {
 			m.beamAt = 1
 			m.now = m.beamAt + time.Duration(freeze)*time.Millisecond
 		}
+		demo := *m.tab
+		m.tab = &demo
 		m.entries = []*entry{{kind: "user", text: "fix the bug in shop.py"}, {kind: "text", text: "Fixed. total() now multiplies price by quantity."}, {kind: "meta", text: "4.2s", arg: "nvidia/nemotron-3-ultra"}}
 		drawChat(cv, t, m)
 	case m.gallery != "":
@@ -693,26 +738,16 @@ func main() {
 	if *themeName == "" {
 		*themeName = loadTheme()
 	}
-	if agent.system {
-		events := make(chan any, 256)
-		agent.approve = func(ctx context.Context, tool, arg string) bool {
-			reply := make(chan bool, 1)
-			select {
-			case events <- evApprove{tool, arg, reply}:
-			case <-ctx.Done():
-				return false
-			}
-			select {
-			case ok := <-reply:
-				return ok
-			case <-ctx.Done():
-				return false
-			}
-		}
-		systemEvents = events
+	// every tab gets its own agent on the same project, sharing skills and MCP servers
+	spawn := func() *Agent {
+		a := newAgent(*api, dir, project)
+		a.skills, a.mcp, a.system = agent.skills, agent.mcp, agent.system
+		a.messages[0].Content = a.systemPrompt()
+		return a
 	}
-	m := model{ticking: true, start: time.Now(), events: eventsChannel(), agent: agent, ready: -1, window: agent.window, project: projectName(dir), lastTextAt: -time.Hour, entries: entriesFrom(agent.messages), theme: themeIndex(*themeName), gallery: *gallery,
+	m := model{ticking: true, start: time.Now(), hub: newTabHub(), spawn: spawn, ready: -1, project: projectName(dir), lastTextAt: -time.Hour, theme: themeIndex(*themeName), gallery: *gallery,
 		beamOn: loadSetting("beam") != "off", quiet: loadSetting("quiet") == "on", sayAt: -time.Hour}
+	m.openTabs(agent, *resume)
 	var options []tea.ProgramOption
 	if os.Getenv("COLORTERM") == "" && os.Getenv("TERM") != "linux" {
 		options = append(options, tea.WithColorProfile(colorprofile.TrueColor))
@@ -769,15 +804,6 @@ func entriesFrom(messages []Message) []*entry {
 		}
 	}
 	return out
-}
-
-var systemEvents chan any
-
-func eventsChannel() chan any {
-	if systemEvents != nil {
-		return systemEvents
-	}
-	return make(chan any, 256)
 }
 
 func askOnTerminal(ctx context.Context, tool, arg string) bool {

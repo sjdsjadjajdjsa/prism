@@ -873,7 +873,8 @@ async function send(message) {
   try {
     if (DEMO) { for await (const ev of demoStream(message, ac.signal)) handleEvent(ev); }
     else {
-      const res = await fetch('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message }), signal: ac.signal });
+      const tabQ = tabState.active > 1 ? '?tab=' + tabState.active : '';
+      const res = await fetch('/api/chat' + tabQ, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message }), signal: ac.signal });
       if (res.status === 409) { addError('busy', 'prism is still working on the last message'); say('fogged', 3000); setMood('sleepy', 3000); }
       else if (!res.ok) addError(`request failed`, `${res.status} ${res.statusText}`);
       else for await (const ev of readStream(res)) handleEvent(ev);
@@ -1208,6 +1209,103 @@ function startHeartbeat() {
   }, 3000);
 }
 
+// ---------- tab strip ----------
+const tabStrip = $('tab-strip');
+let tabState = { tabs: [], version: 0, active: 0 };
+let tabPollTimer = null;
+let tabSwitchGen = 0; // incremented on each switchTab to drop stale history loads
+
+function statusDotClass(status) {
+  switch (status) {
+    case 'working':  return 'tab-dot tab-dot-working';
+    case 'waiting':  return 'tab-dot tab-dot-waiting';
+    case 'done':     return 'tab-dot tab-dot-done';
+    case 'error':    return 'tab-dot tab-dot-error';
+    default:         return 'tab-dot tab-dot-idle';
+  }
+}
+
+function renderTabStrip() {
+  const tabs = tabState.tabs;
+  // hide when only one tab
+  if (!tabs || tabs.length <= 1) { tabStrip.hidden = true; return; }
+  tabStrip.hidden = false;
+  // rebuild buttons
+  tabStrip.innerHTML = '';
+  tabs.forEach((tab, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'tab-btn';
+    btn.type = 'button';
+    btn.setAttribute('role', 'tab');
+    btn.setAttribute('aria-selected', String(tab.ID === tabState.active));
+    btn.setAttribute('aria-label', `Tab ${i + 1}: ${tab.Name}, ${tab.Status}`);
+
+    const num = document.createElement('span');
+    num.className = 'tab-num';
+    num.textContent = i + 1;
+
+    const dot = document.createElement('span');
+    dot.className = statusDotClass(tab.Status);
+    dot.title = tab.Status + (tab.Task ? ': ' + tab.Task : '');
+
+    const name = document.createElement('span');
+    name.className = 'tab-name';
+    name.textContent = tab.Name;
+
+    btn.appendChild(num);
+    btn.appendChild(dot);
+    btn.appendChild(name);
+    btn.addEventListener('click', () => switchTab(tab.ID));
+    tabStrip.appendChild(btn);
+  });
+}
+
+function switchTab(id) {
+  if (id === tabState.active) return;
+  // Block switching while a chat is running to avoid mixing streams.
+  if (state.busy) return;
+  tabState.active = id;
+  renderTabStrip();
+  // reload history for the selected tab; use a generation token to drop stale responses
+  const gen = ++tabSwitchGen;
+  resetTranscript();
+  api('/api/history?tab=' + id).then((hist) => {
+    if (gen !== tabSwitchGen) return; // stale response from a superseded switch
+    if (hist) loadHistory(hist.entries);
+  }).catch(() => {});
+}
+
+async function pollTabs() {
+  if (DEMO) return;
+  const started = Date.now();
+  try {
+    const data = await api('/api/tabs?since=' + tabState.version);
+    if (data && data.tabs) {
+      tabState.tabs = data.tabs;
+      tabState.version = data.version || 0;
+      // set active to first tab if not yet set
+      if (!tabState.active && data.tabs.length > 0) tabState.active = data.tabs[0].ID;
+      // if the active tab was closed, switch to the first available tab
+      const activeStillExists = data.tabs.some((t) => t.ID === tabState.active);
+      if (!activeStillExists && data.tabs.length > 0) {
+        const newId = data.tabs[0].ID;
+        tabState.active = newId;
+        if (!state.busy) {
+          const gen = ++tabSwitchGen;
+          resetTranscript();
+          api('/api/history?tab=' + newId).then((hist) => {
+            if (gen !== tabSwitchGen) return;
+            if (hist) loadHistory(hist.entries);
+          }).catch(() => {});
+        }
+      }
+      renderTabStrip();
+    }
+  } catch { /* ignore */ }
+  // The server holds the request while tabs exist; a quick answer means no tabs or an error.
+  tabPollTimer = setTimeout(pollTabs, Date.now() - started < 1000 ? 5000 : 100);
+}
+
 // ---------- boot ----------
 async function boot() {
   let saved = null;
@@ -1243,6 +1341,7 @@ async function boot() {
     });
   }
   startHeartbeat();
+  pollTabs();
   if (DEMO) {
     setTimeout(() => {
       input.value = ''; send(params.get('demo') === 'crew' ? 'build the checkout with a crew' : 'make my todo list persist between reloads, then run the tests');

@@ -107,7 +107,15 @@ func lastRows(rows []string) ([]string, int) {
 
 func (m model) boxHeight() int { return min(len(m.inputRows(m.column()-6)), 5) + 2 }
 
-func (m model) viewHeight() int { return max(1, m.h-3-m.boxHeight()-1-4) }
+func (m model) viewHeight() int { return max(1, m.h-3-m.boxHeight()-1-4-m.tabRows()) }
+
+// tabRows is the line the tab bar takes above the chat (none with one tab).
+func (m model) tabRows() int {
+	if m.tabsShown() {
+		return 1
+	}
+	return 0
+}
 
 func (m model) transcript(t theme, width int) []line {
 	n := ms(m.now)
@@ -148,7 +156,7 @@ func (m model) transcript(t theme, width int) []line {
 			}
 			if len(group) >= 2 && i < lastUser {
 				gap()
-				out = append(out, line{indent: 2, ref: head, segs: []seg{{text: "▾ ", fg: t.muted}, {text: fmt.Sprintf("%d steps", len(group)), fg: t.muted}, {text: "  click to fold", fg: mix(t.bg, t.muted, 0.6)}}})
+				out = append(out, line{indent: 2, ref: head, segs: []seg{{text: "▾ ", fg: t.muted}, {text: fmt.Sprintf("%d steps", len(group)), fg: t.muted}, {text: "  click to fold", fg: t.muted}}})
 			}
 		}
 		switch e.kind {
@@ -215,7 +223,7 @@ func (m model) transcript(t theme, width int) []line {
 			out = append(out, crewLines(t, e.crew, width, n)...)
 		case "note":
 			gap()
-			out = append(out, line{indent: 2, segs: []seg{{text: "· " + e.text, fg: t.muted}}})
+			out = append(out, line{indent: 2, segs: []seg{{text: "· ", fg: t.muted}, {text: e.text, fg: t.fg}}})
 		case "error":
 			gap()
 			for j, row := range wrapAll(e.text, width-6) {
@@ -230,7 +238,7 @@ func (m model) transcript(t theme, width int) []line {
 					out = append(out, line{indent: 4, segs: []seg{{text: row, fg: t.muted}}})
 				}
 			}
-			out = append(out, line{indent: 4, segs: []seg{{text: "keeps happening? report it: " + issuesURL, fg: mix(t.bg, t.muted, 0.7)}}})
+			out = append(out, line{indent: 4, segs: []seg{{text: "keeps happening? report it: " + issuesURL, fg: t.muted}}})
 		case "help":
 			gap()
 			if e.text != "" {
@@ -242,14 +250,25 @@ func (m model) transcript(t theme, width int) []line {
 			out = append(out, line{}, line{indent: 2, segs: []seg{{text: "something broken? tell us: ", fg: t.muted}, {text: issuesURL, fg: t.at(0.6)}}})
 		case "info":
 			gap()
-			out = append(out, line{indent: 2, segs: []seg{{text: e.text, fg: t.fg, bold: true}}})
-			for _, l := range e.lines {
-				for _, row := range wrap(l, width-8) {
+			if e.view != nil {
+				// Richer structured rendering when a view is attached.
+				out = append(out, cmdLines(t, *e.view, width)...)
+			} else {
+				out = append(out, line{indent: 2, segs: []seg{{text: e.text, fg: t.fg, bold: true}}})
+				for _, l := range e.lines {
 					if l == "" {
-						row = ""
+						out = append(out, line{})
+						continue
 					}
-					out = append(out, line{indent: 4, segs: []seg{{text: row, fg: t.muted}}})
+					for _, row := range wrap(l, width-8) {
+						out = append(out, line{indent: 4, segs: []seg{{text: row, fg: t.fg}}})
+					}
 				}
+			}
+		case "cmd":
+			gap()
+			if e.view != nil {
+				out = append(out, cmdLines(t, *e.view, width)...)
 			}
 		case "models":
 			gap()
@@ -266,7 +285,7 @@ func (m model) transcript(t theme, width int) []line {
 	}
 	if m.pending != nil {
 		gap()
-		verb := map[string]string{"bash": "run this command", "write": "do this", "edit": "do this"}[m.pending.tool]
+		verb := map[string]string{"bash": "run this command", "write": "write this file", "edit": "apply this edit"}[m.pending.tool]
 		if verb == "" {
 			verb = "use " + m.pending.tool
 		}
@@ -304,7 +323,7 @@ func (m model) transcript(t theme, width int) []line {
 			{text: verb + " ", grad: true, phase: n / 900},
 			{text: clip(d.arg, width-40), fg: t.fg},
 			{text: pad(dots, 4), fg: t.muted},
-			{text: short(d.chars) + " chars", fg: mix(t.bg, t.muted, 0.8)},
+			{text: short(d.chars) + " chars", fg: t.muted},
 		}})
 	}
 	if m.busy && m.thinking {
@@ -320,12 +339,12 @@ func (m model) transcript(t theme, width int) []line {
 				hint = "  ·  big files show up when they're finished"
 			}
 		}
-		out = append(out, line{indent: 2, segs: []seg{{text: label, grad: true, phase: n / 900}, {text: pad(dots, 4), fg: t.muted}, {text: fmt.Sprintf("%.0fs", elapsed), fg: mix(t.bg, t.muted, 0.7)}, {text: hint, fg: mix(t.bg, t.muted, 0.6)}}})
+		out = append(out, line{indent: 2, segs: []seg{{text: label, grad: true, phase: n / 900}, {text: pad(dots, 4), fg: t.muted}, {text: fmt.Sprintf("%.0fs", elapsed), fg: t.muted}, {text: hint, fg: t.muted}}})
 		if m.reasoning != "" {
 			rows := wrapAll(strings.Join(strings.Fields(m.reasoning), " "), width-8)
 			rows = rows[max(0, len(rows)-3):]
 			for k, row := range rows {
-				fade := 0.35 + 0.2*float64(k)
+				fade := 0.75 - 0.2*float64(k)
 				out = append(out, line{indent: 4, segs: []seg{{text: row, fg: mix(t.bg, t.muted, fade)}}})
 			}
 		}
@@ -343,7 +362,7 @@ func summary(t theme, r toolResult, width int) []seg {
 	if rest, ok := strings.CutPrefix(r.summary, "→ "); ok {
 		return []seg{{text: "  → ", fg: t.muted}, {text: clip(strings.Join(strings.Fields(rest), " "), width), fg: t.green}}
 	}
-	return []seg{{text: "  " + clip(r.summary, width), fg: t.muted}}
+	return []seg{{text: "  " + clip(r.summary, width), fg: t.fg}}
 }
 
 func wrapAll(s string, width int) []string {
@@ -416,6 +435,9 @@ func drawChat(cv *canvas, t theme, m model) {
 	for i := 0; i < colW; i++ {
 		cv.set(cx+i, 2, '─', mix(t.bg, t.faint, enter), false)
 	}
+	if m.tabsShown() {
+		drawTabBar(cv, t, m, cx, 3, colW)
+	}
 
 	boxH := m.boxHeight()
 	boxY := cv.h - 3 - boxH
@@ -430,7 +452,7 @@ func drawChat(cv *canvas, t theme, m model) {
 			if i == 0 {
 				col = t.fg
 			}
-			if i == 4 {
+			if i == len(hello)-1 {
 				col = t.red
 			}
 			cv.text((cv.w-len([]rune(s)))/2, top+height/2-2+i, s, mix(t.bg, col, enter), i == 0)
@@ -497,6 +519,10 @@ func drawInput(cv *canvas, t theme, m model, x, y, w, h int, n, enter float64) {
 	cv.set(x+w-1, y+h-1, '╯', edge(1), false)
 
 	tx := cv.grad(x+2, y+1, "› ", t, phase, 4, true)
+	if m.closeAsk {
+		cv.text(tx, y+1, "this tab is still working · close it anyway? y / n", warnColor(t), true)
+		return
+	}
 	if len(m.input) == 0 {
 		hint := "ask anything…"
 		if m.busy {
@@ -540,7 +566,7 @@ func drawStatus(cv *canvas, t theme, m model, x, y, w int, enter float64) {
 	pct := fmt.Sprintf("%d%%", int(math.Round(used*100)))
 	meterShown := true
 
-	keys := []seg{{text: "ctrl+t", fg: t.fg}, {text: " theme   ", fg: t.muted}, {text: "ctrl+c", fg: t.fg}, {text: " quit", fg: t.muted}}
+	keys := []seg{{text: "ctrl+t", fg: t.fg}, {text: " new tab   ", fg: t.muted}, {text: "ctrl+c", fg: t.fg}, {text: " quit", fg: t.muted}}
 	if m.busy {
 		keys[0].text, keys[1].text = "esc", " stop   "
 	}
@@ -642,7 +668,7 @@ func modelLines(t theme, e *entry, width int) []line {
 	if e.text != "" {
 		return []line{{indent: 2, segs: []seg{{text: "✕ ", fg: t.red}, {text: e.text, fg: t.red}}}}
 	}
-	out := []line{{indent: 2, segs: []seg{{text: "free models", fg: t.fg, bold: true}, {text: "  in the order prism tries them", fg: t.muted}}}}
+	out := []line{{indent: 2, segs: []seg{{text: "free models", fg: t.fg, bold: true}, {text: " · in the order prism tries them", fg: t.muted}}}}
 	nameW := 10
 	for _, r := range e.rows {
 		nameW = max(nameW, len([]rune(modelName(r.Route))))
@@ -650,7 +676,7 @@ func modelLines(t theme, e *entry, width int) []line {
 	for _, r := range e.rows {
 		dot, state, col := "● ", "ready", t.green
 		if !r.Ready {
-			dot, state, col = "◌ ", fmt.Sprintf("resting %ds", r.RetryIn), t.muted
+			dot, state, col = "◌ ", fmt.Sprintf("back in %ds", r.RetryIn), t.muted
 		}
 		out = append(out, line{indent: 2, segs: []seg{
 			{text: dot, fg: col},
@@ -659,7 +685,7 @@ func modelLines(t theme, e *entry, width int) []line {
 			{text: state, fg: col},
 		}})
 	}
-	out = append(out, line{}, line{indent: 2, segs: []seg{{text: "add more free models: ", fg: t.muted}, {text: "prism setup", fg: t.at(0.6)}}})
+	out = append(out, line{}, line{indent: 2, segs: []seg{{text: "to add more models: ", fg: t.muted}, {text: "prism setup", fg: t.at(0.6)}}})
 	return out
 }
 
@@ -680,7 +706,7 @@ func drawSuggestions(cv *canvas, t theme, m model, x, y, w int) {
 }
 
 func (m model) visible(t theme) (lines []line, start, end, top, height int) {
-	top, height = 4, m.viewHeight()
+	top, height = 4+m.tabRows(), m.viewHeight()
 	lines = m.transcript(t, m.column())
 	off := int(math.Round(m.scrollPos))
 	end = len(lines) - clamp(off, 0, max(0, len(lines)-height))
@@ -714,7 +740,7 @@ func collapsed(t theme, group []*entry) line {
 	if failed > 0 {
 		segs = append(segs, seg{text: fmt.Sprintf("  %d failed", failed), fg: t.red})
 	}
-	segs = append(segs, seg{text: "  click to open", fg: mix(t.bg, t.muted, 0.6)})
+	segs = append(segs, seg{text: "  click to open", fg: t.muted})
 	return line{indent: 2, ref: group[0], segs: segs}
 }
 

@@ -987,6 +987,100 @@ func TestCompleteHeadersAndToolCallFixups(t *testing.T) {
 	}
 }
 
+// TestRunReleasesClaimsOnTurnEnd: hub.release must be called when Run returns
+// so file claims don't accumulate across turns (regression for bug 1).
+func TestRunReleasesClaimsOnTurnEnd(t *testing.T) {
+	testEnv(t)
+	dir := t.TempDir()
+	fake := &fakeRouter{mu: &sync.Mutex{}, replies: []func(http.ResponseWriter) string{
+		sseText(delta(`{"content":"done"}`), sseDone),
+	}}
+	srv := httptest.NewServer(fake.handler())
+	defer srv.Close()
+
+	h := newTabHub()
+	a := newTestAgent(t, srv.URL, dir)
+	a.hub = h
+	a.tabID = h.add("test-tab")
+
+	// Manually plant a claim as if the agent wrote a file during the turn.
+	h.claim(a.tabID, filepath.Join(dir, "claimed.go"))
+	if _, ok := h.owner(filepath.Join(dir, "claimed.go")); !ok {
+		t.Fatal("precondition: claim should be set before Run")
+	}
+
+	_, err := collect(a, "hello")
+	if err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	// After Run returns, the claim must be gone.
+	if _, ok := h.owner(filepath.Join(dir, "claimed.go")); ok {
+		t.Error("claim should be released after Run returns")
+	}
+}
+
+// TestInjectBriefDoesNotMutateMessages: injectBrief must not modify a.messages;
+// the brief should only appear in the returned copy (regression for bug 5).
+func TestInjectBriefDoesNotMutateMessages(t *testing.T) {
+	testEnv(t)
+	dir := t.TempDir()
+	h := newTabHub()
+	a := newTestAgent(t, "http://localhost:1", dir)
+	a.hub = h
+	a.tabID = h.add("self")
+	other := h.add("other")
+	h.setStatus(other, "working", "some task")
+
+	a.messages = []Message{
+		{Role: "system", Content: "sys"},
+		{Role: "user", Content: "original user message"},
+	}
+	originalContent := a.messages[1].Content
+	a.turnBrief = h.brief(a.tabID)
+
+	out := a.injectBrief(a.messages)
+	h.setStatus(other, "done", "a different task")
+	if again := a.injectBrief(a.messages); again[1].Content != out[1].Content {
+		t.Errorf("brief changed within one turn: %q then %q", out[1].Content, again[1].Content)
+	}
+
+	// The original slice must be unchanged.
+	if a.messages[1].Content != originalContent {
+		t.Errorf("injectBrief mutated a.messages[1].Content: got %q, want %q",
+			a.messages[1].Content, originalContent)
+	}
+	// The returned copy must contain the brief.
+	if !strings.Contains(out[1].Content, "Prism tabs") {
+		t.Errorf("returned copy should contain brief, got: %q", out[1].Content)
+	}
+	// The returned copy must still contain the original content.
+	if !strings.Contains(out[1].Content, originalContent) {
+		t.Errorf("returned copy should still contain original content, got: %q", out[1].Content)
+	}
+}
+
+// TestInjectBriefAloneReturnsOriginal: when there are no other tabs, injectBrief
+// must return the original slice unchanged.
+func TestInjectBriefAloneReturnsOriginal(t *testing.T) {
+	testEnv(t)
+	dir := t.TempDir()
+	h := newTabHub()
+	a := newTestAgent(t, "http://localhost:1", dir)
+	a.hub = h
+	a.tabID = h.add("solo")
+
+	msgs := []Message{
+		{Role: "system", Content: "sys"},
+		{Role: "user", Content: "hello"},
+	}
+	a.turnBrief = h.brief(a.tabID)
+	out := a.injectBrief(msgs)
+	if out[1].Content != msgs[1].Content {
+		t.Errorf("injectBrief with no other tabs should not change content, got %q", out[1].Content)
+	}
+}
+
 func TestDraftArgAndApprovalText(t *testing.T) {
 	drafts := []struct{ in, want string }{
 		{`{"path":"a/b.go","content":"x"}`, "a/b.go"},

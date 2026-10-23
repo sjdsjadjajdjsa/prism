@@ -1059,7 +1059,7 @@ func TestMCPCommandShapes(t *testing.T) {
 	}
 
 	// Terminal: same text, on the entry list.
-	m := &model{agent: a, events: make(chan any, 4)}
+	m := &model{tab: &tab{agent: a, events: make(chan any, 4)}}
 	m.command("/mcp add")
 	e := m.entries[len(m.entries)-1]
 	if e.kind != "info" || !strings.Contains(strings.Join(e.lines, "\n"), "fetch") {

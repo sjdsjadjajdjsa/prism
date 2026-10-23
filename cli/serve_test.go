@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -458,5 +459,274 @@ func TestCommandUsageReportsThisChat(t *testing.T) {
 	lines, _ := res["lines"].([]any)
 	if len(lines) != 2 || !strings.Contains(lines[1].(string), "this chat: 3 requests") {
 		t.Fatalf("usage lines: %v", lines)
+	}
+}
+
+// ---------- tab tests ----------
+
+// testServerWithHub builds a server with a tabHub and two agents.
+func testServerWithHub(t *testing.T) (http.Handler, *server, string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/status" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("content-type", "application/json")
+		json.NewEncoder(w).Encode([]routeRow{
+			{Route: "fake/model-a:free", Ready: true},
+		})
+	}))
+	t.Cleanup(router.Close)
+
+	web := t.TempDir()
+	if err := os.WriteFile(filepath.Join(web, "index.html"), []byte("<!doctype html>prism"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	hub := newTabHub()
+	id1 := hub.add("main")
+	id2 := hub.add("refactor")
+	hub.setStatus(id2, "working", "rewriting router")
+
+	agent1 := newAgent(router.URL, t.TempDir(), "prism")
+	agent2 := newAgent(router.URL, t.TempDir(), "prism")
+	agents := map[int]*Agent{id1: agent1, id2: agent2}
+
+	agentFor := func(id int) *Agent { return agents[id] }
+	s := newServerWithHub(agent1, hub, agentFor, web, "prism")
+	return s.handler("4849"), s, "4849"
+}
+
+func TestTabsEndpointSingleAgent(t *testing.T) {
+	// Single-agent mode: /api/tabs returns a synthetic one-tab list.
+	h, _, port := testServer(t)
+	host := "127.0.0.1:" + port
+	rec := do(t, h, http.MethodGet, "/api/tabs", host, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/tabs: got %d, want 200", rec.Code)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("bad JSON: %v", err)
+	}
+	tabs, _ := out["tabs"].([]any)
+	if len(tabs) != 1 {
+		t.Fatalf("single-agent: want 1 tab, got %d", len(tabs))
+	}
+	if out["version"] == nil {
+		t.Fatal("version field missing")
+	}
+}
+
+func TestTabsEndpointWithHub(t *testing.T) {
+	h, _, port := testServerWithHub(t)
+	host := "127.0.0.1:" + port
+	rec := do(t, h, http.MethodGet, "/api/tabs", host, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/tabs: got %d, want 200", rec.Code)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("bad JSON: %v", err)
+	}
+	tabs, _ := out["tabs"].([]any)
+	if len(tabs) != 2 {
+		t.Fatalf("hub mode: want 2 tabs, got %d", len(tabs))
+	}
+	// Check that the second tab has status "working"
+	found := false
+	for _, raw := range tabs {
+		tab, _ := raw.(map[string]any)
+		if tab["Status"] == "working" || tab["status"] == "working" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a tab with status=working in %v", tabs)
+	}
+}
+
+func TestTabsOriginCheck(t *testing.T) {
+	// GET /api/tabs must pass the host allowlist check.
+	h, _, _ := testServer(t)
+	if got := do(t, h, http.MethodGet, "/api/tabs", "evil.com", "", "").Code; got != http.StatusForbidden {
+		t.Fatalf("evil host on /api/tabs: got %d, want 403", got)
+	}
+}
+
+func TestTabRoutingHistory(t *testing.T) {
+	h, _, port := testServerWithHub(t)
+	host := "127.0.0.1:" + port
+	// ?tab=1 and ?tab=2 both return 200 with an entries array.
+	for _, tab := range []string{"1", "2"} {
+		rec := do(t, h, http.MethodGet, "/api/history?tab="+tab, host, "", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET /api/history?tab=%s: got %d", tab, rec.Code)
+		}
+		var out map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("tab %s: bad JSON: %v", tab, err)
+		}
+		if _, ok := out["entries"]; !ok {
+			t.Fatalf("tab %s: missing entries field", tab)
+		}
+	}
+}
+
+func TestTabRoutingUnknownReturns404(t *testing.T) {
+	// ?tab=999 (unknown id) must return 404 when a hub is configured.
+	h, _, port := testServerWithHub(t)
+	host := "127.0.0.1:" + port
+	rec := do(t, h, http.MethodGet, "/api/history?tab=999", host, "", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown tab: got %d, want 404", rec.Code)
+	}
+}
+
+func TestTabRoutingBadIdReturns400(t *testing.T) {
+	// ?tab=abc (unparseable) must return 400 when a hub is configured.
+	h, _, port := testServerWithHub(t)
+	host := "127.0.0.1:" + port
+	for _, bad := range []string{"abc", "0", "-1", ""} {
+		path := "/api/history"
+		if bad != "" {
+			path += "?tab=" + bad
+		}
+		rec := do(t, h, http.MethodGet, path, host, "", "")
+		if bad == "" {
+			// no ?tab= param → fallback to default agent → 200
+			if rec.Code != http.StatusOK {
+				t.Fatalf("no tab param: got %d, want 200", rec.Code)
+			}
+		} else {
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("bad tab %q: got %d, want 400", bad, rec.Code)
+			}
+		}
+	}
+}
+
+func TestTabRoutingNoHubFallsBack(t *testing.T) {
+	// Single-agent mode (no hub): any ?tab= value falls back to default agent.
+	h, _, port := testServer(t)
+	host := "127.0.0.1:" + port
+	for _, tab := range []string{"1", "999", "abc"} {
+		rec := do(t, h, http.MethodGet, "/api/history?tab="+tab, host, "", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("no-hub ?tab=%s: got %d, want 200", tab, rec.Code)
+		}
+	}
+}
+
+func TestTabsLongPollSince(t *testing.T) {
+	// ?since=0 with a hub that already has version>0 returns immediately.
+	h, _, port := testServerWithHub(t)
+	host := "127.0.0.1:" + port
+	rec := do(t, h, http.MethodGet, "/api/tabs?since=0", host, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("long-poll since=0: got %d, want 200", rec.Code)
+	}
+}
+
+func TestNewServerWithHub(t *testing.T) {
+	// Verify newServerWithHub wires hub and agentFor correctly.
+	hub := newTabHub()
+	id := hub.add("test")
+	a := newAgent("http://127.0.0.1:1", t.TempDir(), "prism")
+	agents := map[int]*Agent{id: a}
+	s := newServerWithHub(a, hub, func(i int) *Agent { return agents[i] }, t.TempDir(), "prism")
+	if s.hub == nil {
+		t.Fatal("hub should be set")
+	}
+	if s.agentFor == nil {
+		t.Fatal("agentFor should be set")
+	}
+	// agentTab with no ?tab= returns default agent
+	req := httptest.NewRequest(http.MethodGet, "/api/history", nil)
+	got, err := s.agentTab(req)
+	if err != nil {
+		t.Fatalf("agentTab with no tab param: unexpected error %v", err)
+	}
+	if got != a {
+		t.Fatal("agentTab with no tab param should return default agent")
+	}
+	// agentTab with ?tab=<id> returns the mapped agent
+	req2 := httptest.NewRequest(http.MethodGet, "/api/history?tab="+strconv.Itoa(id), nil)
+	got2, err2 := s.agentTab(req2)
+	if err2 != nil {
+		t.Fatalf("agentTab with valid tab=%d: unexpected error %v", id, err2)
+	}
+	if got2 != a {
+		t.Fatalf("agentTab with tab=%d should return agent for that tab", id)
+	}
+	// agentTab with unknown id returns 404 error
+	req3 := httptest.NewRequest(http.MethodGet, "/api/history?tab=9999", nil)
+	_, err3 := s.agentTab(req3)
+	if err3 == nil {
+		t.Fatal("agentTab with unknown tab should return error")
+	}
+	if he, ok := err3.(*httpError); !ok || he.code != http.StatusNotFound {
+		t.Fatalf("agentTab unknown tab: want 404 httpError, got %v", err3)
+	}
+	// agentTab with bad id returns 400 error
+	req4 := httptest.NewRequest(http.MethodGet, "/api/history?tab=notanint", nil)
+	_, err4 := s.agentTab(req4)
+	if err4 == nil {
+		t.Fatal("agentTab with bad tab id should return error")
+	}
+	if he, ok := err4.(*httpError); !ok || he.code != http.StatusBadRequest {
+		t.Fatalf("agentTab bad tab: want 400 httpError, got %v", err4)
+	}
+}
+
+func TestHistoryRaceNonDefaultTab(t *testing.T) {
+	// Regression: GET /api/history?tab=N during a run must not race-read
+	// the running agent's messages. The server must serve the pre-run snapshot.
+	hub := newTabHub()
+	id1 := hub.add("main")
+	id2 := hub.add("worker")
+	a1 := newAgent("http://127.0.0.1:1", t.TempDir(), "prism")
+	a2 := newAgent("http://127.0.0.1:1", t.TempDir(), "prism")
+	agents := map[int]*Agent{id1: a1, id2: a2}
+	s := newServerWithHub(a1, hub, func(i int) *Agent { return agents[i] }, t.TempDir(), "prism")
+
+	// Simulate a run in progress on a2 (non-default agent).
+	s.mu.Lock()
+	s.busy = true
+	s.busyAgent = a2
+	if s.agentSnap == nil {
+		s.agentSnap = make(map[*Agent][]wireEntry)
+	}
+	s.agentSnap[a2] = []wireEntry{{Kind: "user", Text: "hello"}}
+	s.mu.Unlock()
+
+	// GET /api/history?tab=<id2> must return the snapshot, not live messages.
+	web := t.TempDir()
+	if err := os.WriteFile(filepath.Join(web, "index.html"), []byte("<!doctype html>prism"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.webDir = web
+	h := s.handler("4849")
+	host := "127.0.0.1:4849"
+	rec := do(t, h, http.MethodGet, "/api/history?tab="+strconv.Itoa(id2), host, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("history during run: got %d, want 200", rec.Code)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("bad JSON: %v", err)
+	}
+	entries, _ := out["entries"].([]any)
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 snapshot entry, got %d", len(entries))
+	}
+	entry, _ := entries[0].(map[string]any)
+	if entry["kind"] != "user" || entry["text"] != "hello" {
+		t.Fatalf("unexpected snapshot entry: %v", entry)
 	}
 }

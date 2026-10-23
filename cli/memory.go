@@ -28,6 +28,7 @@ const (
 	memoryLimit     = 4000
 	keepSessions    = 50
 	memoryMaxTokens = 1200
+	maxOpenTabs     = 9
 )
 
 const memoryPrompt = `You keep a short memory file for a coding assistant that works on one project. Below is the current memory and a log of the latest work.
@@ -76,6 +77,14 @@ type sessionInfo struct {
 	ID      string    `json:"id"`
 	Title   string    `json:"title"`
 	Updated time.Time `json:"updated"`
+}
+
+// openTab is one tab of a multi-tab Prism window, saved per project so a
+// restarted window can restore its tabs next to the sessions.
+type openTab struct {
+	Session string `json:"session"`
+	Name    string `json:"name"`
+	Active  bool   `json:"active"`
 }
 
 type usageDay struct {
@@ -354,7 +363,15 @@ func (s *store) pruneSessions(keep int) {
 		}
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].mod.After(all[j].mod) })
+	// A session listed as an open tab is never pruned, even past the keep limit.
+	open := map[string]bool{}
+	for _, t := range s.loadOpenTabs() {
+		open[t.Session] = true
+	}
 	for _, old := range all[min(keep, len(all)):] {
+		if open[strings.TrimSuffix(filepath.Base(old.path), ".json")] {
+			continue
+		}
 		os.Remove(old.path)
 		os.Remove(strings.TrimSuffix(old.path, ".json") + ".hdr")
 	}
@@ -420,6 +437,50 @@ func (s *store) loadSession(id string) (session, error) {
 		return sess, fmt.Errorf("session %s has no messages", id)
 	}
 	return sess, nil
+}
+
+// saveOpenTabs atomically writes the window's open tabs, per project, next to
+// the sessions. A nil or dir-less store is a no-op.
+func (s *store) saveOpenTabs(tabs []openTab) error {
+	if s == nil || s.dir == "" {
+		return nil
+	}
+	data, err := json.Marshal(tabs)
+	if err != nil {
+		return err
+	}
+	return writeAtomic(s.path("tabs.json"), data)
+}
+
+// loadOpenTabs reads the saved open tabs. Tabs whose session file no longer
+// exists are skipped, and at most maxOpenTabs tabs are returned. A nil or
+// dir-less store, a missing file, or corrupt JSON yields no tabs.
+func (s *store) loadOpenTabs() []openTab {
+	if s == nil || s.dir == "" {
+		return nil
+	}
+	data, err := os.ReadFile(s.path("tabs.json"))
+	if err != nil {
+		return nil
+	}
+	var tabs []openTab
+	if json.Unmarshal(data, &tabs) != nil {
+		return nil
+	}
+	out := make([]openTab, 0, min(len(tabs), maxOpenTabs))
+	for _, t := range tabs {
+		if t.Session == "" {
+			continue
+		}
+		if _, err := os.Stat(s.path("sessions", filepath.Base(t.Session)+".json")); err != nil {
+			continue // session pruned or never saved; drop the tab
+		}
+		out = append(out, t)
+		if len(out) >= maxOpenTabs {
+			break
+		}
+	}
+	return out
 }
 
 func usagePath() string {

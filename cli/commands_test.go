@@ -59,7 +59,7 @@ func TestMemoryCommands(t *testing.T) {
 					var kind, title string
 					var lines []string
 					if ui == "terminal" {
-						m := &model{agent: a}
+						m := &model{tab: &tab{agent: a}}
 						m.command(tc.command)
 						e := m.entries[len(m.entries)-1]
 						kind, title, lines = e.kind, e.text, e.lines

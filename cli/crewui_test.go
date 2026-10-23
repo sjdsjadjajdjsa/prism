@@ -37,8 +37,8 @@ func crewScreen(m model) string {
 }
 
 func crewTestModel(w, h int) model {
-	m := model{w: w, h: h, chat: true, chatAt: -time.Hour, now: time.Second, busy: true, lastTextAt: -time.Hour, sayAt: -time.Hour,
-		events: make(chan any, 8), project: "~/shop"}
+	m := model{tab: &tab{busy: true, events: make(chan any, 8)}, w: w, h: h, chat: true, chatAt: -time.Hour, now: time.Second, lastTextAt: -time.Hour, sayAt: -time.Hour,
+		project: "~/shop"}
 	m.entries = []*entry{{kind: "user", text: "build the checkout"}}
 	return m
 }

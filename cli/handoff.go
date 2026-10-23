@@ -47,7 +47,7 @@ func (m *model) startWeb() {
 		m.entries = append(m.entries, &entry{kind: "error", text: "couldn't open the web page: " + err.Error(), arg: "prism is already open in a browser somewhere · close that tab and try /web again"})
 		return
 	}
-	s := newServer(m.agent, dir, themes[m.theme].name)
+	s := newServerWithHub(m.agent, m.hub, agentFor, dir, themes[m.theme].name)
 	s.handoff = true
 	w := &webSession{server: s, url: "http://127.0.0.1:" + port, started: time.Now()}
 	w.openID.Store(uint64(time.Now().UnixNano()))

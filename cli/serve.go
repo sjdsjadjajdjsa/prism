@@ -17,14 +17,18 @@ import (
 )
 
 type server struct {
-	agent  *Agent
-	webDir string
-	theme  string
-	mu     sync.Mutex
-	cancel context.CancelFunc
-	busy   bool
-	snap   []wireEntry    // history snapshot served while a chat is running
-	memWG  sync.WaitGroup // outstanding background memory job
+	agent     *Agent
+	agentFor  func(id int) *Agent // nil → single-agent mode
+	hub       *tabHub
+	webDir    string
+	theme     string
+	mu        sync.Mutex
+	cancel    context.CancelFunc
+	busy      bool
+	busyAgent *Agent                 // which agent is currently running (set under mu)
+	snap      []wireEntry            // history snapshot served while a chat is running
+	agentSnap map[*Agent][]wireEntry // per-agent snapshots for non-default running agents
+	memWG     sync.WaitGroup         // outstanding background memory job
 
 	handoff  bool
 	lastSeen time.Time
@@ -86,6 +90,11 @@ func newServer(agent *Agent, webDir, theme string) *server {
 	return &server{agent: agent, webDir: webDir, theme: theme}
 }
 
+// newServerWithHub creates a server that supports multiple tabs.
+func newServerWithHub(agent *Agent, hub *tabHub, agentFor func(id int) *Agent, webDir, theme string) *server {
+	return &server{agent: agent, hub: hub, agentFor: agentFor, webDir: webDir, theme: theme}
+}
+
 func (s *server) handler(port string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/command", s.command)
@@ -95,6 +104,7 @@ func (s *server) handler(port string) http.Handler {
 	mux.HandleFunc("GET /tree.js", treeAsset("tree.js", "text/javascript"))
 	mux.HandleFunc("GET /tree.css", treeAsset("tree.css", "text/css"))
 	mux.HandleFunc("GET /api/history", s.history)
+	mux.HandleFunc("GET /api/tabs", s.tabs)
 	mux.HandleFunc("POST /api/chat", s.chat)
 	mux.HandleFunc("POST /api/stop", s.stop)
 	mux.HandleFunc("POST /api/new", s.reset)
@@ -215,8 +225,12 @@ func (s *server) info(w http.ResponseWriter, r *http.Request) {
 // snapshot converts the agent's messages to wire entries. Callers must hold
 // s.mu and must not call it while a chat is running.
 func (s *server) snapshot() []wireEntry {
+	return s.snapshotAgent(s.agent)
+}
+
+func (s *server) snapshotAgent(a *Agent) []wireEntry {
 	out := []wireEntry{}
-	for _, e := range entriesFrom(s.agent.messages) {
+	for _, e := range entriesFrom(a.messages) {
 		w := wireEntry{Kind: e.kind, Text: e.text, Tool: e.tool, Arg: e.arg, OK: e.res.ok, Summary: e.res.summary}
 		if e.crew != nil {
 			w.Crew = e.crew.wire()
@@ -227,20 +241,88 @@ func (s *server) snapshot() []wireEntry {
 }
 
 func (s *server) history(w http.ResponseWriter, r *http.Request) {
+	a, err := s.agentTab(r)
+	if err != nil {
+		if he, ok := err.(*httpError); ok {
+			http.Error(w, he.msg, he.code)
+			return
+		}
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
 	s.mu.Lock()
 	var out []wireEntry
-	if s.busy {
+	if s.busy && a == s.busyAgent {
 		// agent.Run is mutating messages outside the lock; serve the copy
 		// taken before the run started instead of reading live state.
-		out = s.snap
+		if a == s.agent {
+			out = s.snap
+		} else if s.agentSnap != nil {
+			out = s.agentSnap[a]
+		}
 	} else {
-		out = s.snapshot()
+		out = s.snapshotAgent(a)
 	}
 	s.mu.Unlock()
 	if out == nil {
 		out = []wireEntry{}
 	}
 	writeJSON(w, map[string]any{"entries": out})
+}
+
+// agentTab returns the agent for the given tab id (from ?tab= query param).
+// When a hub is configured and ?tab= is present:
+//   - returns 400 if the value is not a valid positive integer
+//   - returns 404 if the id is not known to the hub
+//
+// Falls back to s.agent when hub is nil or no ?tab= param is given.
+func (s *server) agentTab(r *http.Request) (*Agent, error) {
+	if s.hub == nil || s.agentFor == nil {
+		return s.agent, nil
+	}
+	idStr := r.URL.Query().Get("tab")
+	if idStr == "" {
+		return s.agent, nil
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil || id <= 0 {
+		return nil, &httpError{http.StatusBadRequest, "invalid tab id"}
+	}
+	if a := s.agentFor(id); a != nil {
+		return a, nil
+	}
+	return nil, &httpError{http.StatusNotFound, "tab not found"}
+}
+
+// httpError carries an HTTP status code and message for agentTab errors.
+type httpError struct {
+	code int
+	msg  string
+}
+
+func (e *httpError) Error() string { return e.msg }
+
+// tabs serves GET /api/tabs — returns the tab list plus a version for long-polling.
+// ?since=<version> holds the request until the list changes (up to 25 s).
+func (s *server) tabs(w http.ResponseWriter, r *http.Request) {
+	if s.hub == nil {
+		// Single-agent mode: return a minimal single-tab list so the web UI
+		// can always call this endpoint safely.
+		writeJSON(w, map[string]any{
+			"tabs":    []tabInfo{{ID: 1, Name: "main", Status: "idle"}},
+			"version": uint64(1),
+		})
+		return
+	}
+	if sinceStr := r.URL.Query().Get("since"); sinceStr != "" {
+		if since, err := strconv.ParseUint(sinceStr, 10, 64); err == nil {
+			s.hub.wait(r.Context(), since, 25*time.Second)
+		}
+	}
+	writeJSON(w, map[string]any{
+		"tabs":    s.hub.list(),
+		"version": s.hub.version(),
+	})
 }
 
 func (s *server) stop(w http.ResponseWriter, r *http.Request) {
@@ -259,8 +341,19 @@ func (s *server) reset(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "busy", http.StatusConflict)
 		return
 	}
-	s.agent.reset()
-	s.snap = nil
+	a, err := s.agentTab(r)
+	if err != nil {
+		if he, ok := err.(*httpError); ok {
+			http.Error(w, he.msg, he.code)
+			return
+		}
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	a.reset()
+	if a == s.agent {
+		s.snap = nil
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -272,6 +365,15 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "send JSON like {\"message\": \"...\"}", http.StatusBadRequest)
 		return
 	}
+	a, aerr := s.agentTab(r)
+	if aerr != nil {
+		if he, ok := aerr.(*httpError); ok {
+			http.Error(w, he.msg, he.code)
+			return
+		}
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
 	s.mu.Lock()
 	if s.busy {
 		s.mu.Unlock()
@@ -279,14 +381,25 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx, cancel := context.WithCancel(r.Context())
-	s.busy, s.cancel = true, cancel
-	s.snap = s.snapshot()
+	s.busy, s.cancel, s.busyAgent = true, cancel, a
+	if a == s.agent {
+		s.snap = s.snapshot()
+	} else {
+		if s.agentSnap == nil {
+			s.agentSnap = make(map[*Agent][]wireEntry)
+		}
+		s.agentSnap[a] = s.snapshotAgent(a)
+	}
 	s.mu.Unlock()
 	defer func() {
 		cancel()
 		s.mu.Lock()
-		s.snap = s.snapshot()
-		s.busy, s.cancel, s.lastSeen = false, nil, time.Now()
+		if a == s.agent {
+			s.snap = s.snapshot()
+		} else if s.agentSnap != nil {
+			delete(s.agentSnap, a)
+		}
+		s.busy, s.cancel, s.busyAgent, s.lastSeen = false, nil, nil, time.Now()
 		s.mu.Unlock()
 	}()
 	// A memory job from the previous chat may still be running; never let it
@@ -305,7 +418,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	start, route, tools, tests := time.Now(), "", 0, false
 	pending := map[string]string{}
-	s.agent.Run(ctx, strings.TrimSpace(body.Message), func(event any) {
+	a.Run(ctx, strings.TrimSpace(body.Message), func(event any) {
 		if v, ok := crewWire(event); ok {
 			send(v)
 			return
@@ -335,7 +448,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 			send(map[string]any{"type": "note", "text": e.text})
 		case evUsage:
 			s.mu.Lock()
-			s.requests, s.sent = s.agent.requests, s.agent.sent
+			s.requests, s.sent = a.requests, a.sent
 			s.mu.Unlock()
 			send(map[string]any{"type": "usage", "tokens": e.tokens, "window": e.window})
 		case evDone:
@@ -350,7 +463,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	})
-	if job := s.agent.memoryJob(); job != nil {
+	if job := a.memoryJob(); job != nil {
 		s.memWG.Add(1)
 		go func() {
 			defer s.memWG.Done()
@@ -392,7 +505,10 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 	info := func(title string, lines []string) {
 		writeJSON(w, map[string]any{"kind": "info", "title": title, "lines": lines})
 	}
-	a := s.agent
+	a, _ := s.agentTab(r)
+	if a == nil {
+		a = s.agent
+	}
 	switch fields[0] {
 	case "/models", "/model", "/status":
 		rows, err := fetchRoutes(a.api)

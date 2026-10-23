@@ -40,6 +40,7 @@
 .ptree-badge.n{color:var(--t-muted);font-weight:500}
 .ptree-dot{width:7px;height:7px;border-radius:50%;flex:none;background:var(--t-accent);box-shadow:0 0 8px var(--t-accent)}
 .ptree-dot.read{background:transparent;border:1.5px solid var(--t-muted);box-shadow:none}
+.ptree-tab-chip{font:700 9px/1 ui-monospace,monospace;padding:2px 5px;border-radius:5px;flex:none;color:var(--t-bg);background:var(--t-amber);cursor:default}
 .ptree-spacer{flex:1}
 .ptree-size{color:var(--t-muted);font-size:11px;font-variant-numeric:tabular-nums}
 .ptree-rank{width:34px;height:4px;border-radius:2px;background:var(--t-faint);flex:none;overflow:hidden}

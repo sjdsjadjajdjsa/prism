@@ -390,6 +390,50 @@ body.shake { transform: translate(var(--shake-x, 0px), var(--shake-y, 0px)); }
   .splash { transition: none; }
   }
 
+/* ---- tab strip ---- */
+.tab-strip {
+  flex: none; display: flex; align-items: stretch; gap: 2px;
+  background: var(--bg); border-bottom: 1px solid var(--faint);
+  padding: 0 8px; overflow-x: auto; scrollbar-width: none;
+  max-width: 100%; z-index: 4;
+}
+.tab-strip::-webkit-scrollbar { display: none; }
+.tab-strip[hidden] { display: none; }
+.tab-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border: 0; background: none; color: var(--muted);
+  font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: color .12s, border-color .12s;
+  max-width: 160px; min-width: 0;
+}
+.tab-btn:hover { color: var(--fg); }
+.tab-btn:focus-visible {
+  outline: 2px solid var(--x4);
+  outline-offset: -2px;
+  border-radius: 3px;
+}
+.tab-btn[aria-selected="true"] {
+  color: var(--fg); border-bottom-color: var(--x4);
+}
+.tab-btn .tab-num { color: var(--faint); font-size: 11px; flex: none; }
+.tab-btn .tab-name {
+  overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.tab-btn .tab-dot { flex: none; width: 7px; height: 7px; }
+/* status dots: differ by BOTH colour and shape */
+/* working — filled circle, pulsing (blue) */
+.tab-dot-working  { background: var(--x4); border-radius: 50%; animation: tab-pulse 1s ease-in-out infinite; }
+/* waiting — hollow ring (amber) */
+.tab-dot-waiting  { background: transparent; border-radius: 50%; border: 2px solid var(--s1); }
+/* done — filled square with rounded corners (green) */
+.tab-dot-done     { background: var(--green); border-radius: 2px; }
+/* error — sharp square (red) */
+.tab-dot-error    { background: var(--red); border-radius: 0; }
+/* idle — small dim circle */
+.tab-dot-idle     { background: var(--faint); border-radius: 50%; }
+@keyframes tab-pulse { 50% { opacity: .3; } }
+
 /* Files panel (web/files.js + /tree.css) */
 .files-toggle { background: transparent; color: var(--fg); border: 1px solid var(--faint); border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; transition: border-color .15s, background .15s; }
 .files-toggle:hover, .files-toggle[aria-expanded="true"] { border-color: var(--s6, var(--s0)); background: color-mix(in srgb, var(--s6, var(--s0)) 12%, transparent); }
