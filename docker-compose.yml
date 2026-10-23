@@ -8,13 +8,17 @@ services:
         required: false
     ports:
       - "127.0.0.1:4848:4848"
+      - "127.0.0.1:1455:1455"
+      - "127.0.0.1:56121:56121"
     environment:
       HOST: 0.0.0.0
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - router-data:/data
-      - ./custom-providers.json:/app/custom-providers.json:ro
+      - ./custom-providers.json:/app/custom-providers.json
+      - ./keys.conf:/app/keys.conf
+      - ./subscriptions.json:/app/subscriptions.json
     restart: unless-stopped
 
   agent:

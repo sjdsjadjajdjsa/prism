@@ -1,6 +1,9 @@
 import http from 'node:http'
 import { readFileSync, writeFileSync, renameSync } from 'node:fs'
-import { customProviders, eligible } from './custom.mjs'
+import { randomUUID } from 'node:crypto'
+import { customProviders, eligible, PRESETS, maskKey, syncKeys, setKeyVar, keysPath, customFilePath, upsertPresetEntry, probeModels } from './custom.mjs'
+import { SUBSCRIPTIONS, subscriptionProviders, startLogin, pollLogin, signOut, loadSubs, subToken, startBrowserLogin, handleOAuthCallback, pendingLoginURL, loginError } from './subs.mjs'
+import { wireFor } from './wire.mjs'
 
 const config = JSON.parse(readFileSync(new URL('./providers.json', import.meta.url), 'utf8'))
 const port = Number(process.env.PORT) || 4848
@@ -22,6 +25,9 @@ try {
   for (const [id, stat] of Object.entries(JSON.parse(readFileSync(statsFile, 'utf8')))) stats.set(id, stat)
 } catch {}
 
+// Keys from keys.conf, live: a key added with POST /keys works without a restart.
+syncKeys()
+
 const saveStats = () => {
   if (!statsFile || saveTimer) return
   saveTimer = setTimeout(() => {
@@ -42,7 +48,7 @@ const slotWaiters = new Set()
 const expand = text => text.replace(/\$\{(\w+)(?::-([^}]*))?\}/g, (_, name, fallback = '') => process.env[name] || fallback)
 
 const routes = () =>
-  [...config.providers, ...customProviders()]
+  [...config.providers, ...customProviders(), ...subscriptionProviders()]
     .filter(provider => !provider.requires || process.env[provider.requires])
     .flatMap(provider =>
       provider.models.map(entry => {
@@ -60,6 +66,7 @@ const routes = () =>
           quick: provider.quick,
           paid: provider.mark?.paid,
           source: provider.mark?.source,
+            ...(provider.mark?.subscription && { sub: provider.mark.subscription }),
         }
       }),
     )
@@ -188,17 +195,64 @@ const complete = async (req, res) => {
     }
   }
 
-  const post = (attempt, signal) =>
-    fetch(`${attempt.route.baseURL}/chat/completions`, {
-      method: 'POST',
-      headers: {
+  const post = async (attempt, signal) => {
+    let key = attempt.route.key
+      let url = `${attempt.route.baseURL}/chat/completions`
+      let headers = {
         'content-type': 'application/json',
         'user-agent': 'free-ai-router',
-        ...(attempt.route.key && { authorization: `Bearer ${attempt.route.key}` }),
-      },
-      body: JSON.stringify({ ...rest, ...(quick && attempt.route.quick), model: attempt.route.model }),
-      signal,
-    })
+        ...(key && { authorization: `Bearer ${key}` }),
+        ...(attempt.route.sub && { 'editor-version': 'prism/1.0', 'copilot-integration-id': 'prism' }),
+      }
+      let body = { ...rest, ...(quick && attempt.route.quick), model: attempt.route.model }
+    if (!key && attempt.route.sub) {
+      const sub = SUBSCRIPTIONS.find(s => s.id === attempt.route.sub)
+      try {
+        key = (await subToken(sub)).token
+        } catch (error) {
+        return new Response(JSON.stringify({ error: { message: error.message, type: 'subscription' } }), { status: 401, headers: { 'content-type': 'application/json' } })
+        }
+      const stored = loadSubs()[sub.id] ?? {}
+      const wire = sub.wire ? wireFor(sub.wire) : null
+      if (wire) {
+          attempt.wireStream = new wire.stream()
+          body = wire.to({ ...rest, ...(quick && attempt.route.quick), model: attempt.route.model })
+          headers = {
+            'content-type': 'application/json',
+            'user-agent': 'free-ai-router',
+            authorization: `Bearer ${key}`,
+            ...(sub.apiHeaders ?? {}),
+            ...(stored.accountId && { 'chatgpt-account-id': stored.accountId }),
+            ...(stored.apiKey && { 'x-goog-api-key': stored.apiKey }),
+          }
+          if (sub.wire === 'codex') url = `${attempt.route.baseURL}/responses${sub.modelsQuery ? `?${new URLSearchParams(sub.modelsQuery)}` : ''}`
+          else if (sub.wire === 'anthropic') {
+            url = `${attempt.route.baseURL}/messages`
+            // Claude Code sends a stable device identity on every request; without
+            // it Anthropic throttles OAuth requests with a bare 429.
+            if (stored.deviceId) {
+              body.metadata = { user_id: JSON.stringify({ device_id: stored.deviceId, account_uuid: stored.accountUuid, session_id: stored.sessionId }) }
+            }
+            headers['x-client-request-id'] = randomUUID()
+          }
+          else if (sub.wire === 'gemini') url = `${attempt.route.baseURL}/v1internal/models/${attempt.route.model}:streamGenerateContent?alt=sse`
+        } else {
+          headers = {
+            'content-type': 'application/json',
+            'user-agent': 'free-ai-router',
+            authorization: `Bearer ${key}`,
+            ...(sub.apiHeaders ?? {}),
+            ...(attempt.route.sub && { 'editor-version': 'prism/1.0', 'copilot-integration-id': 'prism' }),
+          }
+        }
+      }
+      return fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal,
+      })
+    }
 
   const giveUp = () => {
     if (winner || closed || live.size || pending.length) return
@@ -242,14 +296,16 @@ const complete = async (req, res) => {
     lastErrors.delete(attempt.route.id)
     console.log(`→ ${attempt.route.id} (started in ${seconds(wait)})`)
     res.writeHead(200, {
-      'content-type': upstream.headers.get('content-type') ?? 'application/json',
+      // A wired route's body is SSE by construction (the wire adapter emits it),
+      // whatever content-type the vendor's backend declared.
+      'content-type': attempt.wireStream ? 'text/event-stream' : upstream.headers.get('content-type') ?? 'application/json',
       'cache-control': 'no-cache',
       'x-free-route': attempt.route.id,
       'x-prism-family': attempt.route.family,
       'x-free-wait': String(wait),
       'x-prism-prefer': '1',
     })
-    res.write(first)
+    res.write(attempt.wireStream ? attempt.wireStream.write(first) : first)
     try {
       while (!closed) {
         const chunk = await within(reader.read(), stallTimeout)
@@ -260,7 +316,7 @@ const complete = async (req, res) => {
           break
         }
         if (chunk.done) break
-        res.write(chunk.value)
+        res.write(attempt.wireStream ? attempt.wireStream.write(chunk.value) : chunk.value)
       }
     } catch {}
     res.end()
@@ -351,11 +407,132 @@ const status = () => {
   }))
 }
 
+const freeKeyRows = () => {
+  const rows = []
+  const seen = new Set()
+  for (const provider of config.providers) {
+    if (!provider.requires || seen.has(provider.requires)) continue
+    seen.add(provider.requires)
+    rows.push({ id: provider.name, name: provider.name, var: provider.requires, set: process.env[provider.requires] ? maskKey(process.env[provider.requires]) : null })
+  }
+  return rows
+}
+
+const keysHandler = async (req, res) => {
+  try {
+    return await keysRoute(req, res)
+  } catch {
+    return send(res, 500, { error: { message: 'the key could not be saved; check the disk and file permissions', type: 'internal' } })
+  }
+}
+
+const keysRoute = async (req, res) => {
+  if (req.method === 'GET') {
+    syncKeys()
+    return send(res, 200, {
+      free: freeKeyRows(),
+      presets: PRESETS.map(p => ({
+        id: p.id,
+        name: p.name,
+        var: p.keyVar ?? '',
+        paid: p.paid,
+        keyless: p.keyless === true,
+        keyUrl: p.keyUrl ?? '',
+        set: p.keyVar && process.env[p.keyVar] ? maskKey(process.env[p.keyVar]) : null,
+      })),
+    })
+  }
+  let body
+  try {
+    body = JSON.parse(await readBody(req))
+  } catch {
+    return send(res, 400, { error: { message: 'Request body must be JSON', type: 'invalid_request' } })
+  }
+  const id = String(body?.id ?? '').trim()
+  const keyVar = String(body?.var ?? '').trim()
+  if (body?.value !== undefined && typeof body.value !== 'string') return send(res, 400, { error: { message: 'the key must be text', type: 'invalid_request' } })
+  const value = String(body?.value ?? '').trim()
+  if (value && (value.length > 4096 || /[\r\n\0]/.test(value))) return send(res, 400, { error: { message: 'that does not look like a key', type: 'invalid_request' } })
+  const preset = PRESETS.find(p => p.id === id || (keyVar && p.keyVar === keyVar)) || null
+  const freeVar = preset ? null : config.providers.find(p => p.requires && (p.requires === keyVar || p.name === id))?.requires ?? null
+  if (!preset && !freeVar) return send(res, 404, { error: { message: `no provider called "${id || keyVar}"`, type: 'not_found' } })
+  if (preset?.keyless) return send(res, 400, { error: { message: `${preset.id} needs no key`, type: 'invalid_request' } })
+  const name = preset ? preset.keyVar : freeVar
+  setKeyVar(keysPath(), name, value)
+  if (!value) return send(res, 200, { ok: true, removed: true })
+  let models = null
+  let note = ''
+  if (preset) {
+    let existing = []
+    try {
+      const parsed = JSON.parse(readFileSync(customFilePath(), 'utf8'))
+      existing = parsed.find?.(entry => entry?.id === preset.id)?.models ?? []
+    } catch {}
+    const probed = await probeModels(preset, value)
+    const list = probed.models?.length ? probed.models : [...(existing || []), ...preset.models]
+    if (list.length) {
+      const saved = upsertPresetEntry(customFilePath(), preset, list)
+      if (saved.error) note = `key saved, but the model list was not: ${saved.error}`
+      else {
+        models = saved.models.length
+        if (!probed.models?.length) note = 'the service did not list its models, so the known ones are used'
+      }
+    } else {
+      note = 'key saved, but the service did not list its models; add them with: prism keys add'
+    }
+  }
+  return send(res, 200, { ok: true, masked: maskKey(value), models, note })
+}
+
+const loginsHandler = async (req, res) => {
+  try {
+    return await loginsRoute(req, res)
+  } catch {
+    return send(res, 502, { error: { message: 'the sign-in service could not be reached; try again in a minute', type: 'login_failed' } })
+  }
+}
+
+const loginsRoute = async (req, res) => {
+  let body = {}
+  if (req.method === 'POST') {
+    try {
+      body = JSON.parse(await readBody(req))
+    } catch {
+      return send(res, 400, { error: { message: 'Request body must be JSON', type: 'invalid_request' } })
+    }
+  }
+  const sub = SUBSCRIPTIONS.find(s => s.id === String(body?.id ?? '').trim())
+  if (req.method === 'GET') {
+    if (new URL(req.url, 'http://router').pathname === '/logins/pending') return send(res, 200, { url: pendingLoginURL() })
+    return send(res, 200, { subscriptions: SUBSCRIPTIONS.map(s => ({ id: s.id, name: s.name, signedIn: Boolean(loadSubs()[s.id]?.accessToken), models: loadSubs()[s.id]?.models?.length ?? 0, error: loginError(s.id) })) })
+  }
+  if (!sub) return send(res, 404, { error: { message: `no subscription called "${body?.id}"`, type: 'not_found' } })
+  if (body?.signOut === true) {
+    signOut(sub)
+    return send(res, 200, { ok: true, signedOut: true })
+  }
+  if (req.method === 'POST' && body?.poll === true) {
+    const result = await pollLogin(sub)
+    return send(res, 200, result)
+  }
+  if (sub.kind === 'browser' || body?.browser === true) {
+    const started = await startBrowserLogin(sub)
+    if (started.error) return send(res, 502, { error: { message: started.error, type: 'login_failed' } })
+    return send(res, 200, started)
+  }
+  const started = await startLogin(sub)
+  if (started.error) return send(res, 502, { error: { message: started.error, type: 'login_failed' } })
+  return send(res, 200, started)
+}
+
 http
   .createServer((req, res) => {
     const path = new URL(req.url, 'http://router').pathname
     if (req.method === 'POST' && path === '/v1/chat/completions') return complete(req, res)
-    if (path === '/v1/models') return send(res, 200, { object: 'list', data: ['auto', ...roleNames.map(role => `auto:${role}`), 'auto:vision', ...routes().filter(route => route.source === 'yours').map(route => route.id)].map(id => ({ id, object: 'model', owned_by: 'free-ai' })) })
+    if (path === '/keys') return keysHandler(req, res)
+    if (path === '/logins' || path === '/logins/pending') return loginsHandler(req, res)
+    if ((path === '/callback' || path === '/oauth2callback' || path === '/auth/callback') && req.method === 'GET') return void handleOAuthCallback(req, res, path).then(handled => { if (!handled) send(res, 404, { error: { message: 'Not found', type: 'not_found' } }) })
+    if (path === '/v1/models') return send(res, 200, { object: 'list', data: ['auto', ...roleNames.map(role => `auto:${role}`), 'auto:vision', ...routes().filter(route => route.source === 'yours' || route.source === 'subscription').map(route => route.id)].map(id => ({ id, object: 'model', owned_by: 'free-ai' })) })
     if (path === '/status' && new URL(req.url, 'http://router').searchParams.get('format') === 'text') {
       res.writeHead(200, { 'content-type': 'text/plain' })
       return res.end(status().map(row => `${row.ready ? '✓ ready  ' : `… resting ${row.retryInSeconds}s`}  ${row.route}${row.lastError ? `\n             last error: ${row.lastError}` : ''}`).join('\n') + '\n')

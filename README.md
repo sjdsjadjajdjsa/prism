@@ -68,7 +68,7 @@ A **router** is a small helper that picks a free AI for each step, and a **key**
 
 Prism works with **no keys at all**. Out of the box it uses free models from Kilo Gateway, BlockRun and LLM7; the router below hides most of the slowness.
 
-Want it faster and smarter? `prism setup` walks you through free keys, about a minute each. None of them ask for a card.
+Want it faster and smarter? `prism setup` walks you through free keys, about a minute each. None of them ask for a card. Already pay for a model? `/key <name> <secret>` inside Prism adds it (22 presets, or any OpenAI-compatible service with `prism keys add`); it only answers when you pick it by name. Pay for ChatGPT, Claude, Grok, Gemini or Copilot? `/login <name>` opens your browser, you sign in, and your plan's models appear in `/models`. `/model <name>` pins any of them for the chat; `/model auto` lets Prism choose again.
 
 | Provider | What you get | Key |
 | --- | --- | --- |

@@ -434,6 +434,8 @@ func (a *Agent) newWorker(w *crewWorker, all []*crewWorker) *Agent {
 		return out
 	}
 	worker.reset()
+	// reset() clears the pin, so the crew role model goes back on after it.
+	worker.model = "auto:" + w.task.Role
 	return worker
 }
 
@@ -518,6 +520,7 @@ func (a *Agent) runReview(ctx context.Context, workers []*crewWorker, emit func(
 		crewNote:  "\n\nYou are the reviewer of a crew. Only list, grep and read are available.",
 	}
 	reviewer.reset()
+	reviewer.model = "auto:review"
 	emit(evCrewWorker{id: "review", model: "auto:review", status: "running"})
 	rctx, cancel := context.WithTimeout(ctx, crewTimeout)
 	defer cancel()

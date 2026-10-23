@@ -198,6 +198,7 @@ func (a *Agent) tools() []any {
 }
 
 func (a *Agent) reset() {
+	a.model = ""
 	a.touchMu.Lock()
 	a.touched = map[string]string{}
 	a.touchMu.Unlock()
@@ -495,6 +496,24 @@ func (a *Agent) loop(ctx context.Context, emit func(any)) error {
 	return fmt.Errorf("stopped after %d steps without finishing", limit)
 }
 
+// subscriptionIDs are the router's subscription account prefixes.
+var subscriptionIDs = []string{"chatgpt", "claude", "grok", "gemini", "copilot"}
+
+// busyNoteText says what is actually rate-limited: a subscription plan
+// (claude, chatgpt, …) reads differently from the free routes.
+func busyNoteText(err error, wait time.Duration) string {
+	secs := int(wait.Round(time.Second) / time.Second)
+	var re *routerError
+	if errors.As(err, &re) {
+		for _, f := range re.failures {
+			if provider := strings.SplitN(f.Route, "/", 2)[0]; slices.Contains(subscriptionIDs, provider) {
+				return fmt.Sprintf("%s is rate-limited (your plan's limit may be used up for now), trying again in %ds…", provider, secs)
+			}
+		}
+	}
+	return fmt.Sprintf("free models are busy, trying again in %ds…", secs)
+}
+
 func (a *Agent) completeRetry(ctx context.Context, emit func(any)) (Message, error) {
 	var re *routerError
 	var be *busyError
@@ -520,7 +539,7 @@ func (a *Agent) completeRetry(ctx context.Context, emit func(any)) (Message, err
 			be = nil
 			busy++
 			attempt--
-			emit(evNote{fmt.Sprintf("free models are busy, trying again in %ds…", int(wait.Round(time.Second)/time.Second))})
+			emit(evNote{busyNoteText(err, wait)})
 			select {
 			case <-ctx.Done():
 				return reply, ctx.Err()

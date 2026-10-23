@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
 import { spawn } from 'node:child_process'
-import { mkdtempSync, copyFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, copyFileSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -35,6 +35,8 @@ before(async () => {
   const dir = mkdtempSync(join(tmpdir(), 'router-'))
   copyFileSync(new URL('./server.mjs', import.meta.url), join(dir, 'server.mjs'))
   copyFileSync(new URL('./custom.mjs', import.meta.url), join(dir, 'custom.mjs'))
+  copyFileSync(new URL('./subs.mjs', import.meta.url), join(dir, 'subs.mjs'))
+  copyFileSync(new URL('./wire.mjs', import.meta.url), join(dir, 'wire.mjs'))
   writeFileSync(join(dir, 'providers.json'), JSON.stringify({ providers: [
     { name: 'busy', baseURL: busy, models: ['m'] },
     { name: 'slow', baseURL: slow, models: ['m'] },
@@ -98,6 +100,8 @@ const startRouter = async (providers, env = {}) => {
   const dir = mkdtempSync(join(tmpdir(), 'router-'))
   copyFileSync(new URL('./server.mjs', import.meta.url), join(dir, 'server.mjs'))
   copyFileSync(new URL('./custom.mjs', import.meta.url), join(dir, 'custom.mjs'))
+  copyFileSync(new URL('./subs.mjs', import.meta.url), join(dir, 'subs.mjs'))
+  copyFileSync(new URL('./wire.mjs', import.meta.url), join(dir, 'wire.mjs'))
   writeFileSync(join(dir, 'providers.json'), JSON.stringify({ providers }))
   const probe = http.createServer().listen(0, '127.0.0.1')
   await new Promise(resolve => probe.once('listening', resolve))
@@ -544,4 +548,52 @@ test('/health, /v1/models and unknown paths', async () => {
   assert.equal(missing.status, 404)
   assert.equal((await missing.json()).error.type, 'not_found')
   assert.equal((await fetch(r.url + '/v1/chat/completions')).status, 404)
+})
+
+test('keys: list, set, remove a built-in free key', async () => {
+  const free = await upstream(streamOK('ok'))
+  const dir = mkdtempSync(join(tmpdir(), 'keys-'))
+  const keysFile = join(dir, 'keys.conf')
+  const customFile = join(dir, 'custom-providers.json')
+  writeFileSync(customFile, '[]')
+  const r = await startRouter([{ name: 'nv', requires: 'NV_API_KEY', baseURL: free, models: ['m'] }], { PRISM_KEYS_FILE: keysFile, PRISM_CUSTOM_FILE: customFile })
+  const before = await (await fetch(r.url + '/keys')).json()
+  assert.equal(before.free.find(row => row.id === 'nv').set, null)
+  assert.ok(before.presets.find(row => row.id === 'openai'))
+  const set = await fetch(r.url + '/keys', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'nv', value: 'sk-test-123456' }) })
+  assert.equal(set.status, 200)
+  assert.equal((await set.json()).masked, 'sk-...3456')
+  const after = await (await fetch(r.url + '/keys')).json()
+  assert.equal(after.free.find(row => row.id === 'nv').set, 'sk-...3456')
+  assert.match(readFileSync(keysFile, 'utf8'), /^NV_API_KEY=sk-test-123456$/m)
+  const chat = await r.ask({})
+  assert.equal(chat.headers.get('x-free-route'), 'nv/m')
+  await chat.text()
+  const rm = await fetch(r.url + '/keys', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'nv', value: '' }) })
+  assert.equal(rm.status, 200)
+  const gone = await (await fetch(r.url + '/keys')).json()
+  assert.equal(gone.free.find(row => row.id === 'nv').set, null)
+  const chat2 = await r.ask({})
+  assert.equal(chat2.status, 503)
+  await chat2.text()
+})
+
+test('keys: a preset key saves its provider entry with fallback models', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'keys-'))
+  const keysFile = join(dir, 'keys.conf')
+  const customFile = join(dir, 'custom-providers.json')
+  writeFileSync(customFile, '[]')
+  const r = await startRouter([], { PRISM_KEYS_FILE: keysFile, PRISM_CUSTOM_FILE: customFile, PRISM_PROBE_MS: '1' })
+  const res = await fetch(r.url + '/keys', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'deepseek', value: 'sk-test-123456' }) })
+  assert.equal(res.status, 200)
+  const body = await res.json()
+  assert.equal(body.ok, true)
+  assert.equal(body.models, 1)
+  const saved = JSON.parse(readFileSync(customFile, 'utf8'))
+  assert.equal(saved[0].id, 'deepseek')
+  assert.deepEqual(saved[0].models, ['deepseek-chat'])
+  const models = await (await fetch(r.url + '/v1/models')).json()
+  assert.ok(models.data.some(m => m.id === 'deepseek/deepseek-chat'))
+  const bad = await fetch(r.url + '/keys', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'nope', value: 'x' }) })
+  assert.equal(bad.status, 404)
 })

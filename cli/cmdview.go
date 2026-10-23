@@ -80,8 +80,9 @@ func cmdLines(t theme, v cmdView, width int) []line {
 				dotSeg = seg{text: it.dot + " ", fg: col}
 			}
 
-			// name segment (bold, accent)
-			nameSeg := seg{text: padRune(it.name, nameW+2), fg: t.at(0.5), bold: true}
+			// name segment (bold, accent); names past the column cap are
+			// clipped so they never push the description out of line
+			nameSeg := seg{text: padRune(clip(it.name, nameW), nameW+2), fg: t.at(0.5), bold: true}
 
 			// description: wrap to remaining width with hanging indent
 			descWidth := width - 4 - 2 - nameW - 2 // indent(4) + dot(2) + name + gap

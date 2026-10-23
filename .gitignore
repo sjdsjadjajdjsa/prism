@@ -1,5 +1,6 @@
 keys.conf
 keys.conf.tmp
+subscriptions.json
 custom-providers.json
 cli/bin/
 bench/*.txt

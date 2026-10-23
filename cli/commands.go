@@ -19,7 +19,10 @@ import (
 type command struct{ name, help string }
 
 var commands = []command{
-	{"/models", "see which free AI models are ready"},
+	{"/models", "see which free AI models are ready · /models <text> narrows the list"},
+	{"/model", "the model for this chat · /model picks from a list · /model <name> pins one · /model auto lets prism choose"},
+	{"/key", "provider keys · /key <name> <secret> adds one · /key rm <name> removes it"},
+	{"/login", "plans you already pay for · /login <name> signs in · /login rm <name> signs out"},
 	{"/new", "start a fresh chat"},
 	{"/clear", "clear the screen and start fresh (saves first, like /new)"},
 	{"/compact", "summarise the conversation to free up context · /compact <focus> to guide it"},
@@ -50,8 +53,10 @@ type routeRow struct {
 }
 
 type modelsMsg struct {
-	rows []routeRow
-	err  error
+	rows   []routeRow
+	err    error
+	filter string
+	more   int
 }
 
 func matching(input string) []command {
@@ -228,12 +233,26 @@ func (m *model) command(text string) tea.Cmd {
 	case "/help":
 		v := helpView()
 		m.entries = append(m.entries, &entry{kind: "cmd", view: &v})
-	case "/models", "/model", "/status":
+	case "/models", "/status":
 		api := m.agent.api
+		filter := strings.Join(fields[1:], " ")
 		return func() tea.Msg {
 			rows, err := fetchRoutes(api)
-			return modelsMsg{rows, err}
+			if err != nil {
+				return modelsMsg{err: err}
+			}
+			rows, more := filterRoutes(rows, filter)
+			return modelsMsg{rows: rows, err: err, filter: filter, more: more}
 		}
+	case "/model":
+		if len(fields) == 1 {
+			return m.openPicker()
+		}
+		return m.modelCommand(fields)
+	case "/key", "/keys":
+		return m.keyCommand(fields)
+	case "/login", "/logins":
+		return m.loginCommand(fields)
 	case "/theme", "/themes":
 		if len(fields) > 1 {
 			m.theme = themeIndex(fields[1])

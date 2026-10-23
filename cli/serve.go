@@ -525,6 +525,102 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 			lines = append(lines, fmt.Sprintf("%s  %s  %s", modelName(row.Route), provider(row.Route), state))
 		}
 		info("free models, in the order prism tries them", append(lines, "", "add more free models: prism setup"))
+	case "/key", "/keys":
+		if len(fields) == 1 {
+			list, err := fetchKeys(a.api)
+			if err != nil {
+				writeJSON(w, map[string]any{"kind": "error", "text": err.Error()})
+				return
+			}
+			info("keys", keyLines(list))
+			return
+		}
+		var id, value string
+		if fields[1] == "rm" || fields[1] == "remove" {
+			if len(fields) != 3 {
+				writeJSON(w, map[string]any{"kind": "error", "text": "usage: /key rm <name>"})
+				return
+			}
+			id = fields[2]
+		} else if len(fields) == 3 {
+			id, value = fields[1], fields[2]
+		} else {
+			writeJSON(w, map[string]any{"kind": "error", "text": "usage: /key <name> <secret>"})
+			return
+		}
+		msg, err := postKey(a.api, id, value)
+		if err != nil {
+			writeJSON(w, map[string]any{"kind": "error", "text": err.Error()})
+			return
+		}
+		if msg.masked == "" {
+			info("removed the "+id+" key", []string{})
+			return
+		}
+		lines := []string{"saved · " + msg.masked}
+		if msg.models > 0 {
+			lines = append(lines, fmt.Sprintf("%d models ready · pick one by name in /models", msg.models))
+		}
+		if msg.note != "" {
+			lines = append(lines, msg.note)
+		}
+		info(id+" key", lines)
+	case "/login", "/logins":
+		if len(fields) == 1 {
+			rows, err := fetchLogins(a.api)
+			if err != nil {
+				writeJSON(w, map[string]any{"kind": "error", "text": err.Error()})
+				return
+			}
+			var lines []string
+			for _, row := range rows {
+				state := "not signed in"
+				if row.SignedIn {
+					state = fmt.Sprintf("signed in · %d models", row.Models)
+				}
+				lines = append(lines, fmt.Sprintf("  %-10s %s", row.ID, state))
+			}
+			info("subscriptions", append(lines, "", "/login <name> signs in · /login rm <name> signs out"))
+			return
+		}
+		if fields[1] == "rm" || fields[1] == "remove" {
+			if len(fields) != 3 {
+				writeJSON(w, map[string]any{"kind": "error", "text": "usage: /login rm <name>"})
+				return
+			}
+			out := struct {
+				OK    bool `json:"ok"`
+				Error *struct {
+					Message string `json:"message"`
+				} `json:"error"`
+			}{}
+			if err := loginRound(a.api, map[string]any{"id": fields[2], "signOut": true}, &out); err != nil || out.Error != nil {
+				writeJSON(w, map[string]any{"kind": "error", "text": errText(err)})
+				return
+			}
+			info("signed out of "+fields[2], []string{})
+			return
+		}
+		if len(fields) != 2 {
+			writeJSON(w, map[string]any{"kind": "error", "text": "usage: /login <name>"})
+			return
+		}
+		out := struct {
+			UserCode        string `json:"userCode"`
+			VerificationURI string `json:"verificationURI"`
+			Error           *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}{}
+		if err := loginRound(a.api, map[string]any{"id": fields[1]}, &out); err != nil {
+			writeJSON(w, map[string]any{"kind": "error", "text": err.Error()})
+			return
+		}
+		if out.Error != nil {
+			writeJSON(w, map[string]any{"kind": "error", "text": out.Error.Message})
+			return
+		}
+		info("sign in to "+fields[1], []string{"open  " + out.VerificationURI, "type " + out.UserCode, "the models appear in /models when you are done"})
 	case "/skills":
 		if len(fields) > 2 && fields[1] == "new" {
 			if busy {

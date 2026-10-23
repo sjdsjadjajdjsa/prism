@@ -40,6 +40,7 @@ type entry struct {
 	res   toolResult
 	open  bool
 	rows  []routeRow
+	more  int // rows hidden by the /models cap
 	lines []string
 	crew  *crewBlock
 	view  *cmdView // structured command output (kind=="cmd")
@@ -74,6 +75,7 @@ type model struct {
 	web            *webSession
 	ticking        bool
 	active         time.Duration
+	pick           pickerState // the /model picker overlay
 }
 
 // idleAfter is how long the screen keeps animating after the last key, event or resize.
@@ -144,8 +146,81 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tick(frame)
 	case statusMsg:
 		m.ready, m.offline = msg.ready, msg.err != nil
+	case pickerMsg:
+		m.pickerLoaded(msg)
 	case modelsMsg:
-		m.entries = append(m.entries, &entry{kind: "models", rows: msg.rows, text: errText(msg.err)})
+		m.entries = append(m.entries, &entry{kind: "models", rows: msg.rows, text: errText(msg.err), more: msg.more, arg: msg.filter})
+		m.scroll = 0
+	case loginsMsg:
+		if msg.err != nil {
+			m.entries = append(m.entries, &entry{kind: "note", text: msg.err.Error()})
+			break
+		}
+		v := loginsView(msg.rows)
+		m.entries = append(m.entries, &entry{kind: "cmd", view: &v})
+		m.scroll = 0
+	case loginCodeMsg:
+		if msg.err != nil {
+			m.entries = append(m.entries, &entry{kind: "note", text: msg.err.Error()})
+			break
+		}
+		lines := []string{"open  " + msg.url}
+		if msg.browser {
+			lines = []string{"opening your browser…", "if nothing opens: " + msg.url, "prism keeps checking; the models appear in /models when you are done"}
+		} else {
+			lines = append(lines, "type "+msg.code, "prism keeps checking; the models appear in /models when you are done")
+		}
+		m.entries = append(m.entries, &entry{kind: "info", text: "sign in to " + msg.id, lines: lines})
+		m.scroll = 0
+		return m, pollLogin(m.agent.api, msg.id, 5, msg.expires, msg.browser)
+	case loginDoneMsg:
+		if msg.err != nil {
+			m.entries = append(m.entries, &entry{kind: "note", text: msg.id + ": " + msg.err.Error()})
+			break
+		}
+		lines := []string{"signed in to " + msg.id}
+		if msg.models > 0 {
+			lines = append(lines, fmt.Sprintf("%d models ready · pick one by name in /models", msg.models))
+		}
+		if msg.note != "" {
+			lines = append(lines, msg.note)
+		}
+		m.entries = append(m.entries, &entry{kind: "info", text: msg.id, lines: lines})
+		m.scroll = 0
+	case modelMsg:
+		switch {
+		case msg.err != nil:
+			m.entries = append(m.entries, &entry{kind: "note", text: "pinned " + msg.name + " · " + msg.err.Error()})
+		case msg.found:
+			m.entries = append(m.entries, &entry{kind: "note", text: "model: " + msg.name + " · every request in this chat uses it"})
+		default:
+			m.entries = append(m.entries, &entry{kind: "note", text: "pinned " + msg.name + " · the router does not list it yet (it may appear once its key is set)"})
+		}
+		m.scroll = 0
+	case keysMsg:
+		if msg.err != nil {
+			m.entries = append(m.entries, &entry{kind: "note", text: msg.err.Error()})
+			break
+		}
+		v := keysView(msg.info)
+		m.entries = append(m.entries, &entry{kind: "cmd", view: &v})
+		m.scroll = 0
+	case keySetMsg:
+		switch {
+		case msg.err != nil:
+			m.entries = append(m.entries, &entry{kind: "note", text: msg.err.Error()})
+		case msg.masked == "":
+			m.entries = append(m.entries, &entry{kind: "note", text: "removed the " + msg.id + " key"})
+		default:
+			lines := []string{"saved · " + msg.masked}
+			if msg.models > 0 {
+				lines = append(lines, fmt.Sprintf("%d models ready · pick one by name in /models", msg.models))
+			}
+			if msg.note != "" {
+				lines = append(lines, msg.note)
+			}
+			m.entries = append(m.entries, &entry{kind: "info", text: msg.id + " key", lines: lines})
+		}
 		m.scroll = 0
 	case tabMsg:
 		if m.tabIndex(msg.t) < 0 {
@@ -232,6 +307,9 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.closeTab(true)
 		}
 		return m, nil
+	}
+	if m.pick.open {
+		return m.pickerKey(msg)
 	}
 	switch k {
 	case "ctrl+t":

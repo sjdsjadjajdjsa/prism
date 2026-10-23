@@ -1,9 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import http from 'node:http'
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PRESETS, validateEntry, loadCustom, customProviders, toProvider, eligible, maskKey, familyOf, cleanURL } from './custom.mjs'
+import { PRESETS, validateEntry, loadCustom, customProviders, toProvider, eligible, maskKey, familyOf, cleanURL, syncKeys, setKeyVar, upsertPresetEntry, probeModels } from './custom.mjs'
 
 const reserved = ['nvidia', 'groq', 'kilo']
 const good = { id: 'mine', name: 'Mine', baseURL: 'https://example.com/v1', keyVar: 'MINE_API_KEY', models: ['big-model'] }
@@ -234,4 +235,56 @@ test('a bad key name in the file is not echoed back in the problem text', () => 
   assert.equal(problems.length, 1)
   assert.match(problems[0], /key name/)
   assert.ok(!problems[0].includes(secret))
+})
+
+test('keys.conf is mirrored into the environment and removals are deleted', () => {
+  const file = write('# a comment\nA_KEY=one\nB_KEY="two"\n\nBROKEN\n')
+  delete process.env.A_KEY
+  delete process.env.B_KEY
+  process.env.OUTSIDE_KEY = 'keep'
+  assert.deepEqual(syncKeys(file, true).sort(), ['A_KEY', 'B_KEY'])
+  assert.equal(process.env.A_KEY, 'one')
+  assert.equal(process.env.B_KEY, 'two')
+  setKeyVar(file, 'A_KEY', 'next')
+  assert.match(readFileSync(file, 'utf8'), /^A_KEY=next$/m)
+  assert.equal(process.env.A_KEY, 'next')
+  setKeyVar(file, 'A_KEY', '')
+  assert.equal(process.env.A_KEY, undefined)
+  assert.equal(process.env.B_KEY, 'two')
+  assert.equal(process.env.OUTSIDE_KEY, 'keep')
+  delete process.env.OUTSIDE_KEY
+})
+
+test('a preset entry is upserted into custom-providers.json', () => {
+  const file = write('[]')
+  const preset = PRESETS.find(p => p.id === 'openai')
+  const first = upsertPresetEntry(file, preset, ['gpt-test'])
+  assert.equal(first.error, undefined)
+  let saved = JSON.parse(readFileSync(file, 'utf8'))
+  assert.equal(saved.length, 1)
+  assert.equal(saved[0].id, 'openai')
+  assert.deepEqual(saved[0].models, ['gpt-test'])
+  upsertPresetEntry(file, preset, ['gpt-other'])
+  saved = JSON.parse(readFileSync(file, 'utf8'))
+  assert.equal(saved.length, 1)
+  assert.deepEqual(saved[0].models, ['gpt-other'])
+  assert.equal(upsertPresetEntry(file, preset, []).error, 'no models to list')
+})
+
+test('probeModels lists chat models and drops the rest', async () => {
+  const seen = []
+  const srv = await new Promise(resolve => {
+    const s = http.createServer((req, res) => {
+      seen.push(req.headers.authorization)
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ data: [{ id: 'chat-big' }, { id: 'chat-embed-small' }, { id: 'whisper-1' }, { name: 'named-model' }] }))
+    }).listen(0, '127.0.0.1', () => resolve(s))
+  })
+  const base = `http://127.0.0.1:${srv.address().port}`
+  const probed = await probeModels({ id: 'x', baseURL: base, keyVar: 'X_KEY' }, 'sk-test-123456')
+  assert.deepEqual(probed.models, ['chat-big', 'named-model'])
+  assert.deepEqual(seen, ['Bearer sk-test-123456'])
+  const anthropic = await probeModels({ id: 'a', baseURL: base, keyVar: 'A_KEY', probeKeyHeader: 'x-api-key' }, 'sk-test-123456')
+  assert.equal(anthropic.error, undefined)
+  srv.close()
 })

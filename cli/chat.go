@@ -492,7 +492,11 @@ func drawChat(cv *canvas, t theme, m model) {
 		}
 	}
 
-	drawSuggestions(cv, t, m, cx, boxY, colW)
+	if m.pick.open {
+		drawPicker(cv, t, m, cx, boxY, colW, top)
+	} else {
+		drawSuggestions(cv, t, m, cx, boxY, colW)
+	}
 	drawInput(cv, t, m, cx, boxY, colW, boxH, n, enter)
 	drawStatus(cv, t, m, cx, cv.h-2, colW, enter)
 	drawBuddy(cv, t, m, cx, colW, boxY)
@@ -556,6 +560,12 @@ func drawStatus(cv *canvas, t theme, m model, x, y, w int, enter float64) {
 		queued = fmt.Sprintf(" · queued %.0fs", m.waited.Seconds())
 		left = append(left, seg{text: queued, fg: mix(t.bg, t.muted, enter*0.8)})
 	}
+	// A chat pinned to one model says so; auto chats keep today's look.
+	pinned := ""
+	if m.agent != nil && m.agent.model != "" {
+		pinned = " · model: " + modelName(m.agent.model)
+		left = append(left, seg{text: pinned, fg: muted})
+	}
 	left = append(left,
 		seg{text: "  ·  ", fg: mix(t.bg, t.faint, 1.5*enter)},
 		seg{text: "free", fg: mix(t.bg, t.green, enter)},
@@ -586,7 +596,8 @@ func drawStatus(cv *canvas, t theme, m model, x, y, w int, enter float64) {
 		return min(len([]rune(left[1].text)), minName)
 	}
 	// Lay out from both ends. When the row runs out of room, drop pieces in
-	// this order: the queued note, the context meter, then the keys hint.
+	// this order: the queued note, the context meter, the pinned model, then
+	// the keys hint.
 	// Segments that stay never touch — at least two columns stay between them.
 	for {
 		lw := widthOf(left) - len([]rune(left[1].text)) + nameWidth()
@@ -606,16 +617,24 @@ func drawStatus(cv *canvas, t theme, m model, x, y, w int, enter float64) {
 		}
 		switch {
 		case queued != "":
-			left = append(left[:1], left[2:]...)
+			left = append(left[:2], left[3:]...)
 			queued = ""
 		case meterShown:
 			meterShown = false
+		case pinned != "":
+			for i := 2; i < len(left); i++ {
+				if left[i].text == pinned {
+					left = append(left[:i], left[i+1:]...)
+					break
+				}
+			}
+			pinned = ""
 		case keysShown:
 			keysShown = false
 		default:
 			break
 		}
-		if queued == "" && !meterShown && !keysShown {
+		if queued == "" && pinned == "" && !meterShown && !keysShown {
 			break
 		}
 	}
@@ -668,7 +687,11 @@ func modelLines(t theme, e *entry, width int) []line {
 	if e.text != "" {
 		return []line{{indent: 2, segs: []seg{{text: "✕ ", fg: t.red}, {text: e.text, fg: t.red}}}}
 	}
-	out := []line{{indent: 2, segs: []seg{{text: "free models", fg: t.fg, bold: true}, {text: " · in the order prism tries them", fg: t.muted}}}}
+	note := " · in the order prism tries them"
+	if e.arg != "" {
+		note = fmt.Sprintf(" · matching %q", e.arg)
+	}
+	out := []line{{indent: 2, segs: []seg{{text: "free models", fg: t.fg, bold: true}, {text: note, fg: t.muted}}}}
 	nameW := 10
 	for _, r := range e.rows {
 		nameW = max(nameW, len([]rune(modelName(r.Route))))
@@ -684,6 +707,9 @@ func modelLines(t theme, e *entry, width int) []line {
 			{text: pad(provider(r.Route), 12), fg: t.muted},
 			{text: state, fg: col},
 		}})
+	}
+	if e.more > 0 {
+		out = append(out, line{indent: 2, segs: []seg{{text: fmt.Sprintf("… %d more · /models <text> narrows the list", e.more), fg: t.muted}}})
 	}
 	out = append(out, line{}, line{indent: 2, segs: []seg{{text: "to add more models: ", fg: t.muted}, {text: "prism setup", fg: t.at(0.6)}}})
 	return out
