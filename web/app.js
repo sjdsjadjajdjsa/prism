@@ -138,7 +138,6 @@ function finishStep(ev) {
   if (ev.ok === false) { s.classList.add('failed'); s.querySelector('.dia').style.color = 'var(--red)'; }
   if (ev.summary) s.querySelector('.sum').textContent = ev.summary;
   if (ev.diff && ev.diff.length) s.after(renderDiff(ev.diff));
-  scrollDown();
 }
 
 function renderDiff(lines) {
@@ -311,7 +310,7 @@ function dropCrewStep() {
 function crewStart(ev) {
   dropCrewStep();
   state.crew = crewMount({ rows: (ev.tasks || []).map((t) => ({ id: t.id, task: t.task, model: 'auto:' + t.role, status: 'queued' })) });
-  crewEnsureSpin(); scrollDown();
+  crewEnsureSpin();
 }
 function crewWorker(ev) {
   const c = state.crew;
@@ -323,13 +322,12 @@ function crewWorker(ev) {
     crewHead(c); crewRecolor(c);
   }
   crewApply(c, p, ev);
-  crewEnsureSpin(); scrollDown();
+  crewEnsureSpin();
 }
 function crewDone(ev) {
   const c = state.crew;
   if (!c) return;
   crewSummary(c, ev.summary || '');
-  scrollDown();
 }
 // esc, an error or a dropped connection: rows that never finished read cancelled
 function crewSettle() {
@@ -344,11 +342,32 @@ function crewFromHistory(data) {
   state.crew = null;
 }
 
-function scrollDown() {
-  if (document.hidden) return;
-  const col = document.querySelector('.column');
-  col.scrollTop = col.scrollHeight;
+// the chat follows new content while the reader is at the end: during a reply every growth of the
+// transcript or the live line pins the view to the bottom. Scrolling up pauses that and shows
+// ↓ latest; scrolling back down, sending, a command or the button resumes it.
+const column = document.querySelector('.column');
+const jumpBtn = $('jump');
+const follow = { on: true, top: 0, height: 0 };
+function pin() {
+  if (!follow.on || document.hidden) return;
+  column.scrollTop = column.scrollHeight;
+  follow.top = column.scrollTop; follow.height = column.scrollHeight;
 }
+function scrollDown() { flushText(); follow.on = true; jumpBtn.hidden = true; pin(); }
+// moving up while the content did not shrink is the reader going back; a shrink pulls the view
+// up too, but lands it on the end, which turns following back on
+column.addEventListener('scroll', () => {
+  const top = column.scrollTop, height = column.scrollHeight;
+  if (top < follow.top && height >= follow.height) follow.on = false;
+  else if (height - top - column.clientHeight < 2) follow.on = true;
+  follow.top = top; follow.height = height;
+  jumpBtn.hidden = follow.on;
+}, { passive: true });
+const grown = new ResizeObserver(() => { if (state.busy) pin(); });
+grown.observe(transcript); grown.observe(liveEl);
+new ResizeObserver(pin).observe(column);
+document.addEventListener('visibilitychange', pin);
+jumpBtn.addEventListener('click', () => { scrollDown(); if (!matchMedia('(pointer: coarse)').matches) input.focus({ preventScroll: true }); });
 
 // ---------- markdown (DOM-built, escaped by construction) ----------
 function renderMarkdown(root, src) {
@@ -833,12 +852,12 @@ function handleEvent(ev) {
     case 'text':
       if (state.phase !== 'text') setPhase('text');
       buddy.lookAt = performance.now();
-      state.draft = null; addText(ev.text || ''); scrollDown(); break;
+      state.draft = null; addText(ev.text || ''); break;
     case 'draft':
       state.draft = { tool: ev.tool, arg: ev.arg, chars: ev.chars || 0 }; setPhase('draft'); buddy.charge = Math.min(1, (ev.chars || 0) / 4000); break;
     case 'tool_start':
       state.draft = null; buddy.charge = 0; setPhase('tool'); setMood('working'); flushText(); state.textEl = null;
-      addStep({ id: ev.id, tool: ev.tool, arg: ev.arg, running: true }); scrollDown(); break;
+      addStep({ id: ev.id, tool: ev.tool, arg: ev.arg, running: true }); break;
     case 'tool_done':
       finishStep(ev); setPhase('thinking'); state.reasoning = '';
       if (ev.ok === false) { setMood('surprised', 1500); say('crack', 2600); } break;
@@ -871,6 +890,7 @@ async function send(message) {
   if (state.busy) return;
   addUser(message);
   collapseOldTurns();
+  scrollDown();
   setBusy(true); setPhase('thinking'); setMood('thinking'); state.reasoning = '';
   const ac = new AbortController(); state.abort = ac;
   try {
@@ -890,7 +910,7 @@ async function send(message) {
     crewSettle();
     document.querySelectorAll('.step.running').forEach((s) => { s.classList.remove('running'); s.querySelector('.dia').textContent = '◆'; });
     if (buddy.mood === 'thinking' || buddy.mood === 'working') setMood('idle');
-    scrollDown();
+    flushText(); pin();
   }
 }
 
@@ -1002,6 +1022,7 @@ function resetTranscript() {
   hello.appendChild(el('p', 'hello-title', 'what are we building today?'));
   hello.appendChild(el('p', 'muted', 'try:  fix a bug  ·  make a website  ·  /help'));
   transcript.appendChild(hello);
+  scrollDown();
 }
 
 // ---------- pickers (web/commands.js picker, the terminal's menu) ----------
@@ -1675,7 +1696,7 @@ async function boot() {
     window.PrismCommands.attach({
       input,
       suggestBox: box,
-      run: (text) => { input.value = ''; autosize(); runCommand(text); },
+      run: (text) => { input.value = ''; autosize(); runCommand(text).finally(() => { if (!state.busy) scrollDown(); }); },
     });
   }
   startHeartbeat();

@@ -259,6 +259,16 @@ textarea:focus-visible, select:focus-visible {
 }
 .dock-inner { max-width: var(--col); margin: 0 auto; padding: 0 16px 16px; position: relative; }
 
+/* ↓ latest: shown while the reader is scrolled up from the end of the chat (app.js follow) */
+.jump {
+  position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); z-index: 7;
+  padding: 3px 12px; border-radius: 999px; border: 1px solid var(--faint); background: var(--panel);
+  color: var(--fg); font: inherit; font-size: 12px; cursor: pointer; box-shadow: 0 6px 18px rgba(0, 0, 0, .35);
+  transition: border-color .15s;
+}
+.jump:hover, .jump:focus-visible { border-color: var(--s6, var(--s0)); outline: none; }
+.jump[hidden], .dock-inner:has(.pick, .cmd-suggest:not([hidden])) .jump { display: none; }
+
 .composer { margin: 0; }
 .inputbox {
   position: relative; display: flex; align-items: flex-start; gap: 10px;

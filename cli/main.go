@@ -259,13 +259,13 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, waitTab(msg.t)
 		}
 		if msg.t == m.tab {
-			m.handle(msg.event)
+			m.keepView(func() { m.handle(msg.event) })
 		} else {
 			// a background tab: apply the event to that tab, keep this one on screen
-			shown, scrollPos := m.tab, m.scrollPos
+			shown := m.tab
 			m.tab = msg.t
-			m.handle(msg.event)
-			m.tab, m.scrollPos = shown, scrollPos
+			m.keepView(func() { m.handle(msg.event) })
+			m.tab = shown
 		}
 		m.syncTab(msg.t)
 		return m, waitTab(msg.t)
@@ -301,7 +301,7 @@ func (m model) mouse(msg tea.Msg) (tea.Model, tea.Cmd) {
 			lines, start, end, top, _ := m.visible(themes[m.theme])
 			if idx := start + mouse.Y - top; mouse.Y >= top && idx < end {
 				if ref := lines[idx].ref; ref != nil {
-					ref.open = !ref.open
+					m.keepView(func() { ref.open = !ref.open })
 				}
 			}
 		}
@@ -473,6 +473,26 @@ func (m *model) submit() tea.Cmd {
 		events <- evSaved{session: agent.session, msgLen: len(agent.messages)}
 	}()
 	return nil
+}
+
+// keepView runs change (an agent event, a step group opening) without moving what a
+// scrolled-up reader sees: scroll counts lines up from the bottom, so it grows with the
+// transcript. Only End or scrolling down returns to following (scroll 0).
+func (m *model) keepView(change func()) {
+	if m.scroll == 0 || !m.chat {
+		change()
+		return
+	}
+	t, width := themes[m.theme], m.column()
+	before := len(m.transcript(t, width))
+	change()
+	if m.scroll == 0 {
+		return
+	}
+	after := len(m.transcript(t, width))
+	limit := max(0, after-m.viewHeight())
+	m.scroll = clamp(m.scroll+after-before, min(1, limit), limit)
+	m.scrollPos = math.Max(float64(min(1, limit)), math.Min(m.scrollPos+float64(after-before), float64(limit)))
 }
 
 func (m *model) handle(event any) {
