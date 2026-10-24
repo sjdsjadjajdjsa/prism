@@ -44,7 +44,7 @@ before(async () => {
   ] }))
   const port = 4900 + Math.floor(Math.random() * 90)
   base = `http://127.0.0.1:${port}`
-  router = spawn(process.execPath, ['server.mjs'], { cwd: dir, env: { ...process.env, PORT: String(port), HEDGE_MS: '300', STATS_FILE: '' } })
+  router = spawn(process.execPath, ['server.mjs'], { cwd: dir, env: { ...process.env, PORT: String(port), HEDGE_MS: '300', STATS_FILE: '', PRISM_SUBS_FILE: join(dir, 'subscriptions.json') } })
   for (let i = 0; i < 50; i++) {
     try { if ((await fetch(base + '/health')).ok) return } catch {}
     await new Promise(r => setTimeout(r, 100))
@@ -96,18 +96,18 @@ const echo = (delay = 0) => (req, res) => {
 }
 
 const routers = []
-const startRouter = async (providers, env = {}) => {
+const startRouter = async (providers, env = {}, transformSubs = source => source) => {
   const dir = mkdtempSync(join(tmpdir(), 'router-'))
   copyFileSync(new URL('./server.mjs', import.meta.url), join(dir, 'server.mjs'))
   copyFileSync(new URL('./custom.mjs', import.meta.url), join(dir, 'custom.mjs'))
-  copyFileSync(new URL('./subs.mjs', import.meta.url), join(dir, 'subs.mjs'))
+  writeFileSync(join(dir, 'subs.mjs'), transformSubs(readFileSync(new URL('./subs.mjs', import.meta.url), 'utf8')))
   copyFileSync(new URL('./wire.mjs', import.meta.url), join(dir, 'wire.mjs'))
   writeFileSync(join(dir, 'providers.json'), JSON.stringify({ providers }))
   const probe = http.createServer().listen(0, '127.0.0.1')
   await new Promise(resolve => probe.once('listening', resolve))
   const port = probe.address().port
   await new Promise(resolve => probe.close(resolve))
-  const child = spawn(process.execPath, ['server.mjs'], { cwd: dir, env: { ...process.env, PORT: String(port), HEDGE_MS: '300', STATS_FILE: '', ...env } })
+  const child = spawn(process.execPath, ['server.mjs'], { cwd: dir, env: { ...process.env, PORT: String(port), HEDGE_MS: '300', STATS_FILE: '', PRISM_SUBS_FILE: join(dir, 'subscriptions.json'), ...env } })
   routers.push(child)
   const url = `http://127.0.0.1:${port}`
   for (let i = 0; i < 50; i++) {
@@ -596,4 +596,79 @@ test('keys: a preset key saves its provider entry with fallback models', async (
   assert.ok(models.data.some(m => m.id === 'deepseek/deepseek-chat'))
   const bad = await fetch(r.url + '/keys', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'nope', value: 'x' }) })
   assert.equal(bad.status, 404)
+})
+
+
+test('Host and Origin guards apply to every request', async () => {
+  const { url } = await startRouter([])
+  const port = new URL(url).port
+  const hostStatus = host => new Promise((resolve, reject) => {
+    http.get(url + '/health', { headers: { host } }, res => {
+      res.resume()
+      resolve(res.statusCode)
+    }).on('error', reject)
+  })
+  for (const host of ['evil.com', 'localhost', `localhost:${Number(port) + 1}`]) {
+    assert.equal(await hostStatus(host), 403)
+  }
+  for (const host of ['127.0.0.1', 'localhost', '[::1]', 'router', 'host.docker.internal']) {
+    assert.equal(await hostStatus(`${host}:${port}`), 200)
+  }
+  for (const origin of ['http://evil.com', 'null', `http://localhost:${Number(port) + 1}`]) {
+    assert.equal((await fetch(url + '/health', { headers: { origin } })).status, 403)
+  }
+  assert.equal((await fetch(url + '/health', { headers: { origin: `http://localhost:${port}` } })).status, 200)
+})
+
+test('admin POSTs require the configured token, but reads stay open', async () => {
+  const { url } = await startRouter([], { PRISM_ROUTER_TOKEN: 'secret' })
+  for (const path of ['/keys', '/logins']) {
+    for (const token of ['', 'wrong', 'secret-longer']) {
+      const res = await fetch(url + path, { method: 'POST', headers: { 'x-prism-token': token }, body: '{}' })
+      assert.equal(res.status, 403)
+      assert.match(await res.text(), /token required/)
+    }
+    const res = await fetch(url + path, { method: 'POST', headers: { 'x-prism-token': 'secret' }, body: '{}' })
+    assert.notEqual(res.status, 403)
+  }
+  for (const method of ['PUT', 'DELETE', 'PATCH']) {
+    for (const path of ['/keys', '/logins']) {
+      assert.equal((await fetch(url + path, { method, body: JSON.stringify({ id: 'groq', value: 'x' }) })).status, 403)
+    }
+  }
+  assert.equal((await fetch(url + '/logins/pending', { method: 'POST', body: JSON.stringify({ id: 'copilot' }) })).status, 405)
+  for (const path of ['/keys', '/logins', '/logins/pending']) {
+    assert.equal((await fetch(url + path)).status, 200)
+  }
+})
+
+test('GET /logins waits for browser model probing and final save', async () => {
+  let release, probing
+  const waiting = new Promise(resolve => { probing = resolve })
+  const api = await upstream((req, res) => {
+    if (req.url === '/token') return res.end(JSON.stringify({ access_token: 'token', expires_in: 3600 }))
+    release = () => res.end(JSON.stringify({ data: [{ id: 'claude-test' }] }))
+    probing()
+  })
+  const { url } = await startRouter([], {}, source => source
+    .replace("https://platform.claude.com/v1/oauth/token", api + '/token')
+    .replace("https://api.anthropic.com/v1", api))
+  const started = await (await fetch(url + '/logins', { method: 'POST', body: JSON.stringify({ id: 'claude' }) })).json()
+  const state = new URL(started.url).searchParams.get('state')
+  const callback = fetch(url + `/callback?code=approved&state=${state}`)
+  await waiting
+  try {
+    const list = await (await fetch(url + '/logins')).json()
+    const row = list.subscriptions.find(row => row.id === 'claude')
+    assert.equal(row.signedIn, false)
+    assert.equal(row.finishing, true)
+  } finally {
+    release()
+  }
+  assert.equal((await callback).status, 200)
+  const list = await (await fetch(url + '/logins')).json()
+  const row = list.subscriptions.find(row => row.id === 'claude')
+  assert.equal(row.signedIn, true)
+  assert.equal(row.finishing, false)
+  assert.equal(row.models, 1)
 })

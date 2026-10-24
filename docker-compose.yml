@@ -13,6 +13,7 @@ services:
       - "127.0.0.1:51121:51121"
     environment:
       HOST: 0.0.0.0
+      PRISM_ROUTER_TOKEN: ${PRISM_ROUTER_TOKEN:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -32,6 +33,7 @@ services:
     working_dir: /workspace
     environment:
       PRISM_API: http://router:4848/v1
+      PRISM_ROUTER_TOKEN: ${PRISM_ROUTER_TOKEN:-}
       PRISM_LISTEN: ${PRISM_LISTEN:-0.0.0.0:4849}
       PRISM_WEB_LISTEN: ${PRISM_WEB_LISTEN:-}
       PRISM_PUBLIC_PORT: ${PRISM_PUBLIC_PORT:-}

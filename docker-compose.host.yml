@@ -8,6 +8,7 @@ services:
     ports: !reset []
     environment:
       HOST: 127.0.0.1
+      PRISM_ROUTER_TOKEN: ${PRISM_ROUTER_TOKEN:-}
     extra_hosts: !reset []
 
   agent:
@@ -16,4 +17,5 @@ services:
     network_mode: host
     environment:
       PRISM_API: http://127.0.0.1:4848/v1
+      PRISM_ROUTER_TOKEN: ${PRISM_ROUTER_TOKEN:-}
       PRISM_LISTEN: ${PRISM_LISTEN:-127.0.0.1:4849}

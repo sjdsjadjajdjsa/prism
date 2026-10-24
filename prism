@@ -45,6 +45,14 @@ network_mode() {
 
 compose() {
   local extra=()
+  if [[ ! -s "$HERE/.router-token" ]]; then
+    local tmp="$HERE/.router-token.$$"
+    (umask 077; od -An -N32 -tx1 /dev/urandom | tr -d ' \n' > "$tmp")
+    [[ -s "$HERE/.router-token" ]] || mv -f "$tmp" "$HERE/.router-token"
+    rm -f "$tmp"
+  fi
+  chmod 600 "$HERE/.router-token"
+  export PRISM_ROUTER_TOKEN="$(cat "$HERE/.router-token")"
   [[ -d "$HERE/custom-providers.json" ]] && rmdir "$HERE/custom-providers.json" 2>/dev/null
   [[ -e "$HERE/custom-providers.json" ]] || { echo "[]" > "$HERE/custom-providers.json"; chmod 600 "$HERE/custom-providers.json"; }
   [[ -d "$HERE/keys.conf" ]] && rmdir "$HERE/keys.conf" 2>/dev/null
@@ -280,7 +288,7 @@ fix() {
   echo "It can look around, and asks you before every command or file change."
   echo
   cd "$HOME"
-  PRISM_API="$ROUTER/v1" PRISM_PROJECT="this computer" "$bin" -system
+  PRISM_ROUTER_TOKEN="$(cat "$HERE/.router-token")" PRISM_API="$ROUTER/v1" PRISM_PROJECT="this computer" "$bin" -system
 }
 
 install() {
@@ -288,14 +296,14 @@ install() {
   mkdir -p "$bin"
   ln -sf "$HERE/prism" "$bin/prism"
   echo "Installed: $bin/prism"
+  if [[ "${SHELL##*/}" == fish ]] || command -v fish >/dev/null 2>&1; then
+    local fishrc="${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/prism.fish"
+    mkdir -p "${fishrc%/*}"
+    [[ -f "$fishrc" ]] || echo 'fish_add_path -g "$HOME/.local/bin"' > "$fishrc"
+  fi
   case ":$PATH:" in
     *":$bin:"*) echo "Run prism from any project folder." ;;
     *)
-      if [[ "${SHELL##*/}" == fish ]] || command -v fish >/dev/null 2>&1; then
-        local fishrc="${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/prism.fish"
-        mkdir -p "${fishrc%/*}"
-        [[ -f "$fishrc" ]] || echo 'fish_add_path -g "$HOME/.local/bin"' > "$fishrc"
-      fi
       if [[ "${SHELL##*/}" != fish ]]; then
         local rc="$HOME/.bashrc"
         [[ "${SHELL##*/}" == zsh ]] && rc="$HOME/.zshrc"

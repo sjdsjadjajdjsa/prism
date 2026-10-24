@@ -4,7 +4,7 @@ import http from 'node:http'
 import { mkdtempSync, writeFileSync, readFileSync, copyFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadSubs, startLogin, pollLogin, signOut, subscriptionProviders, subToken, startBrowserLogin, SUBSCRIPTIONS } from './subs.mjs'
+import { loadSubs, startLogin, pollLogin, signOut, subscriptionProviders, subToken, startBrowserLogin, loginError, loginStatus, handleOAuthCallback, SUBSCRIPTIONS } from './subs.mjs'
 
 const servers = []
 const upstream = handler =>
@@ -70,7 +70,7 @@ test('the device-code flow signs in, probes models, and serves providers', async
   const models = await upstream((req, res) => {
     assert.equal(req.headers.authorization, 'Bearer api-token-987')
     res.writeHead(200, { 'content-type': 'application/json' })
-    res.end(JSON.stringify({ data: [{ id: 'gpt-test-big' }, { id: 'claude-test' }, { id: 'text-embedding-test' }] }))
+    res.end(JSON.stringify({ data: [{ id: 'gpt-test-big' }, { id: 'claude-test' }, { id: 'gpt-audio-test' }, { id: 'text-embedding-test' }] }))
   })
   const file = write('{}')
   const sub = {
@@ -93,10 +93,10 @@ test('the device-code flow signs in, probes models, and serves providers', async
   assert.deepEqual(done.models, ['gpt-test-big', 'claude-test'])
   const saved = JSON.parse(readFileSync(file, 'utf8'))
   assert.equal(saved.fake.accessToken, 'gh-token-123456')
-  assert.deepEqual(saved.fake.models, ['gpt-test-big', 'claude-test'])
+  assert.deepEqual(saved.fake.models, ['gpt-test-big', 'claude-test', 'gpt-audio-test'])
   const providers = subscriptionProviders()
   // subscriptionProviders reads SUBSCRIPTIONS, not the fake; check via loadSubs instead
-  assert.deepEqual(loadSubs(file).fake.models, ['gpt-test-big', 'claude-test'])
+  assert.deepEqual(loadSubs(file).fake.models, ['gpt-test-big', 'claude-test', 'gpt-audio-test'])
   const fresh = await subToken(sub)
   assert.equal(fresh.token, 'api-token-987')
   signOut(sub)
@@ -216,7 +216,15 @@ test('a browser sign-in exchanges the code and stores the account', async () => 
   assert.match(started.url, /https:\/\/auth\.example\.test\/authorize\?/)
   assert.match(started.url, /code_challenge_method=S256/)
   const state = new URL(started.url).searchParams.get('state')
-  const res = await fetch(`http://127.0.0.1:${port}/cb?code=the-code&state=${state}`)
+  const badHost = await new Promise((resolve, reject) => {
+    http.get(`http://127.0.0.1:${port}/cb`, { headers: { host: 'evil.com' } }, res => {
+      res.resume()
+      resolve(res.statusCode)
+    }).on('error', reject)
+  })
+  assert.equal(badHost, 403)
+  assert.equal((await fetch(`http://127.0.0.1:${port}/cb`, { headers: { origin: 'http://evil.com' } })).status, 403)
+  const res = await fetch(`http://127.0.0.1:${port}/cb?code=the-code&state=${state}`, { headers: { host: `localhost:${port}` } })
   assert.equal(res.status, 200)
   assert.match(await res.text(), /signed in/)
   let saved = {}
@@ -456,4 +464,117 @@ test('visibleModels hides helpers, previews and retired generations', async () =
     ['claude-opus-5-5-high', 'gemini-4-argon-low'],
   )
   assert.deepEqual(visibleModels('grok', ['grok-4.7', 'text-embedding-x']), ['grok-4.7'])
+})
+
+
+test('Copilot keeps sign-in and records an actionable error when models fail', async () => {
+  const api = await upstream((req, res) => {
+    if (req.url === '/device') return res.end(JSON.stringify({ device_code: 'dev', user_code: 'code', verification_uri: 'https://example.test', expires_in: 900 }))
+    if (req.url === '/token') return res.end(JSON.stringify({ access_token: 'github-token' }))
+    if (req.url === '/exchange') return res.end(JSON.stringify({ token: 'api-token', expires_at: Date.now() / 1000 + 3600 }))
+    res.writeHead(503)
+    res.end('{}')
+  })
+  const file = write('{}')
+  process.env.PRISM_SUBS_FILE = file
+  try {
+    const sub = { ...SUBSCRIPTIONS[0], deviceURL: api + '/device', tokenURL: api + '/token', exchangeURL: api + '/exchange', apiBase: api }
+    await startLogin(sub)
+    const result = await pollLogin(sub)
+    assert.equal(result.status, 'ok')
+    assert.deepEqual(result.models, [])
+    assert.match(result.note, /signed in, but GitHub Copilot did not list its models; run \/login copilot again/)
+    assert.equal(loginError('copilot'), result.note)
+    assert.equal(loadSubs(file).copilot.loginError, result.note)
+    assert.equal(loadSubs(file).copilot.accessToken, 'github-token')
+    signOut(sub)
+  } finally {
+    delete process.env.PRISM_SUBS_FILE
+    for (const server of servers) server.close()
+  }
+})
+
+const deferred = () => {
+  let resolve
+  const promise = new Promise(done => { resolve = done })
+  return { promise, resolve }
+}
+
+const browserSub = id => ({ id, name: id, kind: 'browser', authorizeURL: 'https://auth.test/authorize', tokenURL: 'https://auth.test/token', clientID: 'cid', redirectPath: '/callback', apiBase: 'https://api.test' })
+const callback = started => handleOAuthCallback(
+  { url: `/callback?code=code&state=${new URL(started.url).searchParams.get('state')}` },
+  { writeHead() {}, end() {} }, '/callback')
+
+test('re-sign-in stays pending instead of reporting the stored browser token', async t => {
+  const sub = browserSub('resign')
+  process.env.PRISM_SUBS_FILE = write({ resign: { accessToken: 'old', models: ['old-model'] } })
+  t.after(() => { signOut(sub); delete process.env.PRISM_SUBS_FILE })
+  await startBrowserLogin(sub)
+  assert.equal(loginStatus(sub).signedIn, false)
+  assert.equal(loginStatus(sub).pending, true)
+  signOut(sub)
+  assert.equal(loginStatus(sub).pending, false)
+})
+
+for (const phase of ['token', 'models', 'onboard']) {
+  test(`browser sign-out during ${phase} cannot resurrect the account`, async t => {
+    const sub = { ...browserSub(`cancel-${phase}`), ...(phase === 'onboard' && { onboard: true, wire: 'antigravity' }) }
+    const file = write('{}')
+    process.env.PRISM_SUBS_FILE = file
+    const originalFetch = globalThis.fetch
+    const entered = deferred(), release = deferred()
+    t.after(() => { globalThis.fetch = originalFetch; delete process.env.PRISM_SUBS_FILE })
+    globalThis.fetch = async url => {
+      const atPhase = phase === 'token' ? url === sub.tokenURL : phase === 'models' ? url.endsWith('/models') : url.endsWith(':loadCodeAssist')
+      if (atPhase) { entered.resolve(); await release.promise }
+      return Response.json(url === sub.tokenURL ? { access_token: 'new-token' } : phase === 'onboard' ? { projectId: 'project', models: { 'gemini-4-argon': {} } } : { data: [{ id: 'new-model' }] })
+    }
+    const started = await startBrowserLogin(sub)
+    const finishing = callback(started)
+    await entered.promise
+    signOut(sub)
+    release.resolve()
+    await finishing
+    assert.equal(loadSubs(file)[sub.id], undefined)
+    assert.equal(loginStatus(sub).signedIn, false)
+    assert.equal(loginStatus(sub).pending, false)
+  })
+}
+
+for (const phase of ['token', 'models']) {
+  test(`device sign-out during ${phase} cancels an in-flight poll`, async t => {
+    const sub = { id: `device-${phase}`, name: 'Device', deviceURL: 'https://api.test/device', tokenURL: 'https://api.test/token', exchangeURL: 'https://api.test/exchange', apiBase: 'https://api.test' }
+    const file = write('{}')
+    process.env.PRISM_SUBS_FILE = file
+    const originalFetch = globalThis.fetch
+    const entered = deferred(), release = deferred()
+    t.after(() => { globalThis.fetch = originalFetch; delete process.env.PRISM_SUBS_FILE })
+    globalThis.fetch = async url => {
+      if (url === sub.deviceURL) return Response.json({ device_code: 'dev' })
+      if (url === (phase === 'token' ? sub.tokenURL : sub.apiBase + '/models')) { entered.resolve(); await release.promise }
+      return Response.json(url === sub.tokenURL ? { access_token: 'new-token' } : url === sub.exchangeURL ? { token: 'api-token' } : { data: [{ id: 'new-model' }] })
+    }
+    await startLogin(sub)
+    const finishing = pollLogin(sub)
+    await entered.promise
+    signOut(sub)
+    release.resolve()
+    const result = await finishing
+    assert.equal(loadSubs(file)[sub.id], undefined)
+    assert.notEqual(result.status, 'ok')
+    assert.equal((await pollLogin(sub)).status, 'idle')
+  })
+}
+
+test('Copilot reports an actionable note when all listed models are hidden', async t => {
+  process.env.PRISM_SUBS_FILE = write('{}')
+  const originalFetch = globalThis.fetch
+  const sub = { ...SUBSCRIPTIONS[0], deviceURL: 'https://api.test/device', tokenURL: 'https://api.test/token', exchangeURL: 'https://api.test/exchange', apiBase: 'https://api.test' }
+  t.after(() => { signOut(sub); globalThis.fetch = originalFetch; delete process.env.PRISM_SUBS_FILE })
+  globalThis.fetch = async url => Response.json(url === sub.deviceURL ? { device_code: 'dev' } : url === sub.tokenURL ? { access_token: 'github-token' } : url === sub.exchangeURL ? { token: 'api-token' } : { data: [{ id: 'gpt-3.5-turbo' }, { id: 'copilot-helper' }] })
+  await startLogin(sub)
+  const result = await pollLogin(sub)
+  assert.deepEqual(result.models, [])
+  assert.match(result.note ?? '', /did not list its models; run \/login copilot again/)
+  assert.equal(loginStatus(sub).error, result.note)
 })

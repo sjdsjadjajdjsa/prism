@@ -114,17 +114,42 @@ func TestKeysViewAndLines(t *testing.T) {
 	}
 	v := keysView(info)
 	rendered := renderCmdView(v, 80)
-	for _, want := range []string{"keys", "free (built in)", "your own models", "nv", "sk-...3456", "deepseek", "not set", "platform.deepseek.com"} {
+	for _, want := range []string{"keys", "free", "nv", "sk-...3456", "add one: /key <name> <secret> · names: deepseek"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("keysView missing %q in:\n%s", want, rendered)
 		}
 	}
+	if len(v.blocks) != 1 || len(v.blocks[0].items) != 1 || v.blocks[0].items[0].name != "nv" {
+		t.Fatalf("unset keys should appear only in the hint: %+v", v)
+	}
+	if strings.Contains(rendered, "not set") || strings.Contains(rendered, "platform.deepseek.com") {
+		t.Fatalf("unexpected unset-key detail: %s", rendered)
+	}
 	if strings.Contains(rendered, "ollama") {
 		t.Errorf("keyless presets should be hidden:\n%s", rendered)
+	}
+	info.Presets = append(info.Presets, keyRow{ID: "openai", Paid: true, Set: "sk-...9999"})
+	v = keysView(info)
+	if len(v.blocks) != 2 || v.blocks[1].title != "paid" || v.blocks[1].items[0].name != "openai" {
+		t.Fatalf("paid grouping: %+v", v)
 	}
 	lines := keyLines(info)
 	joined := strings.Join(lines, "\n")
 	if !strings.Contains(joined, "nv") || !strings.Contains(joined, "deepseek") || strings.Contains(joined, "ollama") {
 		t.Errorf("keyLines: %v", lines)
+	}
+}
+
+func TestKeysForbiddenIsActionable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "admin token missing", http.StatusForbidden)
+	}))
+	defer srv.Close()
+	_, getErr := fetchKeys(srv.URL + "/v1")
+	_, postErr := postKey(srv.URL+"/v1", "nv", "secret")
+	for _, err := range []error{getErr, postErr} {
+		if err == nil || !strings.Contains(err.Error(), "admin token missing") || !strings.Contains(err.Error(), "restart prism") {
+			t.Fatalf("unhelpful forbidden error: %v", err)
+		}
 	}
 }

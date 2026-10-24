@@ -1,4 +1,5 @@
 keys.conf
+.router-token
 keys.conf.tmp
 subscriptions.json
 custom-providers.json

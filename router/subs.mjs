@@ -7,6 +7,23 @@ import http from 'node:http'
 
 const here = new URL('.', import.meta.url)
 
+// Defeat DNS rebinding and cross-site browser requests, including callbacks.
+export const localOnly = (req, res, port) => {
+  const hosts = ['127.0.0.1', 'localhost', '[::1]', 'router', 'host.docker.internal'].map(host => `${host}:${port}`)
+  const origins = [`http://127.0.0.1:${port}`, `http://localhost:${port}`]
+  const message = !hosts.includes((req.headers.host ?? '').toLowerCase())
+    ? 'prism only answers to local hosts'
+    : req.headers.origin !== undefined && !origins.includes(req.headers.origin.toLowerCase())
+      ? 'cross-origin requests are not allowed' : null
+  if (message) {
+    res.writeHead(403, { 'content-type': 'text/plain' })
+    res.end(message + '\n')
+    return false
+  }
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  return true
+}
+
 // Each account: where to get a device code, how to turn it into a token, and
 // where chat requests go. Models are probed after sign-in and stored per account.
 export const SUBSCRIPTIONS = [
@@ -162,6 +179,7 @@ const apiTokens = new Map()
 
 // refreshOAuth renews a browser sign-in with its refresh token.
 const refreshOAuth = async sub => {
+  const generation = loginGenerations.get(sub.id)
   const stored = loadSubs()[sub.id]
   if (!stored?.refreshToken) throw new Error(`${sub.id} sign-in expired; run /login ${sub.id} again`)
   const body = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: stored.refreshToken, client_id: sub.clientID })
@@ -182,6 +200,7 @@ const refreshOAuth = async sub => {
     expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
   }
   const file = subsPath()
+  if (loginGenerations.get(sub.id) !== generation) throw new Error('the sign-in was cancelled')
   saveSubs(file, { ...loadSubs(file), [sub.id]: fresh })
   return fresh
 }
@@ -217,11 +236,37 @@ export const subToken = async sub => {
 // --- browser sign-in ------------------------------------------------------------------------
 
 const browserPending = new Map()
+const finishingAccounts = new Map()
+const loginGenerations = new Map()
+const cancelLogin = id => {
+  loginGenerations.set(id, (loginGenerations.get(id) ?? 0) + 1)
+  for (const entry of browserPending.values()) {
+    if (entry.sub.id === id) closeBrowserLogin(entry)
+  }
+  pending.delete(id)
+  finishingAccounts.delete(id)
+  apiTokens.delete(id)
+  return loginGenerations.get(id)
+}
 
 // loginErrors remembers the last sign-in failure per account, so /login can
 // say what went wrong instead of failing silently.
 const loginErrors = new Map()
-export const loginError = id => loginErrors.get(id) ?? null
+export const loginError = id => loginErrors.get(id) ?? loadSubs()[id]?.loginError ?? null
+export const loginStatus = sub => {
+  for (const entry of browserPending.values()) {
+    if (Date.now() >= entry.until) closeBrowserLogin(entry)
+  }
+  const pending = [...browserPending.values()].some(entry => entry.sub.id === sub.id)
+  return {
+    id: sub.id, name: sub.name,
+    signedIn: !pending && !finishingAccounts.has(sub.id) && Boolean(loadSubs()[sub.id]?.accessToken),
+    pending,
+    finishing: finishingAccounts.has(sub.id),
+    models: visibleModels(sub.id, loadSubs()[sub.id]?.models).length,
+    error: loginError(sub.id),
+  }
+}
 
 const escapeHTML = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -232,6 +277,7 @@ const loginPage = (ok, message) =>
 // redirect. Fixed-port providers (ChatGPT 1455, Grok 56121) get their own
 // listener; the rest ride on the router's own port via handleOAuthCallback.
 export const startBrowserLogin = async sub => {
+  const generation = cancelLogin(sub.id)
   loginErrors.delete(sub.id)
   const verifier = randomUUID() + randomUUID()
   const challenge = createHash('sha256').update(verifier).digest('base64url')
@@ -250,11 +296,12 @@ export const startBrowserLogin = async sub => {
     ...(sub.extraAuth ?? {}),
   })
   const url = `${sub.authorizeURL}?${params}`
-  const entry = { sub, verifier, state, redirectURI, url, until: Date.now() + 10 * 60_000, server: null }
+  const entry = { sub, generation, verifier, state, redirectURI, url, until: Date.now() + 10 * 60_000, server: null, cancelled: false }
   browserPending.set(state, entry)
   if (sub.redirectPort) {
-    const listen = process.env.HOST || '0.0.0.0'
+    const listen = process.env.HOST || '127.0.0.1'
     entry.server = http.createServer(async (req, res) => {
+      if (!localOnly(req, res, port)) return
       const url = new URL(req.url, 'http://router')
       if (url.pathname !== sub.redirectPath) {
         res.writeHead(404)
@@ -282,6 +329,7 @@ export const startBrowserLogin = async sub => {
 }
 
 const closeBrowserLogin = entry => {
+  entry.cancelled = true
   if (entry.server) {
     entry.server.close()
     entry.server = null
@@ -320,67 +368,78 @@ export const pendingLoginURL = () => [...browserPending.values()][0]?.url ?? nul
 
 const finishBrowserLogin = async (code, state) => {
   const entry = browserPending.get(state)
-  if (!entry || !code) {
+  if (!entry || !code || entry.cancelled || Date.now() >= entry.until) {
+    if (entry) closeBrowserLogin(entry)
     loginErrors.set(entry?.sub.id ?? 'unknown', 'the sign-in was cancelled')
     return { error: 'the sign-in was cancelled' }
   }
   const sub = entry.sub
-  const body = new URLSearchParams({
-    grant_type: 'authorization_code',
-    code,
-    redirect_uri: entry.redirectURI,
-    client_id: sub.clientID,
-    code_verifier: entry.verifier,
-  })
-  if (sub.clientSecret) body.set('client_secret', sub.clientSecret)
-  if (sub.stateInExchange) body.set('state', state)
-  let data
+  const current = () => !entry.cancelled && Date.now() < entry.until && loginGenerations.get(sub.id) === entry.generation
+  const cancelled = { error: 'the sign-in was cancelled' }
+  finishingAccounts.set(sub.id, entry)
   try {
-    const res = await fetch(sub.tokenURL, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', ...(sub.apiUserAgent && { 'user-agent': sub.apiUserAgent }) },
-      body,
-      signal: AbortSignal.timeout(15_000),
+    const body = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: entry.redirectURI,
+      client_id: sub.clientID,
+      code_verifier: entry.verifier,
     })
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '')
-      const message = `${sub.name} refused the sign-in (${res.status})${detail ? ': ' + detail.slice(0, 200) : ''}`
+    if (sub.clientSecret) body.set('client_secret', sub.clientSecret)
+    if (sub.stateInExchange) body.set('state', state)
+    let data
+    try {
+      const res = await fetch(sub.tokenURL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json', ...(sub.apiUserAgent && { 'user-agent': sub.apiUserAgent }) },
+        body,
+        signal: AbortSignal.timeout(15_000),
+      })
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '')
+        const message = `${sub.name} refused the sign-in (${res.status})${detail ? ': ' + detail.slice(0, 200) : ''}`
+        loginErrors.set(sub.id, message)
+        return { error: message }
+      }
+      data = await res.json()
+    } catch (error) {
+      const message = `could not reach ${sub.name}: ${error.message}`
       loginErrors.set(sub.id, message)
       return { error: message }
     }
-    data = await res.json()
-  } catch (error) {
-    const message = `could not reach ${sub.name}: ${error.message}`
-    loginErrors.set(sub.id, message)
-    return { error: message }
-  }
-  if (data.error || !data.access_token) {
-    const message = data.error_description ?? data.error ?? `${sub.name} returned no access token`
-    loginErrors.set(sub.id, message)
-    return { error: message }
-  }
-  closeBrowserLogin(entry)
-  loginErrors.delete(sub.id)
-  const account = {
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token,
-    expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
-    accountId: accountIdOf(data.id_token),
-    // A stable device and session identity, the way the CLI has one.
-    deviceId: randomUUID(),
-    accountUuid: accountUuidOf(data.id_token) ?? randomUUID(),
-    sessionId: randomUUID(),
-    models: [],
-  }
-  const file = subsPath()
-  saveSubs(file, { ...loadSubs(file), [sub.id]: account })
-  // Antigravity binds the account to a cloud project right after sign-in.
-  const projectId = sub.onboard ? await onboardAntigravity(sub, account) : undefined
-  const models = await probeSubModels(sub)
-  const list = models.models?.length ? models.models : sub.models
-  const fresh = { ...loadSubs(file), [sub.id]: { ...account, ...(projectId && { projectId }), models: list } }
+    if (data.error || !data.access_token) {
+      const message = data.error_description ?? data.error ?? `${sub.name} returned no access token`
+      loginErrors.set(sub.id, message)
+      return { error: message }
+    }
+    if (!current()) return cancelled
+    loginErrors.delete(sub.id)
+    const account = {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
+      accountId: accountIdOf(data.id_token),
+      // A stable device and session identity, the way the CLI has one.
+      deviceId: randomUUID(),
+      accountUuid: accountUuidOf(data.id_token) ?? randomUUID(),
+      sessionId: randomUUID(),
+      models: [],
+    }
+    const file = subsPath()
+    saveSubs(file, { ...loadSubs(file), [sub.id]: account })
+    // Antigravity binds the account to a cloud project right after sign-in.
+    const projectId = sub.onboard ? await onboardAntigravity(sub, account, current) : undefined
+    if (!current()) return cancelled
+    const models = await probeSubModels(sub)
+    if (!current()) return cancelled
+    const list = models.models?.length ? models.models : (sub.models ?? [])
+    const fresh = { ...loadSubs(file), [sub.id]: { ...account, ...(projectId && { projectId }), models: list } }
     saveSubs(file, fresh)
-  return { ok: true, models: list, note: models.error }
+    return { ok: true, models: visibleModels(sub.id, list), note: models.error }
+  } finally {
+    closeBrowserLogin(entry)
+    if (finishingAccounts.get(sub.id) === entry) finishingAccounts.delete(sub.id)
+  }
 }
 
 // accountIdOf pulls the ChatGPT account id out of the id_token JWT claims.
@@ -420,7 +479,7 @@ const projectOf = data => {
 // loadCodeAssist for an existing project, then onboardUser (polled) when there
 // is none yet. Returns the project id, or undefined when it could not be found;
 // failures land in loginErrors so /login can say what went wrong.
-const onboardAntigravity = async (sub, account) => {
+const onboardAntigravity = async (sub, account, current) => {
   try {
     const load = await fetch(`${sub.apiBase}/v1internal:loadCodeAssist`, {
       method: 'POST',
@@ -457,6 +516,7 @@ const onboardAntigravity = async (sub, account) => {
     }
     if (!project) throw new Error('no project id in loadCodeAssist or onboardUser response')
     const file = subsPath()
+    if (!current()) return undefined
     saveSubs(file, { ...loadSubs(file), [sub.id]: { ...loadSubs(file)[sub.id], projectId: project } })
     return project
   } catch (error) {
@@ -498,6 +558,8 @@ export const subscriptionProviders = () =>
 const pending = new Map()
 
 export const startLogin = async sub => {
+  const generation = cancelLogin(sub.id)
+  loginErrors.delete(sub.id)
   let res
   try {
     res = await fetch(sub.deviceURL, {
@@ -517,7 +579,8 @@ export const startLogin = async sub => {
     return { error: `${sub.name} answered something Prism could not read` }
   }
   if (data.error) return { error: data.error_description ?? data.error }
-  pending.set(sub.id, { deviceCode: data.device_code, interval: data.interval ?? 5, until: Date.now() + (data.expires_in ?? 900) * 1000, timer: null })
+  if (loginGenerations.get(sub.id) !== generation) return { error: 'the sign-in was cancelled' }
+  pending.set(sub.id, { generation, deviceCode: data.device_code, interval: data.interval ?? 5, until: Date.now() + (data.expires_in ?? 900) * 1000, timer: null })
   return { userCode: data.user_code, verificationURI: data.verification_uri, expires: data.expires_in ?? 900 }
 }
 
@@ -547,6 +610,7 @@ export const pollLogin = async sub => {
   } catch {
     return { status: 'error', message: `${sub.name} answered something Prism could not read` }
   }
+  if (loginGenerations.get(sub.id) !== state.generation) return { status: 'error', message: 'the sign-in was cancelled' }
   if (data.error === 'authorization_pending') return { status: 'pending', interval: state.interval }
   if (data.error === 'slow_down') {
     state.interval += 5
@@ -562,12 +626,19 @@ export const pollLogin = async sub => {
   subs[sub.id] = { accessToken: data.access_token, models: [] }
   saveSubs(file, subs)
   const models = await probeSubModels(sub)
-  const list = models.models?.length ? models.models : sub.models
+  if (loginGenerations.get(sub.id) !== state.generation) return { status: 'error', message: 'the sign-in was cancelled' }
+  const list = models.models?.length ? models.models : (sub.models ?? [])
+  const visible = visibleModels(sub.id, list)
   // Re-read before saving: a sign-in or sign-out for another account during the
   // probe must not be lost.
-  const fresh = { ...loadSubs(file), [sub.id]: { ...subs[sub.id], models: list } }
+  const note = !visible.length
+    ? `signed in, but ${sub.name} did not list its models; run /login ${sub.id} again`
+    : models.error
+  if (note && !visible.length) loginErrors.set(sub.id, note)
+  else loginErrors.delete(sub.id)
+  const fresh = { ...loadSubs(file), [sub.id]: { ...subs[sub.id], models: list, ...(note && !visible.length && { loginError: note }) } }
   saveSubs(file, fresh)
-  return { status: 'ok', models: list, note: models.error }
+  return { status: 'ok', models: visibleModels(sub.id, list), note }
 }
 
 const probeSubModels = async sub => {
@@ -623,9 +694,11 @@ const probeSubModels = async sub => {
 }
 
 export const signOut = sub => {
+  cancelLogin(sub.id)
   const file = subsPath()
   const subs = { ...loadSubs(file) }
   delete subs[sub.id]
   apiTokens.delete(sub.id)
+  loginErrors.delete(sub.id)
   saveSubs(file, subs)
 }

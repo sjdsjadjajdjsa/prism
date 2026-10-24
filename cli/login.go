@@ -15,11 +15,13 @@ import (
 
 // loginRow is one subscription account in the router's /logins list.
 type loginRow struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	SignedIn bool   `json:"signedIn"`
-	Models   int    `json:"models"`
-	Error    string `json:"error"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	SignedIn  bool   `json:"signedIn"`
+	Finishing bool   `json:"finishing"`
+	Pending   bool   `json:"pending"`
+	Models    int    `json:"models"`
+	Error     string `json:"error"`
 }
 
 type loginsMsg struct {
@@ -55,6 +57,9 @@ func fetchLogins(api string) ([]loginRow, error) {
 		return nil, errors.New("can't reach the free AI router · run: prism status")
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusForbidden {
+		return nil, errors.New(routerRefused)
+	}
 	var out struct {
 		Subscriptions []loginRow `json:"subscriptions"`
 		Error         *struct {
@@ -80,11 +85,15 @@ func loginRound(api string, body map[string]any, out any) error {
 		return err
 	}
 	req.Header.Set("content-type", "application/json")
+	authorizeRouter(req)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return errors.New("can't reach the free AI router · run: prism status")
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusForbidden {
+		return errors.New(routerRefused)
+	}
 	if err := json.NewDecoder(res.Body).Decode(out); err != nil {
 		return err
 	}
@@ -111,8 +120,14 @@ func pollLogin(api, id string, interval, expires int, browser bool) tea.Cmd {
 					if row.ID != id {
 						continue
 					}
+					if row.Finishing || row.Pending {
+						continue
+					}
+					if row.Error != "" && row.Models == 0 {
+						return loginDoneMsg{id: id, err: errors.New(row.Error)}
+					}
 					if row.SignedIn {
-						return loginDoneMsg{id: id, models: row.Models}
+						return loginDoneMsg{id: id, models: row.Models, note: row.Error}
 					}
 					if row.Error != "" {
 						return loginDoneMsg{id: id, err: errors.New(row.Error)}
@@ -121,18 +136,18 @@ func pollLogin(api, id string, interval, expires int, browser bool) tea.Cmd {
 				continue
 			}
 			var out struct {
-				Status   string `json:"status"`
-				Interval int    `json:"interval"`
-				Models   int    `json:"models"`
-				Note     string `json:"note"`
-				Message  string `json:"message"`
+				Status   string   `json:"status"`
+				Interval int      `json:"interval"`
+				Models   []string `json:"models"`
+				Note     string   `json:"note"`
+				Message  string   `json:"message"`
 			}
 			if err := loginRound(api, map[string]any{"id": id, "poll": true}, &out); err != nil {
 				return loginDoneMsg{id: id, err: err}
 			}
 			switch out.Status {
 			case "ok":
-				return loginDoneMsg{id: id, models: out.Models, note: out.Note}
+				return loginDoneMsg{id: id, models: len(out.Models), note: out.Note}
 			case "error":
 				return loginDoneMsg{id: id, err: errors.New(out.Message)}
 			case "idle":
@@ -240,10 +255,10 @@ func loginItems(rows []loginRow) []menuItem {
 		it := menuItem{label: id, detail: name, dot: "◌", state: "not signed in"}
 		if row.SignedIn {
 			it.dot, it.dotTone, it.stateTone = "●", toneOK, toneOK
-			it.state = "signed in · no models listed yet"
-			if row.Models > 0 {
-				it.state = fmt.Sprintf("signed in · %d models", row.Models)
-			}
+			it.state = fmt.Sprintf("signed in · %d models", row.Models)
+		}
+		if row.Finishing || row.Pending {
+			it.state = "signing in…"
 		}
 		if row.Error != "" {
 			it.dotTone, it.stateTone = toneErr, toneErr
@@ -266,11 +281,10 @@ func loginsView(rows []loginRow) cmdView {
 		it := cmdItem{name: row.ID, desc: "not signed in", dot: "◌"}
 		if row.SignedIn {
 			it.dot, it.dotOK = "●", true
-			if row.Models > 0 {
-				it.desc = fmt.Sprintf("signed in · %d models", row.Models)
-			} else {
-				it.desc = "signed in · no models listed yet"
-			}
+			it.desc = fmt.Sprintf("signed in · %d models", row.Models)
+		}
+		if row.Finishing || row.Pending {
+			it.desc = "signing in…"
 		}
 		block.items = append(block.items, it)
 	}

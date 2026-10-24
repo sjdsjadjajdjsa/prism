@@ -7,11 +7,26 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
+
+// Shared across platforms; routerauth.go re-execs on Unix to remove the token
+// from the initial environment block too. Windows retains Unsetenv behaviour.
+var routerToken = os.Getenv("PRISM_ROUTER_TOKEN")
+
+func init() { os.Unsetenv("PRISM_ROUTER_TOKEN") }
+
+func authorizeRouter(req *http.Request) {
+	if routerToken != "" {
+		req.Header.Set("x-prism-token", routerToken)
+	}
+}
+
+const routerRefused = "the router refused this (admin token missing); restart prism"
 
 // keyRow is one provider in the router's key list.
 type keyRow struct {
@@ -55,6 +70,9 @@ func fetchKeys(api string) (keysInfo, error) {
 		return keysInfo{}, errors.New("can't reach the free AI router · run: prism status")
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusForbidden {
+		return keysInfo{}, errors.New(routerRefused)
+	}
 	var info keysInfo
 	if err := json.NewDecoder(res.Body).Decode(&info); err != nil {
 		return keysInfo{}, err
@@ -74,11 +92,15 @@ func postKey(api, id, value string) (keySetMsg, error) {
 		return keySetMsg{}, err
 	}
 	req.Header.Set("content-type", "application/json")
+	authorizeRouter(req)
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return keySetMsg{}, errors.New("can't reach the free AI router · run: prism status")
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusForbidden {
+		return keySetMsg{}, errors.New(routerRefused)
+	}
 	var out struct {
 		OK     bool   `json:"ok"`
 		Masked string `json:"masked"`
@@ -208,23 +230,32 @@ func keyItem(row keyRow) cmdItem {
 }
 
 func keysView(info keysInfo) cmdView {
-	v := cmdView{title: "keys", footer: "/key <name> <secret> adds one · /key rm <name> removes it · your own models answer only when picked by name"}
-	free := cmdBlock{title: "free (built in)"}
-	for _, row := range info.Free {
-		free.items = append(free.items, keyItem(row))
-	}
-	if len(free.items) > 0 {
-		v.blocks = append(v.blocks, free)
-	}
-	yours := cmdBlock{title: "your own models"}
-	for _, row := range info.Presets {
+	v := cmdView{title: "keys"}
+	free, paid := cmdBlock{title: "free"}, cmdBlock{title: "paid"}
+	var names []string
+	for _, row := range append(append([]keyRow{}, info.Free...), info.Presets...) {
 		if row.Keyless {
 			continue
 		}
-		yours.items = append(yours.items, keyItem(row))
+		if row.Set == "" {
+			names = append(names, row.ID)
+			continue
+		}
+		it := keyItem(row)
+		it.sub = ""
+		if row.Paid {
+			paid.items = append(paid.items, it)
+		} else {
+			free.items = append(free.items, it)
+		}
 	}
-	if len(yours.items) > 0 {
-		v.blocks = append(v.blocks, yours)
+	for _, block := range []cmdBlock{free, paid} {
+		if len(block.items) > 0 {
+			v.blocks = append(v.blocks, block)
+		}
+	}
+	if len(names) > 0 {
+		v.footer = "add one: /key <name> <secret> · names: " + strings.Join(names, ", ")
 	}
 	return v
 }
@@ -238,17 +269,15 @@ func keyState(set string) string {
 
 func keyLines(info keysInfo) []string {
 	var lines []string
-	lines = append(lines, "free (built in):")
-	for _, row := range info.Free {
-		lines = append(lines, fmt.Sprintf("  %-14s %s", row.ID, keyState(row.Set)))
-	}
-	lines = append(lines, "", "your own models:")
-	for _, row := range info.Presets {
-		if row.Keyless {
-			continue
+	v := keysView(info)
+	for _, block := range v.blocks {
+		lines = append(lines, block.title+":")
+		for _, it := range block.items {
+			lines = append(lines, fmt.Sprintf("  %-14s %s", it.name, it.desc))
 		}
-		lines = append(lines, fmt.Sprintf("  %-14s %s", row.ID, keyState(row.Set)))
 	}
-	lines = append(lines, "", "/key <name> <secret> adds one · /key rm <name> removes it")
+	if v.footer != "" {
+		lines = append(lines, v.footer)
+	}
 	return lines
 }

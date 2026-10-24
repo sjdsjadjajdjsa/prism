@@ -1,8 +1,8 @@
 import http from 'node:http'
 import { readFileSync, writeFileSync, renameSync } from 'node:fs'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash, timingSafeEqual } from 'node:crypto'
 import { customProviders, eligible, PRESETS, maskKey, syncKeys, setKeyVar, keysPath, customFilePath, upsertPresetEntry, probeModels } from './custom.mjs'
-import { SUBSCRIPTIONS, subscriptionProviders, startLogin, pollLogin, signOut, loadSubs, subToken, startBrowserLogin, handleOAuthCallback, pendingLoginURL, loginError, visibleModels } from './subs.mjs'
+import { SUBSCRIPTIONS, subscriptionProviders, startLogin, pollLogin, signOut, loadSubs, subToken, startBrowserLogin, handleOAuthCallback, pendingLoginURL, loginStatus, localOnly, visibleModels } from './subs.mjs'
 import { wireFor } from './wire.mjs'
 
 const config = JSON.parse(readFileSync(new URL('./providers.json', import.meta.url), 'utf8'))
@@ -452,6 +452,7 @@ const keysHandler = async (req, res) => {
 }
 
 const keysRoute = async (req, res) => {
+  if (req.method !== 'GET' && req.method !== 'POST') return send(res, 405, { error: { message: 'Method not allowed', type: 'invalid_request' } })
   if (req.method === 'GET') {
     syncKeys()
     return send(res, 200, {
@@ -529,7 +530,7 @@ const loginsRoute = async (req, res) => {
   const sub = SUBSCRIPTIONS.find(s => s.id === String(body?.id ?? '').trim())
   if (req.method === 'GET') {
     if (new URL(req.url, 'http://router').pathname === '/logins/pending') return send(res, 200, { url: pendingLoginURL() })
-    return send(res, 200, { subscriptions: SUBSCRIPTIONS.map(s => ({ id: s.id, name: s.name, signedIn: Boolean(loadSubs()[s.id]?.accessToken), models: visibleModels(s.id, loadSubs()[s.id]?.models).length, error: loginError(s.id) })) })
+    return send(res, 200, { subscriptions: SUBSCRIPTIONS.map(loginStatus) })
   }
   if (!sub) return send(res, 404, { error: { message: `no subscription called "${body?.id}"`, type: 'not_found' } })
   if (body?.signOut === true) {
@@ -552,9 +553,18 @@ const loginsRoute = async (req, res) => {
 
 http
   .createServer((req, res) => {
+    if (!localOnly(req, res, port)) return
     const path = new URL(req.url, 'http://router').pathname
+    if (req.method !== 'GET' && req.method !== 'HEAD' && (path === '/keys' || path === '/logins') && process.env.PRISM_ROUTER_TOKEN) {
+      const digest = value => createHash('sha256').update(value).digest()
+      if (!timingSafeEqual(digest(req.headers['x-prism-token'] ?? ''), digest(process.env.PRISM_ROUTER_TOKEN))) {
+        res.writeHead(403, { 'content-type': 'text/plain' })
+        return res.end('router admin token required\n')
+      }
+    }
     if (req.method === 'POST' && path === '/v1/chat/completions') return complete(req, res)
     if (path === '/keys') return keysHandler(req, res)
+    if (path === '/logins/pending' && req.method !== 'GET') return send(res, 405, { error: { message: 'Method not allowed', type: 'invalid_request' } })
     if (path === '/logins' || path === '/logins/pending') return loginsHandler(req, res)
     if ((path === '/callback' || path === '/oauth2callback' || path === '/auth/callback') && req.method === 'GET') return void handleOAuthCallback(req, res, path).then(handled => { if (!handled) send(res, 404, { error: { message: 'Not found', type: 'not_found' } }) })
     if (path === '/v1/models') return send(res, 200, { object: 'list', data: ['auto', ...roleNames.map(role => `auto:${role}`), 'auto:vision', ...routes().filter(route => route.source === 'yours' || route.source === 'subscription').map(route => route.id)].map(id => ({ id, object: 'model', owned_by: 'free-ai' })) })
