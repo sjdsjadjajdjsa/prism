@@ -1675,7 +1675,7 @@ async function boot() {
     window.PrismCommands.attach({
       input,
       suggestBox: box,
-      run: (text) => { input.value = ''; autosize(); if (box) box.hidden = true; runCommand(text); },
+      run: (text) => { input.value = ''; autosize(); runCommand(text); },
     });
   }
   startHeartbeat();

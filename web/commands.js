@@ -131,10 +131,21 @@
   function attach(opts) {
     var input = opts.input;
     var box = opts.suggestBox;
-    var run = opts.run;
     var found = [], sel = 0, closed = false, typed = null;
     var rows = [], listEl = null, usageEl = null, keysEl = null, lastMove = "";
-    box.hidden = true;
+    hide();
+
+    function hide() {
+      box.hidden = true;
+      input.setAttribute("aria-expanded", "false");
+      input.removeAttribute("aria-activedescendant");
+    }
+
+    function run(text) {
+      found = []; sel = 0; typed = null;
+      hide();
+      if (typeof opts.run === "function") opts.run(text);
+    }
 
     function open() { return found.length > 0 && !closed && !pickerOpen(); }
 
@@ -142,9 +153,7 @@
       box.textContent = "";
       rows = [];
       if (!open()) {
-        box.hidden = true;
-        input.removeAttribute("aria-activedescendant");
-        input.setAttribute("aria-expanded", "false");
+        hide();
         return;
       }
       box.hidden = false;
@@ -185,6 +194,21 @@
       foot.appendChild(usageEl);
       foot.appendChild(keysEl);
       foot.addEventListener("mousedown", function (ev) { ev.preventDefault(); });
+      listEl.addEventListener("scroll", function () {
+        if (box.hidden || !rows[sel]) return;
+        var top = listEl.scrollTop, bottom = top + listEl.clientHeight;
+        var first = -1, last = -1;
+        for (var k = 0; k < rows.length; k++) {
+          var row = rows[k];
+          if (row.offsetTop >= top - 1 && row.offsetTop + row.offsetHeight <= bottom + 1) {
+            if (first < 0) first = k;
+            last = k;
+          }
+        }
+        if (first < 0) return;
+        if (rows[sel].offsetTop < top - 1) select(first, false);
+        else if (rows[sel].offsetTop + rows[sel].offsetHeight > bottom + 1) select(last, false);
+      });
       box.appendChild(listEl);
       box.appendChild(foot);
       fit();
@@ -241,7 +265,7 @@
         found = []; sel = 0; paint();
         setValue(input, "");
         input.focus();
-        if (typeof run === "function") run(c.name);
+        run(c.name);
         return;
       }
       setValue(input, c.name + " ");
@@ -259,7 +283,7 @@
     input.setAttribute("aria-controls", box.id || "cmd-suggest");
     input.setAttribute("aria-autocomplete", "list");
     input.addEventListener("input", refresh);
-    input.addEventListener("blur", function () { setTimeout(function () { if (document.activeElement !== input) { box.hidden = true; } }, 120); });
+    input.addEventListener("blur", function () { setTimeout(function () { if (document.activeElement !== input) hide(); }, 120); });
     input.addEventListener("focus", refresh);
     window.addEventListener("resize", function () { if (!box.hidden && rows.length) { fit(); select(sel, true); } });
     // capture: the list answers its keys before the chat input's own handler (web/app.js) sees them
@@ -283,7 +307,7 @@
         // of its own) runs as typed, like a line with words after the command
         if (shown && !(sel === 0 && isName(text) && found[0].name !== text)) { take(sel, true); return; }
         found = []; sel = 0; paint();
-        if (typeof run === "function") run(text);
+        run(text);
       }
     }, true);
   }

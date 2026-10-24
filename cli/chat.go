@@ -857,6 +857,9 @@ func (m *model) suggestMove(d int) {
 // menu (pickerCommands), which tab runs too so its menu opens at once.
 func (m *model) suggestTake(l suggestLayout, enter bool) tea.Cmd {
 	c := l.rows[l.sel]
+	if m.busy && (enter || pickerCommands[c.name]) {
+		return nil // nothing runs mid-turn, so the typed text stays as it is
+	}
 	m.sug = suggestState{}
 	if enter || pickerCommands[c.name] {
 		m.input = []rune(c.name)
@@ -1021,13 +1024,18 @@ func drawSuggestions(cv *canvas, t theme, m model, x, y, w, top int) {
 		}
 		lines = append(lines, pickLine{fill: fill, segs: segs})
 	}
-	keys := "↑↓ · tab · enter · esc"
+	hint := suggestHint(l.rows[l.sel])
+	keys, more := "↑↓ · tab · enter · esc", ""
 	if hidden := len(l.items) - l.shown; hidden > 0 {
-		keys = fmt.Sprintf("%d more · %s", hidden, keys)
+		more = fmt.Sprintf("%d more", hidden)
+		keys = more + " · " + keys
+	}
+	if len([]rune(hint))+len([]rune(keys))+2 > inner {
+		keys = more
 	}
 	hintW := max(0, inner-len([]rune(keys))-2)
 	lines = append(lines, pickLine{fill: t.faint, segs: []seg{
-		{text: padRunes(clip(suggestHint(l.rows[l.sel]), hintW), hintW+2), fg: mix(t.muted, accent, 0.5)},
+		{text: padRunes(clip(hint, hintW), hintW+2), fg: mix(t.muted, accent, 0.5)},
 		{text: keys, fg: t.muted},
 	}})
 	drawPickLines(cv, t, lines, x, y, w, top)

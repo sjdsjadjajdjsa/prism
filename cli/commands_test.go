@@ -570,6 +570,85 @@ func TestSuggestKeys(t *testing.T) {
 	}
 }
 
+func TestSuggestEditResets(t *testing.T) {
+	t.Run("highlight", func(t *testing.T) {
+		m := typeText(t, suggestModel(t, 80, 24), "/mo")
+		m = hit(t, hit(t, m, tea.KeyDown), tea.KeyDown)
+		if got := highlighted(t, m); got != "/memory" {
+			t.Fatalf("before editing highlight = %q, want /memory", got)
+		}
+		m = hit(t, typeText(t, m, "d"), tea.KeyBackspace)
+		if got := highlighted(t, m); got != "/model" {
+			t.Fatalf("after edit and backspace highlight = %q, want /model", got)
+		}
+		m = hit(t, m, tea.KeyEnter)
+		if !m.menu.open || m.menu.kind != "model" {
+			t.Errorf("enter after editing must open /model, got menu %q", m.menu.kind)
+		}
+	})
+	t.Run("closed", func(t *testing.T) {
+		m := typeText(t, suggestModel(t, 80, 24), "/mo")
+		m = hit(t, m, tea.KeyEscape)
+		m = hit(t, typeText(t, m, "d"), tea.KeyBackspace)
+		if got := highlighted(t, m); got != "/model" {
+			t.Errorf("editing back to closed text must reopen /model, got %q", got)
+		}
+	})
+	t.Run("submit", func(t *testing.T) {
+		m := typeText(t, suggestModel(t, 80, 24), "/mo")
+		m = hit(t, hit(t, m, tea.KeyEscape), tea.KeyEnter)
+		if m.sug != (suggestState{}) {
+			t.Errorf("submit retained suggestion state: %+v", m.sug)
+		}
+		m = typeText(t, m, "/mo")
+		if got := highlighted(t, m); got != "/model" {
+			t.Errorf("typing a submitted command must reopen /model, got %q", got)
+		}
+	})
+}
+
+func TestSuggestNarrowHint(t *testing.T) {
+	for _, width := range []int{50, 60} {
+		for _, text := range []string{"/model", "/skills"} {
+			m := typeText(t, suggestModel(t, width, 24), text)
+			l := m.suggesting()
+			hint := suggestHint(l.rows[l.sel])
+			if screen := crewScreen(m); !strings.Contains(screen, hint) {
+				t.Errorf("width %d, %s: usage %q is cut off:\n%s", width, text, hint, screen)
+			}
+		}
+		m := hit(t, typeText(t, suggestModel(t, width, 16), "/"), tea.KeyDown)
+		if screen := crewScreen(m); !strings.Contains(screen, suggestHint(m.suggesting().rows[1])) || !strings.Contains(screen, "more") {
+			t.Errorf("width %d: a narrow long list must keep usage and hidden count:\n%s", width, screen)
+		}
+	}
+}
+
+func TestSuggestBusyEnter(t *testing.T) {
+	m := typeText(t, suggestModel(t, 80, 24), "/mdl")
+	m.busy = true
+	next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = next.(model)
+	if string(m.input) != "/mdl" || m.menu.open || cmd != nil {
+		t.Errorf("busy enter changed input or ran a command: input=%q menu=%v cmd=%v", string(m.input), m.menu.open, cmd != nil)
+	}
+}
+
+func TestSuggestBusyClickAndTab(t *testing.T) {
+	m := typeText(t, suggestModel(t, 80, 24), "/mdl")
+	m.busy = true
+	x, y, _, _ := m.overlayArea()
+	first := y - m.suggesting().lines
+	next, cmd := m.Update(tea.MouseClickMsg{X: x + 6, Y: first + 1, Button: tea.MouseLeft})
+	if m = next.(model); string(m.input) != "/mdl" || m.menu.open || cmd != nil {
+		t.Errorf("busy click changed input or ran a command: input=%q menu=%v cmd=%v", string(m.input), m.menu.open, cmd != nil)
+	}
+	next, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	if m = next.(model); string(m.input) != "/mdl" || m.menu.open || cmd != nil {
+		t.Errorf("busy tab on a picker command changed input or ran it: input=%q menu=%v cmd=%v", string(m.input), m.menu.open, cmd != nil)
+	}
+}
+
 func TestSuggestListFitsAndScrolls(t *testing.T) {
 	m := typeText(t, suggestModel(t, 80, 16), "/")
 	rows := strings.Split(crewScreen(m), "\n")

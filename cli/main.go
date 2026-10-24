@@ -390,6 +390,7 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if cmd, ok := m.suggestKey(k); ok {
 		return m, cmd
 	}
+	before := string(m.input)
 	switch k {
 	case "esc":
 		m.loginWaiting, m.loginTab = "", nil
@@ -405,6 +406,7 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.input = nil
+			m.sug = suggestState{}
 			return m, pasteLoginCode(m.agent.api, m.loginWaiting, text)
 		}
 		return m, m.submit()
@@ -431,6 +433,9 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.input = append(m.input, []rune(msg.Text)...)
 		}
 	}
+	if string(m.input) != before {
+		m.sug = suggestState{}
+	}
 	return m, nil
 }
 
@@ -446,6 +451,7 @@ func (m *model) submit() tea.Cmd {
 		return nil
 	}
 	m.input, m.scroll = nil, 0
+	m.sug = suggestState{}
 	if strings.HasPrefix(text, "/") {
 		if fields := strings.Fields(text); fields[0] == "/new" || fields[0] == "/clear" {
 			m.loginWaiting, m.loginTab = "", nil
