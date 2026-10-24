@@ -16,3 +16,11 @@ cli/prism
 preview/
 .built
 HANDOFF.md
+
+# editor and system files
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/
+node_modules/
