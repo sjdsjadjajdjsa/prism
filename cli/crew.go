@@ -146,6 +146,11 @@ func (a *Agent) notOwned(path string) string {
 
 func (a *Agent) avoidRoutes(own []string) []string {
 	out := append([]string{}, own...)
+	for _, r := range a.loopAvoid {
+		if !slices.Contains(out, r) {
+			out = append(out, r)
+		}
+	}
 	if a.avoid != nil {
 		for _, r := range a.avoid() {
 			if !slices.Contains(out, r) {

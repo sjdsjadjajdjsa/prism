@@ -196,6 +196,21 @@ function addText(text) {
   textPending = { el: state.textEl, buf: state.textBuf };
   if (!textRaf) textRaf = requestAnimationFrame(() => { textRaf = 0; flushText(); });
 }
+// dropText takes back the end of the answer: a reply dropped for repeating itself (cli/loopguard.go)
+function dropText(text) {
+  state.draft = null; state.reasoning = '';
+  if (!state.textEl || !text || !state.textBuf.endsWith(text)) return;
+  state.textBuf = state.textBuf.slice(0, -text.length);
+  if (!state.textBuf.trim()) {
+    if (textRaf) { cancelAnimationFrame(textRaf); textRaf = 0; }
+    textPending = null; state.textEl.remove(); state.textEl = null; state.textBuf = '';
+    const last = curTurn().lastElementChild;
+    if (last && last.classList.contains('steps-group')) state.steps = last; // the next step joins its group again
+    return;
+  }
+  textPending = { el: state.textEl, buf: state.textBuf };
+  flushText();
+}
 function addNote(text) { curTurn().appendChild(el('div', 'note', text)); state.textEl = null; }
 function addError(headline, detail) {
   const e = el('div', 'error');
@@ -865,6 +880,7 @@ function handleEvent(ev) {
       if (state.phase !== 'text') setPhase('text');
       buddy.lookAt = performance.now();
       state.draft = null; addText(ev.text || ''); break;
+    case 'drop_text': dropText(ev.text || ''); break;
     case 'draft':
       state.draft = { tool: ev.tool, arg: ev.arg, chars: ev.chars || 0 }; setPhase('draft'); buddy.charge = Math.min(1, (ev.chars || 0) / 4000); break;
     case 'tool_start':

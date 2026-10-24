@@ -110,6 +110,7 @@ A small router picks the model for every step:
 - **Learns which models are quick** and remembers it between runs.
 - **Skips models that are busy or down**, and tries them again later.
 - **Fast lane:** on NVIDIA's Nemotron models, short questions skip the slow thinking step.
+- **Gets out of loops.** A model that keeps writing the same lines is stopped early, its text is taken back, and another model answers. A model that keeps making the same call with the same result is told so and the next step goes to another model; after two switches Prism stops and says why, instead of using up the free models.
 
 ### Benchmarks
 

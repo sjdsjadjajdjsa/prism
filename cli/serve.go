@@ -601,6 +601,8 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 			send(map[string]any{"type": "reasoning", "text": e.text})
 		case evText:
 			send(map[string]any{"type": "text", "text": e.text})
+		case evDropText:
+			send(map[string]any{"type": "drop_text", "text": e.text})
 		case evDraft:
 			send(map[string]any{"type": "draft", "tool": e.name, "arg": e.arg, "chars": e.chars})
 		case evToolStart:

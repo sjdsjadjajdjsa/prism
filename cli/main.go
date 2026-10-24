@@ -556,6 +556,13 @@ func (m *model) handle(event any) {
 		} else {
 			m.entries = append(m.entries, &entry{kind: "text", text: e.text})
 		}
+	case evDropText:
+		m.draft, m.reasoning = nil, ""
+		if n := len(m.entries); e.text != "" && n > 0 && m.entries[n-1].kind == "text" && strings.HasSuffix(m.entries[n-1].text, e.text) {
+			if m.entries[n-1].text = strings.TrimSuffix(m.entries[n-1].text, e.text); strings.TrimSpace(m.entries[n-1].text) == "" {
+				m.entries = m.entries[:n-1]
+			}
+		}
 	case evToolStart:
 		m.thinking, m.reasoning, m.draft = false, "", nil
 		m.entries = append(m.entries, &entry{kind: "tool", id: e.id, tool: e.name, arg: e.arg})
@@ -808,6 +815,10 @@ func runPlain(agent *Agent, prompt string) int {
 			}
 		case evText:
 			fmt.Print(e.text)
+		case evDropText:
+			if e.text != "" {
+				fmt.Print("\n· (the repeated text above was dropped)\n")
+			}
 		case evToolStart:
 			fmt.Printf("\n◆ %s %s\n", e.name, e.arg)
 		case evToolDone:
@@ -952,7 +963,7 @@ func entriesFrom(messages []Message) []*entry {
 	outputs := map[string]string{}
 	for _, msg := range messages {
 		if msg.Role == "tool" {
-			outputs[msg.ToolCallID] = msg.Content
+			outputs[msg.ToolCallID] = strings.TrimSuffix(msg.Content, "\n\n"+loopNudge)
 		}
 	}
 	var out []*entry

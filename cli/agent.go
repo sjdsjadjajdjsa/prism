@@ -168,6 +168,10 @@ type Agent struct {
 	rules        ruleSet         // the user's command rules, read once per turn (risk.go)
 	allowedRisks map[string]bool // risky kinds the user allowed for this chat
 
+	calls        callLog  // this turn's tool calls, to notice one repeated with the same result (loopguard.go)
+	loopAvoid    []string // models this turn left for going in circles
+	loopSwitches int
+
 	// turnBrief is the other tabs' status, read once per turn so every request in a turn
 	// sends the same text and the provider's prompt cache keeps working.
 	turnBrief string
@@ -417,6 +421,7 @@ func (a *Agent) Run(ctx context.Context, prompt string, emit func(any)) {
 	a.rememberBrief()
 	a.startHooks(emit)
 	a.startRules()
+	a.startLoopGuard()
 	err := a.loop(ctx, emit)
 	a.currentTurn = nil // turn is sealed; no more recording
 	if errors.Is(err, context.Canceled) {
@@ -508,6 +513,7 @@ func (a *Agent) loop(ctx context.Context, emit func(any)) error {
 			}
 			return nil
 		}
+		var looped *FunctionCall
 		for _, call := range reply.ToolCalls {
 			if ctx.Err() != nil {
 				a.messages = append(a.messages, Message{Role: "tool", ToolCallID: call.ID, Content: "Cancelled by the user."})
@@ -559,9 +565,17 @@ func (a *Agent) loop(ctx context.Context, emit func(any)) error {
 			}
 			emit(evToolDone{call.ID, result})
 			a.messages = append(a.messages, Message{Role: "tool", ToolCallID: call.ID, Content: result.output})
+			if countsForLoops(call.Function) && a.calls.add(callSig(call.Function.Name, call.Function.Arguments, result.output)) && looped == nil {
+				looped = &call.Function
+			}
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		if looped != nil {
+			if err := a.offLoop(*looped, emit); err != nil {
+				return err
+			}
 		}
 	}
 	return fmt.Errorf("stopped after %d steps without finishing", limit)
@@ -623,6 +637,10 @@ func (a *Agent) completeRetry(ctx context.Context, emit func(any)) (Message, err
 		}
 		if errors.Is(err, errCutOff) {
 			emit(evNote{"the model stopped mid-reply, trying another…"})
+		} else if errors.Is(err, errLooping) && a.pinned() {
+			emit(evNote{"the model kept repeating itself, asking again…"})
+		} else if errors.Is(err, errLooping) {
+			emit(evNote{"the model kept repeating itself, trying another…"})
 		} else {
 			emit(evNote{"that model failed, trying another…"})
 		}
@@ -833,12 +851,18 @@ type streamChunk struct {
 func (a *Agent) readStream(body io.Reader, emit func(any)) (Message, error) {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
-	var text strings.Builder
+	var text, shown, reasoned strings.Builder
 	calls := map[int]*ToolCall{}
 	slots := map[int]int{}
 	var order []int
 	thinking, ended := false, false
 	lastDraft := 0
+	// a reply stuck repeating itself is stopped early (loopguard.go); what it showed is taken back
+	textWatch, thinkWatch := repeatWatch{min: textLoopMin}, repeatWatch{min: textLoopMin}
+	looping := func() (Message, error) {
+		emit(evDropText{shown.String()})
+		return Message{}, errLooping
+	}
 	for scanner.Scan() {
 		data, ok := strings.CutPrefix(scanner.Text(), "data:")
 		if !ok {
@@ -868,11 +892,18 @@ func (a *Agent) readStream(body io.Reader, emit func(any)) (Message, error) {
 					emit(evThinking{})
 				}
 				emit(evReasoning{reasoning})
+				if reasoned.WriteString(reasoning); thinkWatch.looping(reasoned.String()) {
+					return looping()
+				}
 			}
 			if delta.Content != "" {
 				text.WriteString(delta.Content)
 				if text.Len() > 0 && strings.TrimSpace(text.String()) != "" {
 					emit(evText{delta.Content})
+					shown.WriteString(delta.Content)
+				}
+				if textWatch.looping(text.String()) {
+					return looping()
 				}
 			}
 			for _, part := range delta.ToolCalls {
@@ -903,6 +934,12 @@ func (a *Agent) readStream(body io.Reader, emit func(any)) (Message, error) {
 	}
 	if err := scanner.Err(); err != nil {
 		return Message{}, err
+	}
+	// a file meant to repeat closes fine; input that never closed and ends repeating ran out of room in a loop
+	for _, index := range order {
+		if args := calls[index].Function.Arguments; !json.Valid([]byte(args)) && repeatingTail(args, argsLoopMin) {
+			return looping()
+		}
 	}
 	if !ended {
 		return Message{}, errCutOff
