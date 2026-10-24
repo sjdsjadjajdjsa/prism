@@ -70,8 +70,9 @@ type evNote struct{ text string }
 type evDone struct{ err error }
 
 type routeFailure struct {
-	Route  string `json:"route"`
-	Status int    `json:"status"`
+	Route   string `json:"route"`
+	Status  int    `json:"status"`
+	Message string `json:"message"`
 }
 
 type routerError struct {

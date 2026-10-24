@@ -47,6 +47,7 @@
     for (var i = 0; i < list.length; i++) {
       if (list[i].name.indexOf(text) === 0) found.push(list[i]);
     }
+    found.sort(function (a, b) { return (b.name === text) - (a.name === text); });
     return found;
   }
 

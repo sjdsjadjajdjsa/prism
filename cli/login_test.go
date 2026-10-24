@@ -464,7 +464,7 @@ func TestDeviceLoginScreenShowsCode(t *testing.T) {
 			if m.loginWaiting != "" {
 				t.Fatal("device code sign-in captured the chat input")
 			}
-			for _, want := range []string{"https://accounts.x.ai/device", "enter this code there", "WXYZ-9876", "ask anything"} {
+			for _, want := range []string{"https://accounts.x.ai/device", "type this code on that page", "WXYZ-9876", "ask anything"} {
 				if !strings.Contains(screen, want) {
 					t.Errorf("screen missing %q:\n%s", want, screen)
 				}

@@ -161,8 +161,8 @@ func loginLines(msg loginCodeMsg) []string {
 			"2. " + loginPastePrompt}
 	}
 	return []string{"1. open this page (prism also tries to open your browser):", msg.url,
-		"2. enter this code there:", msg.code,
-		"prism keeps checking; the models appear in /models when you are done"}
+		"2. type this code on that page, then allow access:", msg.code,
+		"nothing to paste here: prism signs you in by itself once you allow it"}
 }
 
 // openBrowser starts the system browser on link without waiting for it. It

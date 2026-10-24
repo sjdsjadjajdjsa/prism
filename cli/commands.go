@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -111,14 +113,16 @@ func matchingIn(dir, input string) []command {
 			found = append(found, c)
 		}
 	}
-	if dir == "" {
-		return found
-	}
-	for _, u := range loadUserCommands(dir, time.Second) {
-		if u.runnable() && strings.HasPrefix(u.name, input) {
-			found = append(found, command{u.name, u.help, true})
+	if dir != "" {
+		for _, u := range loadUserCommands(dir, time.Second) {
+			if u.runnable() && strings.HasPrefix(u.name, input) {
+				found = append(found, command{u.name, u.help, true})
+			}
 		}
 	}
+	sort.SliceStable(found, func(i, j int) bool {
+		return (found[i].name == input) && (found[j].name != input)
+	})
 	return found
 }
 
@@ -525,6 +529,17 @@ func friendly(err error) (string, string) {
 	if !errors.As(err, &re) || len(re.failures) == 0 {
 		return err.Error(), ""
 	}
+	if len(re.failures) == 1 {
+		f := re.failures[0]
+		if plan := provider(f.Route); slices.Contains(subscriptionIDs, plan) {
+			switch {
+			case f.Status == 402:
+				return "Your " + plan + " plan's usage is used up for now. It resets on its own; pick another model with /model meanwhile.", modelName(f.Route) + " said: " + failureText(f.Message)
+			case f.Status == 401 || f.Status == 403:
+				return plan + " refused this request. Sign in again: /login " + plan, modelName(f.Route) + " said: " + failureText(f.Message)
+			}
+		}
+	}
 	busy, rejected := 0, 0
 	var parts []string
 	for _, f := range re.failures {
@@ -635,4 +650,25 @@ func newSkill(a *Agent, name string) string {
 		a.messages[0].Content = a.systemPrompt()
 	}
 	return "wrote .prism/skills/" + name + ".md · fill in the steps, prism picks it up right away"
+}
+
+// failureText keeps the provider's own words from a router failure line.
+func failureText(msg string) string {
+	if _, after, ok := strings.Cut(msg, "): "); ok {
+		msg = after
+	}
+	var body struct {
+		Error any `json:"error"`
+	}
+	if json.Unmarshal([]byte(msg), &body) == nil {
+		switch v := body.Error.(type) {
+		case string:
+			return v
+		case map[string]any:
+			if s, ok := v["message"].(string); ok {
+				return s
+			}
+		}
+	}
+	return strings.TrimSpace(msg)
 }

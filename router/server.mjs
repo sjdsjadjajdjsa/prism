@@ -276,7 +276,7 @@ const complete = async (req, res) => {
       error: {
         message: `Every free AI route failed. ${failures.map(failure => failure.message).join(' | ')}`,
         type: 'no_route_available',
-        failures: failures.map(({ route, status }) => ({ route, status })),
+        failures: failures.map(({ route, status, message }) => ({ route, status, message: String(message ?? '').slice(0, 300) })),
       },
     })
   }

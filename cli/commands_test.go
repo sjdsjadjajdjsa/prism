@@ -417,3 +417,18 @@ func TestResumeCapLogic(t *testing.T) {
 		t.Errorf("k=%d should be out of range but is within [1,%d]", k2, len(capped))
 	}
 }
+
+func TestMatchingPutsExactCommandFirst(t *testing.T) {
+	got := matchingIn("", "/model")
+	if len(got) < 2 || got[0].name != "/model" || got[1].name != "/models" {
+		t.Fatalf("order = %v", got)
+	}
+}
+
+func TestFriendlyPlanLimit(t *testing.T) {
+	err := &routerError{failures: []routeFailure{{Route: "grok/grok-4.7", Status: 402, Message: "grok/grok-4.7 failed (402): {\"error\":\"Grok Build usage balance exhausted\"}"}}}
+	head, detail := friendly(err)
+	if !strings.Contains(head, "grok plan's usage is used up") || !strings.Contains(detail, "Grok Build usage balance exhausted") {
+		t.Fatalf("got %q / %q", head, detail)
+	}
+}
