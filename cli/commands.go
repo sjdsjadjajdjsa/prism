@@ -42,6 +42,7 @@ var commands = []command{
 	{"/init", "write PRISM.md, the rules prism follows here", true},
 	{"/skills", "playbooks prism can follow · /skills <name> · /skills new <name>", true},
 	{"/commands", "your saved prompts, run as /<name> · /commands new <name>", true},
+	{"/hooks", "your own checks before commands, after edits, at the end · /hooks trust", true},
 	{"/web", "open this chat in your browser", true},
 	{"/mcp", "connected tools · /mcp add picks a free one", true},
 	{"/memory", "what prism remembers · /memory forget <n>", true},
@@ -448,6 +449,16 @@ func (m *model) command(text string) tea.Cmd {
 		}
 	case "/plan":
 		return m.planCommand(commandArg(text, name))
+	case "/hooks":
+		if m.anyBusy() && len(fields) > 1 {
+			m.entries = append(m.entries, &entry{kind: "note", text: "wait until every tab finishes, then " + strings.Join(fields, " ")})
+			return nil
+		}
+		title, lines, footer := hooksView(m.agent.dir, fields[1:])
+		if footer != "" {
+			lines = append(lines, footer)
+		}
+		m.entries = append(m.entries, &entry{kind: "info", text: title, lines: lines})
 	case "/tabs":
 		m.tabsCommand()
 	case "/rename":

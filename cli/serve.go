@@ -1092,6 +1092,16 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, map[string]any{"kind": "send", "message": initPrompt})
+	case "/hooks":
+		if (busy || s.tabsWorking(r, a, true)) && len(fields) > 1 {
+			fail("wait until prism finishes, then " + strings.Join(fields, " "))
+			return
+		}
+		title, lines, footer := hooksView(a.dir, fields[1:])
+		if footer != "" {
+			lines = append(lines, footer)
+		}
+		info(title, lines)
 	case "/plan":
 		if busy || s.tabsWorking(r, a, false) {
 			fail("wait until prism finishes, then /plan")

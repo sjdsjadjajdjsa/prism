@@ -202,6 +202,28 @@ When the plan is ready you pick:
 
 The status bar says `plan mode` while it's on. `/plan` again (or `/plan off`) turns it off. Works the same in the terminal and the browser.
 
+## Hooks (your own checks)
+
+Hooks are your own commands that Prism runs at set moments. Put them in `.prism/hooks.json`:
+
+```json
+{
+  "before_bash": [{ "run": "./scripts/guard.sh" }],
+  "after_edit":  [{ "run": "gofmt -w \"$PRISM_FILE\"", "match": "*.go" }],
+  "turn_end":    [{ "run": "go test ./...", "must_pass": true }, "notify-send 'prism is done'"]
+}
+```
+
+| When | What happens |
+| --- | --- |
+| `before_bash` | runs before each command the AI runs (`$PRISM_COMMAND` holds it). If your hook fails, the command doesn't run and the AI is told why. |
+| `after_edit` | runs after the AI writes a file (`$PRISM_FILE`), for example a formatter. `match` picks files by name, like `*.go`. |
+| `turn_end` | runs when the AI is about to finish a turn that changed files or ran commands. If a `must_pass` hook fails, the AI gets its output and keeps working, up to 3 tries. |
+
+A hook is a command, or `{ "run", "match", "must_pass", "timeout" }` (timeout in seconds: 60 by default, 300 for `turn_end`, 600 at most). Hooks run in the project folder, inside the Docker box (on your computer in `prism fix`).
+
+**Hooks stay off until you trust them.** `/hooks` lists them, `/hooks trust` turns them on and `/hooks off` turns them off. If the file changes, even when the AI edits it, they're off again until you trust them again. A folder you cloned can't run anything on its own.
+
 ## Tools and plugins (MCP)
 
 Prism can connect MCP servers to give the AI extra tools such as file access, web pages, library docs, git or GitHub. Add a `.prism/mcp.json` like this to connect the filesystem server:
@@ -290,7 +312,7 @@ Prism can search the web and read pages when it needs facts it doesn't have, lik
 | `/new` `/clear` `/compact` `/undo` `/resume` | fresh chat · clear · shorten the chat · undo the last changes · reopen a chat |
 | `/skills` `/init` `/memory` `/mcp` | playbooks · write PRISM.md · what Prism remembers · connected tools |
 | `/plan` | plan first, nothing changes until you pick run (see [Plan first](#plan-first)) |
-| `/commands` | your saved prompts, run as `/<name>` (see below) |
+| `/commands` `/hooks` | your saved prompts, run as `/<name>` (see below) · your own checks (see [Hooks](#hooks-your-own-checks)) |
 | `/files` `/open` `/tree` | browse and read project files |
 | `/tabs` `/rename` `/ask` | several chats at once |
 | `/web` `/usage` `/theme` `/beam` `/quiet` `/help` `/quit` | |

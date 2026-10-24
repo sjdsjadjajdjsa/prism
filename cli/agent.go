@@ -159,6 +159,11 @@ type Agent struct {
 	plan     atomic.Bool // plan mode: nothing changes until the user runs the plan (plan.go)
 	planSent bool        // the last turn was planned, so the next one says plan mode is off
 
+	hooks       hookSet // this turn's .prism/hooks.json (hooks.go)
+	hooksNoted  bool    // said once that the hooks file is off or broken
+	hookTries   int     // turn_end checks that failed this turn
+	turnChanged bool    // this turn edited files or ran commands, so turn_end checks run
+
 	// turnBrief is the other tabs' status, read once per turn so every request in a turn
 	// sends the same text and the provider's prompt cache keeps working.
 	turnBrief string
@@ -404,6 +409,7 @@ func (a *Agent) Run(ctx context.Context, prompt string, emit func(any)) {
 	}
 	a.turnBrief = a.hub.brief(a.tabID)
 	a.rememberBrief()
+	a.startHooks(emit)
 	err := a.loop(ctx, emit)
 	a.currentTurn = nil // turn is sealed; no more recording
 	if errors.Is(err, context.Canceled) {
@@ -490,6 +496,9 @@ func (a *Agent) loop(ctx context.Context, emit func(any)) error {
 		a.steps++
 		emit(evUsage{a.tokens, a.window})
 		if len(reply.ToolCalls) == 0 {
+			if a.turnEndHooks(ctx, emit) {
+				continue
+			}
 			return nil
 		}
 		for _, call := range reply.ToolCalls {
@@ -511,6 +520,7 @@ func (a *Agent) loop(ctx context.Context, emit func(any)) error {
 			case a.isSkill(call.Function.Name):
 				result = a.useSkill(`{"name":"` + call.Function.Name + `"}`)
 			case call.Function.Name == "crew":
+				a.turnChanged = true
 				result = a.runCrew(ctx, call.Function.Arguments, emit)
 			case a.role != "" && isMCP(call.Function.Name):
 				result = fail("MCP tools are not available to crew workers.")
@@ -519,6 +529,7 @@ func (a *Agent) loop(ctx context.Context, emit func(any)) error {
 			case a.approve != nil && (needsApproval[call.Function.Name] || a.mcp.has(call.Function.Name)) && !a.approve(ctx, call.Function.Name, approvalText(call.Function.Name, call.Function.Arguments)):
 				result = toolResult{output: "The user said no to this. Do not try it again another way; explain what you wanted to do and ask what they prefer.", summary: "you said no"}
 			case a.mcp.has(call.Function.Name):
+				a.turnChanged = true
 				result = a.mcp.run(ctx, call.Function.Name, call.Function.Arguments)
 			case call.Function.Name == "screenshot":
 				result = a.screenshot(ctx, call.Function.Arguments)
@@ -528,9 +539,12 @@ func (a *Agent) loop(ctx context.Context, emit func(any)) error {
 				result = a.writeToolWithUndo(argsOf(call.Function.Arguments))
 			case call.Function.Name == "edit":
 				result = a.editToolWithUndo(argsOf(call.Function.Arguments))
+			case call.Function.Name == "bash":
+				result = a.bashWithHooks(ctx, call.Function.Arguments)
 			default:
 				result = runTool(ctx, a.dir, call.Function.Name, call.Function.Arguments)
 			}
+			a.afterTool(ctx, call.Function, &result)
 			if result.ok && (call.Function.Name == "read" || call.Function.Name == "edit" || call.Function.Name == "write") {
 				a.touch(call.Function.Name, call.Function.Arguments)
 				if tree := a.projectTree(); tree != nil && call.Function.Name != "read" {

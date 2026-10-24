@@ -594,7 +594,7 @@ const prunedNote = "[older output trimmed to save space; run the tool again if y
 
 func (a *Agent) latestRequest() string {
 	for i := len(a.messages) - 1; i > 0; i-- {
-		if m := a.messages[i]; m.Role == "user" && !strings.HasPrefix(m.Content, summaryPrefix) {
+		if m := a.messages[i]; m.Role == "user" && !strings.HasPrefix(m.Content, summaryPrefix) && !strings.HasPrefix(m.Content, hookRetryPrefix) {
 			return m.Content
 		}
 	}

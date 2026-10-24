@@ -955,6 +955,10 @@ func entriesFrom(messages []Message) []*entry {
 				out = append(out, &entry{kind: "note", text: "earlier messages were compacted"})
 				continue
 			}
+			if strings.HasPrefix(msg.Content, hookRetryPrefix) {
+				out = append(out, &entry{kind: "note", text: "a turn-end check failed · prism kept working"})
+				continue
+			}
 			out = append(out, &entry{kind: "user", text: msg.Content})
 		case "assistant":
 			if strings.TrimSpace(msg.Content) != "" {
