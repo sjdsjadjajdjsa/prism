@@ -1,3 +1,4 @@
+---
 name: Platform report
 about: Try Prism on Mac or Windows
 labels: [platform]

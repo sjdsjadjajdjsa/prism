@@ -331,7 +331,7 @@ Prism can search the web and read pages when it needs facts it doesn't have, lik
 | `enter` / `shift+enter` | send / new line |
 | `esc` | stop the AI |
 | `ctrl+c` or `/quit` | close Prism |
-| `ctrl+t` or `/theme` | switch theme (prism, tokyo-night, catppuccin, rose-pine, matte-black, gruvbox, nord, everforest) |
+| `ctrl+y` or `/theme` | switch theme (prism, tokyo-night, catppuccin, rose-pine, matte-black, gruvbox, nord, everforest) |
 | `pgup` `pgdown`, mouse wheel | scroll (smooth, with a scrollbar) |
 | click a `▸ N steps` line | open folded steps from an earlier turn (`ctrl+o` opens all of them) |
 | `/` | list every command, `tab` completes |
