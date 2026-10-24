@@ -21,10 +21,17 @@ if ! command -v docker >/dev/null 2>&1; then
     case "$(uname -s)" in
       Darwin) echo "  Docker Desktop: https://www.docker.com/products/docker-desktop/" ;;
       Linux)
-        echo "  Ubuntu, Mint, Debian:"
-        echo "    sudo apt update"
-        echo "    sudo apt install docker.io docker-compose-v2"
-        echo "    sudo usermod -aG docker \$USER    (then log out and back in)"
+        if command -v pacman >/dev/null 2>&1; then
+            echo "  Arch, CachyOS, Manjaro:"
+            echo "    sudo pacman -S --needed docker docker-compose docker-buildx"
+            echo "    sudo systemctl enable --now docker"
+            echo "    sudo usermod -aG docker \$USER    (then log out and back in)"
+        else
+          echo "  Ubuntu, Mint, Debian:"
+          echo "    sudo apt update"
+          echo "    sudo apt install docker.io docker-compose-v2"
+          echo "    sudo usermod -aG docker \$USER    (then log out and back in)"
+        fi
         ;;
       *) echo "  https://docs.docker.com/get-docker/" ;;
     esac

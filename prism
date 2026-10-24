@@ -11,6 +11,7 @@ HERE="$(cd -P "$(dirname "$src")" && pwd)"
 KEYS="$HERE/keys.conf"
 port=""
 watcher=""
+loginwatch=""
 cleanup() {
   [[ -n "$watcher" ]] && kill "$watcher" 2>/dev/null
   [[ -n "$loginwatch" ]] && kill "$loginwatch" 2>/dev/null
@@ -121,6 +122,10 @@ start_router() {
       elif echo "$output" | grep -q 'error getting credentials'; then
         echo "Docker couldn't read its login settings. Move them aside and try again:" >&2
         echo "  mv ~/.docker/config.json ~/.docker/config.json.bak" >&2
+      elif echo "$output" | grep -qiE 'buildx|requires buildx'; then
+        echo "Docker is missing its build helper (buildx). Install it, then try again:" >&2
+        echo "  Arch, CachyOS, Manjaro: sudo pacman -S docker-buildx" >&2
+        echo "  Ubuntu, Mint, Debian:   sudo apt install docker-buildx" >&2
       elif echo "$output" | grep -q 'toomanyrequests'; then
         echo "Docker Hub is limiting downloads right now. Wait a few minutes and try again." >&2
       else
@@ -168,7 +173,6 @@ open_browser() {
 
 open_when_ready() {
   local url="http://127.0.0.1:$1" parent="$2" open=0 seen="" token
-  command -v curl >/dev/null 2>&1 || return 0
   command -v curl >/dev/null 2>&1 || return 0
   while sleep 2 && kill -0 "$parent" 2>/dev/null; do
     if curl -fs -m 1 -o /dev/null "$url/api/info"; then
@@ -287,10 +291,17 @@ install() {
   case ":$PATH:" in
     *":$bin:"*) echo "Run prism from any project folder." ;;
     *)
-      local rc="$HOME/.bashrc"
-      [[ "${SHELL##*/}" == zsh ]] && rc="$HOME/.zshrc"
-      [[ "$(uname -s)" == Darwin && "${SHELL##*/}" == bash ]] && rc="$HOME/.bash_profile"
-      grep -qs '.local/bin' "$rc" || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$rc"
+      if [[ "${SHELL##*/}" == fish ]] || command -v fish >/dev/null 2>&1; then
+        local fishrc="${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/prism.fish"
+        mkdir -p "${fishrc%/*}"
+        [[ -f "$fishrc" ]] || echo 'fish_add_path -g "$HOME/.local/bin"' > "$fishrc"
+      fi
+      if [[ "${SHELL##*/}" != fish ]]; then
+        local rc="$HOME/.bashrc"
+        [[ "${SHELL##*/}" == zsh ]] && rc="$HOME/.zshrc"
+        [[ "$(uname -s)" == Darwin && "${SHELL##*/}" == bash ]] && rc="$HOME/.bash_profile"
+        grep -qs '.local/bin' "$rc" || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$rc"
+      fi
       echo "Open a new terminal, then run prism from any project folder."
       ;;
   esac
@@ -545,8 +556,8 @@ case "${1:-}" in
     compose build --quiet router agent && mark_built && compose up -d router >/dev/null 2>&1
     echo "Prism is up to date."
     ;;
-  web) web "$(pick_folder "${2:-}")" ;;
+  web) folder="$(pick_folder "${2:-}")" || exit 1; web "$folder" ;;
   fix) fix ;;
-  continue) run_agent "$(pick_folder "${2:-}")" -continue ;;
-  *) run_agent "$(pick_folder "${1:-}")" ;;
+  continue) folder="$(pick_folder "${2:-}")" || exit 1; run_agent "$folder" -continue ;;
+  *) folder="$(pick_folder "${1:-}")" || exit 1; run_agent "$folder" ;;
 esac
