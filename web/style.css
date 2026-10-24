@@ -300,6 +300,7 @@ body.busy .inputbox::before { animation-duration: 1.6s; opacity: 1; }
   white-space: pre;
 }
 .status .route { color: var(--fg); }
+.status .plan-badge { color: var(--s3); margin-right: 1ch; }
 .status .keys b { color: var(--fg); font-weight: 400; }
 .status .keys { margin-left: 18px; }
 #models { margin-left: 14px; }

@@ -126,6 +126,7 @@
 .pick-hint { color: var(--muted); }
 .pick-filter { display: flex; align-items: baseline; gap: 1ch; background: var(--faint); cursor: text; }
 .pick-filter[hidden] { display: none; }
+.pick-filter.pick-filter-off { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; opacity: 0; pointer-events: none; }
 .pick-caret { color: var(--s3); font-weight: 700; }
 .pick-input {
   flex: 1; min-width: 0; border: 0; outline: 0; padding: 0; margin: 0;

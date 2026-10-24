@@ -404,7 +404,8 @@
       hintEl.textContent = "  " + (o.hint || "↑↓ move · enter pick · esc close");
       root.setAttribute("aria-label", o.title || "pick one");
       listEl.setAttribute("aria-label", o.title || "choices");
-      fline.hidden = !o.filterable;
+      // a list without a filter still keeps its (unseen) box: the box is what takes the keys
+      fline.classList.toggle("pick-filter-off", !o.filterable);
       vis = filtered();
       if (sel >= vis.length) sel = vis.length - 1;
       if (sel < 0) sel = 0;

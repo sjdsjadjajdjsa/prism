@@ -37,6 +37,7 @@ var commands = []command{
 	{"/clear", "clear the screen and start fresh", true},
 	{"/compact", "summarise the chat to free up room · /compact <focus>", true},
 	{"/undo", "undo prism's file changes from its last turn", true},
+	{"/plan", "plan first, change nothing until you run it · /plan <task> · /plan off", true},
 	{"/resume", "reopen an earlier chat in this folder", true},
 	{"/init", "write PRISM.md, the rules prism follows here", true},
 	{"/skills", "playbooks prism can follow · /skills <name> · /skills new <name>", true},
@@ -445,6 +446,8 @@ func (m *model) command(text string) tea.Cmd {
 		if !m.quiet {
 			m.speak("light in. rainbow out.")
 		}
+	case "/plan":
+		return m.planCommand(commandArg(text, name))
 	case "/tabs":
 		m.tabsCommand()
 	case "/rename":

@@ -39,6 +39,7 @@ type tab struct {
 	expandAll  bool
 	pending    *evApprove
 	queued     []*evApprove
+	planAsk    bool // a planned turn ended: offer run / keep planning / leave when shown
 
 	id     int    // tab id in the hub (0 without a hub)
 	name   string // short name in the tab bar

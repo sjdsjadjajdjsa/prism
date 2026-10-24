@@ -302,7 +302,7 @@ func (s *server) info(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	pinned := a.model
 	s.mu.Unlock()
-	writeJSON(w, map[string]any{"project": projectName(s.agent.dir), "theme": s.theme, "models_ready": ready, "handoff": handoff, "model": pinned})
+	writeJSON(w, map[string]any{"project": projectName(s.agent.dir), "theme": s.theme, "models_ready": ready, "handoff": handoff, "model": pinned, "plan": a.plan.Load()})
 }
 
 // snapshot converts the agent's messages to wire entries. Callers must hold
@@ -375,6 +375,24 @@ func (s *server) agentTab(r *http.Request) (*Agent, error) {
 		return a, nil
 	}
 	return nil, &httpError{http.StatusNotFound, "tab not found"}
+}
+
+// tabsWorking says whether a terminal tab sharing this page's hub is mid-turn: the request's
+// tab (?tab=, or the page's own agent without one), or any of them when all is true.
+func (s *server) tabsWorking(r *http.Request, a *Agent, all bool) bool {
+	if s.hub == nil {
+		return false
+	}
+	id := a.tabID
+	if n, err := strconv.Atoi(r.URL.Query().Get("tab")); err == nil {
+		id = n
+	}
+	for _, t := range s.hub.list() {
+		if (t.Status == "working" || t.Status == "waiting") && (all || t.ID == id) {
+			return true
+		}
+	}
+	return false
 }
 
 // httpError carries an HTTP status code and message for agentTab errors.
@@ -537,7 +555,11 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		case evDone:
 			switch {
 			case e.err == nil:
-				send(map[string]any{"type": "done", "seconds": time.Since(start).Seconds(), "model": modelName(route), "tools": tools, "tests_passed": tests})
+				done := map[string]any{"type": "done", "seconds": time.Since(start).Seconds(), "model": modelName(route), "tools": tools, "tests_passed": tests, "plan": a.plan.Load()}
+				if a.plan.Load() {
+					done["pick"] = pickWire(planMenu(), func(it menuItem) string { return "/plan " + it.match })
+				}
+				send(done)
 			case errors.Is(e.err, context.Canceled):
 				send(map[string]any{"type": "error", "headline": "stopped", "detail": ""})
 			default:
@@ -1070,6 +1092,13 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, map[string]any{"kind": "send", "message": initPrompt})
+	case "/plan":
+		if busy || s.tabsWorking(r, a, false) {
+			fail("wait until prism finishes, then /plan")
+			return
+		}
+		on, text, message := planSwitch(a, commandArg(body.Text, fields[0]))
+		writeJSON(w, map[string]any{"kind": "plan", "plan": on, "text": text, "message": message})
 	case "/rename":
 		note("/rename works in the terminal · the tab names it sets show here")
 	case "/ask":

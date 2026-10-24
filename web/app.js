@@ -78,7 +78,7 @@ function toolColor(tool) { return `var(${TOOL_COLOR[tool] || '--x5'})`; }
 const transcript = $('transcript');
 const liveEl = $('live');
 const state = {
-  busy: false, model: null, pinned: '', tokens: 0, window: 0, modelsReady: null,
+  busy: false, model: null, pinned: '', plan: false, planPick: null, tokens: 0, window: 0, modelsReady: null,
   crew: null, turn: null, steps: null, stepMap: new Map(), textBuf: '', textEl: null,
   reasoning: '', phase: 'idle', phaseAt: 0, draft: null, abort: null, route: null, waitMs: 0,
 };
@@ -507,11 +507,23 @@ function setBusy(b) {
   if (!b) { clear(liveEl); state.draft = null; state.reasoning = ''; flushText(); }
 }
 
+// the plan picker waits until the chat box is empty, so it never takes keys mid-sentence
+// (cli/main.go Update waits the same way); sending something else means keep planning
+// and only on the tab whose plan it is
+function offerPlan() {
+  const p = state.planPick;
+  if (!p || p.tab !== tabState.active || state.busy || $('input').value.trim() || window.PrismCommands?.pickerOpen()) return;
+  state.planPick = null;
+  if (state.plan) openServerPicker(p.data);
+}
+
 function renderStatus() {
   $('route').textContent = state.pinned ? crewModelName(state.pinned) : (state.model || state.route || 'auto');
   // a chat pinned with /model says so, like the terminal status bar (cli/chat.go drawStatus)
   const pin = $('pinned');
   if (pin) { pin.hidden = !state.pinned; pin.textContent = state.pinned ? ' · pinned' : ''; pin.title = state.pinned || ''; }
+  $('plan-badge').hidden = !state.plan;
+  $('input').placeholder = state.plan ? 'plan mode · ask for a plan…' : 'ask anything…  / for commands';
   const pct = state.window ? Math.min(100, Math.round((state.tokens / state.window) * 100)) : 0;
   $('usage').textContent = pct + '%';
   const cells = $('meter').children;
@@ -868,6 +880,7 @@ function handleEvent(ev) {
     case 'usage': state.tokens = ev.tokens || 0; state.window = ev.window || 0; renderStatus(); break;
     case 'done': {
       if (ev.model) state.model = ev.model;
+      state.plan = !!ev.plan; state.planPick = ev.pick ? { tab: state.sendTab, data: ev.pick } : null;
       addMeta({ model: ev.model, seconds: ev.seconds }); renderStatus();
       if (ev.tests_passed) { say('tests', 3600); setMood('proud', 3000); sparkle(8); }
       else if (ev.tools > 0) { say('done', 3000); setMood('happy', 2400); sparkle(6); }
@@ -888,6 +901,7 @@ function handleEvent(ev) {
 
 async function send(message) {
   if (state.busy) return;
+  state.planPick = null; state.sendTab = tabState.active;
   addUser(message);
   collapseOldTurns();
   scrollDown();
@@ -907,6 +921,7 @@ async function send(message) {
     else addNote('stopped.');
   } finally {
     setBusy(false); state.abort = null;
+    offerPlan();
     crewSettle();
     document.querySelectorAll('.step.running').forEach((s) => { s.classList.remove('running'); s.querySelector('.dia').textContent = '◆'; });
     if (buddy.mood === 'thinking' || buddy.mood === 'working') setMood('idle');
@@ -1223,7 +1238,7 @@ async function startLogin(data) {
 async function refreshInfo() {
   try {
     const info = await api('/api/info' + tabQuery());
-    if (info) { state.modelsReady = info.models_ready; state.pinned = info.model || ''; renderStatus(); }
+    if (info) { state.modelsReady = info.models_ready; state.pinned = info.model || ''; state.plan = !!info.plan; renderStatus(); }
   } catch { /* ignore */ }
 }
 
@@ -1236,13 +1251,16 @@ const SERVER_PICKERS = { '/model': 'model', '/login': 'subscriptions', '/logins'
 // /new /theme /beam /quiet /web /files /open /tabs answer here; everything else goes to cli/serve.go command().
 async function runCommand(line) {
   const text = String(line || '').trim();
+  const fromTab = tabState.active;
+  // a message a command sends goes to the tab it was typed in, even if you switched meanwhile
+  const sendHere = (message) => { if (tabState.active === fromTab) send(message); else addNote('switched tabs, so ' + text.split(/\s+/)[0] + ' did not send'); };
   if (!text) return;
   if (text.charAt(0) !== '/') { send(text); return; }
   const [cmd, ...rest] = text.split(/\s+/);
   switch (cmd) {
     case '/new':
       try { await api('/api/new' + tabQuery(), {}); } catch (e) { addError('could not start new session', String(e.message)); return; }
-      resetTranscript(); state.pinned = ''; state.model = null; renderStatus();
+      resetTranscript(); state.pinned = ''; state.plan = false; state.model = null; renderStatus();
       say('hello', 2400); setMood('happy', 1500);
       return;
     case '/theme': case '/themes':
@@ -1341,6 +1359,12 @@ async function runCommand(line) {
     case 'view': addView(data); return;
     case 'table': addTable(data); return;
     case 'note': hideHello(); addNote(data.text || ''); scrollDown(); return;
+    case 'plan':
+      if (tabState.active !== fromTab) { addNote('switched tabs, so /plan changed the other tab'); return; }
+      state.plan = !!data.plan; if (!state.plan) state.planPick = null; renderStatus();
+      if (data.text) { hideHello(); addNote(data.text); }
+      if (data.message) sendHere(data.message);
+      return;
     case 'model':
       state.pinned = data.model || '';
       renderStatus();
@@ -1350,7 +1374,7 @@ async function runCommand(line) {
     case 'login': startLogin(data); return;
     case 'clear':
       loginPolls++;
-      resetTranscript(); state.pinned = ''; state.model = null; renderStatus();
+      resetTranscript(); state.pinned = ''; state.plan = false; state.model = null; renderStatus();
       say('hello', 2400); setMood('happy', 1500);
       return;
     case 'reload':
@@ -1362,7 +1386,7 @@ async function runCommand(line) {
         addNote('chat reopened · keep going');
       } catch (e) { addError('could not reload', String((e && e.message) || e)); }
       return;
-    case 'send': send(data.message || data.text || text); return;
+    case 'send': sendHere(data.message || data.text || text); return;
     case 'error': addError(data.headline || 'command failed', data.detail || data.text || ''); scrollDown(); return;
     default:
       if (data && (data.text || data.lines)) addInfo(data.title || '', Array.isArray(data.lines) ? data.lines : String(data.text).split('\n'));
@@ -1481,6 +1505,8 @@ async function* demoStream(message, signal) {
 const input = $('input');
 function autosize() { input.style.height = 'auto'; input.style.height = Math.min(180, input.scrollHeight) + 'px'; }
 input.addEventListener('input', autosize);
+input.addEventListener('input', () => { if (!input.value) offerPlan(); });
+input.addEventListener('focus', offerPlan);
 input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -1682,7 +1708,7 @@ async function boot() {
     if (info) {
       if (info.project) $('project').textContent = info.project;
       if (info.theme && !params.get('theme') && !saved) setTheme(info.theme);
-      state.modelsReady = info.models_ready; state.pinned = info.model || ''; renderStatus();
+      state.modelsReady = info.models_ready; state.pinned = info.model || ''; state.plan = !!info.plan; renderStatus();
       if (info.handoff) showHandoff();
     }
     const hist = await api('/api/history');

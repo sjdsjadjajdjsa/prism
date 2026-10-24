@@ -190,6 +190,18 @@ Prism does the rest:
 
 Press `esc` at any time to stop the whole crew.
 
+## Plan first
+
+Type `/plan` (or `/plan add a login page`) and Prism looks around before it touches anything. It can read files and search the web, but it can't edit, write or run commands. It answers with a short plan: the goal, the steps and files, and how it will check the work.
+
+When the plan is ready you pick:
+
+- **run this plan**: plan mode turns off and Prism starts
+- **keep planning**: type what to change
+- **leave plan mode**: nothing runs
+
+The status bar says `plan mode` while it's on. `/plan` again (or `/plan off`) turns it off. Works the same in the terminal and the browser.
+
 ## Tools and plugins (MCP)
 
 Prism can connect MCP servers to give the AI extra tools such as file access, web pages, library docs, git or GitHub. Add a `.prism/mcp.json` like this to connect the filesystem server:
@@ -277,6 +289,7 @@ Prism can search the web and read pages when it needs facts it doesn't have, lik
 | `/login` `/key` | sign in to a plan you pay for · add a provider key |
 | `/new` `/clear` `/compact` `/undo` `/resume` | fresh chat · clear · shorten the chat · undo the last changes · reopen a chat |
 | `/skills` `/init` `/memory` `/mcp` | playbooks · write PRISM.md · what Prism remembers · connected tools |
+| `/plan` | plan first, nothing changes until you pick run (see [Plan first](#plan-first)) |
 | `/commands` | your saved prompts, run as `/<name>` (see below) |
 | `/files` `/open` `/tree` | browse and read project files |
 | `/tabs` `/rename` `/ask` | several chats at once |

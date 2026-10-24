@@ -560,6 +560,9 @@ func drawInput(cv *canvas, t theme, m model, x, y, w, h int, n, enter float64) {
 	}
 	if len(m.input) == 0 {
 		hint, col := "ask anything…", mix(t.bg, t.muted, enter)
+		if m.agent != nil && m.agent.plan.Load() {
+			hint = "plan mode · ask for a plan…"
+		}
 		if m.busy {
 			hint = "working…  esc to stop"
 		}
@@ -599,6 +602,9 @@ func drawStatus(cv *canvas, t theme, m model, x, y, w int, enter float64) {
 	if m.agent != nil && m.agent.model != "" {
 		pinned = " · model: " + modelName(m.agent.model)
 		left = append(left, seg{text: pinned, fg: muted})
+	}
+	if m.agent != nil && m.agent.plan.Load() {
+		left = append(left, seg{text: " · plan mode", fg: mix(t.bg, t.at(0.6), enter)})
 	}
 	left = append(left,
 		seg{text: "  ·  ", fg: mix(t.bg, t.faint, 1.5*enter)},

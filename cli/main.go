@@ -113,6 +113,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	nm.now = time.Since(nm.start)
 	nm.active = nm.now
+	if nm.planAsk && nm.chat && nm.agent != nil && nm.agent.plan.Load() && !nm.busy && !nm.menu.open && !nm.fb.open && len(nm.input) == 0 && nm.loginWaiting == "" {
+		nm.planAsk = false
+		nm.openPlanMenu()
+	}
 	if !nm.ticking {
 		nm.ticking = true
 		cmd = tea.Batch(cmd, tick(fastFrame))
@@ -450,7 +454,7 @@ func (m *model) submit() tea.Cmd {
 	if text == "" || m.busy {
 		return nil
 	}
-	m.input, m.scroll = nil, 0
+	m.input, m.scroll, m.planAsk = nil, 0, false
 	m.sug = suggestState{}
 	if strings.HasPrefix(text, "/") {
 		if fields := strings.Fields(text); fields[0] == "/new" || fields[0] == "/clear" {
@@ -592,6 +596,7 @@ func (m *model) handle(event any) {
 		case e.err == nil:
 			m.entries = append(m.entries, &entry{kind: "meta", text: fmt.Sprintf("%.1fs", (m.now - m.busySince).Seconds()), arg: m.route})
 			m.finish(true, false)
+			m.planAsk = m.agent.plan.Load()
 			if job := m.agent.memoryJob(); job != nil {
 				events := m.events
 				go func() {

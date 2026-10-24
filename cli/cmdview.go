@@ -428,7 +428,7 @@ var helpGroups = []struct {
 	label string
 	names []string
 }{
-	{"chat", []string{"/new", "/clear", "/resume", "/compact", "/undo", "/quit"}},
+	{"chat", []string{"/new", "/clear", "/resume", "/compact", "/undo", "/plan", "/quit"}},
 	{"models & keys", []string{"/models", "/model", "/key", "/login", "/usage"}},
 	{"project", []string{"/init", "/files", "/open", "/tree", "/skills", "/commands", "/memory", "/mcp", "/web"}},
 	{"look & feel", []string{"/theme", "/beam", "/quiet", "/help"}},

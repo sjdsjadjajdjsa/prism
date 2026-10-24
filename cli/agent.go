@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -33,6 +34,7 @@ type Message struct {
 	Content    string     `json:"content"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Note       string     `json:"-"` // sent after Content, never saved (plan.go withNotes)
 }
 
 type ToolCall struct {
@@ -154,6 +156,9 @@ type Agent struct {
 	hub   *tabHub
 	tabID int
 
+	plan     atomic.Bool // plan mode: nothing changes until the user runs the plan (plan.go)
+	planSent bool        // the last turn was planned, so the next one says plan mode is off
+
 	// turnBrief is the other tabs' status, read once per turn so every request in a turn
 	// sends the same text and the provider's prompt cache keeps working.
 	turnBrief string
@@ -203,6 +208,8 @@ func (a *Agent) tools() []any {
 
 func (a *Agent) reset() {
 	a.model = ""
+	a.plan.Store(false)
+	a.planSent = false
 	a.touchMu.Lock()
 	a.touched = map[string]string{}
 	a.touchMu.Unlock()
@@ -390,7 +397,7 @@ func (a *Agent) rememberBrief() {
 func (a *Agent) Run(ctx context.Context, prompt string, emit func(any)) {
 	// Release all file claims when the turn ends (idempotent).
 	defer a.hub.release(a.tabID)
-	a.messages = append(a.messages, Message{Role: "user", Content: prompt})
+	a.messages = append(a.messages, Message{Role: "user", Content: prompt, Note: a.planNote()})
 	// Begin a new undo turn for this user request.
 	if a.undoStack != nil {
 		a.currentTurn = a.undoStack.beginTurn()
@@ -497,6 +504,8 @@ func (a *Agent) loop(ctx context.Context, emit func(any)) error {
 				result = fail("unknown tool " + call.Function.Name + ". Use list, grep, read, edit or write.")
 			case a.readOnly && !readOnlyTools[call.Function.Name]:
 				result = fail("the reviewer is read-only: " + call.Function.Name + " is not available. Use list, grep and read, then report your findings.")
+			case a.role == "" && a.plan.Load() && !a.planAllows(call.Function.Name):
+				result = planRefused(call.Function.Name)
 			case call.Function.Name == "skill":
 				result = a.useSkill(call.Function.Arguments)
 			case a.isSkill(call.Function.Name):
@@ -562,7 +571,7 @@ func (a *Agent) completeRetry(ctx context.Context, emit func(any)) (Message, err
 	var avoid []string
 	busy := 0
 	// Build the outgoing request with the brief injected (does not mutate a.messages).
-	outgoing := a.injectBrief(a.messages)
+	outgoing := withNotes(a.injectBrief(a.messages))
 	for attempt := 0; ; attempt++ {
 		var extra map[string]any
 		if all := a.avoidRoutes(avoid); len(all) > 0 {
@@ -623,7 +632,7 @@ func (a *Agent) compact(ctx context.Context, emit func(any)) error {
 	a.touchMu.Unlock()
 	a.messages = []Message{
 		{Role: "system", Content: a.systemPrompt()},
-		{Role: "user", Content: summaryPrefix + " (earlier messages were compacted):\n\n" + summary + "\n\nThe user's latest request, word for word:\n" + a.latestRequest() + "\n\nContinue from where you left off."},
+		{Role: "user", Content: summaryPrefix + " (earlier messages were compacted):\n\n" + summary + "\n\nThe user's latest request, word for word:\n" + a.latestRequest() + "\n\nContinue from where you left off.", Note: a.compactNote()},
 	}
 	a.memMark = 1
 	a.tokens = estimate(a.messages)
