@@ -40,6 +40,9 @@
 .cmd-row:nth-child(7n+6) .cmd-name { color: var(--s1, #ffa25f); }
 .cmd-row:nth-child(7n+7) .cmd-name { color: var(--s2, #f9e27d); }
 
+.cmd-row { cursor: pointer; }
+.cmd-row:hover, .cmd-row.sel { background: color-mix(in srgb, var(--panel) 86%, var(--s3)); }
+
 .cmd-help {
   flex: 1;
   min-width: 0;
@@ -55,3 +58,89 @@
   font-size: 12px;
   letter-spacing: 0.04em;
 }
+
+/* picker — the one "choose something" overlay (/model, /login, /theme, /resume, /mcp add, /tabs);
+   mirrors drawMenu in cli/menu.go: title + hint, filter line, rows, "N more" line */
+.pick {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: 6px;
+  background: var(--panel);
+  border: 1px solid var(--faint);
+  border-radius: 4px;
+  overflow: hidden;
+  font: 14px/1.5 var(--mono, ui-monospace, Menlo, Consolas, monospace);
+  z-index: 9;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  padding-bottom: 3px;
+}
+.pick-head, .pick-filter, .pick-row, .pick-msg { padding: 3px 12px; white-space: nowrap; }
+.pick-head { padding-top: 6px; overflow: hidden; text-overflow: ellipsis; }
+.pick-title { color: var(--fg); font-weight: 700; }
+.pick-hint { color: var(--muted); }
+.pick-filter { display: flex; align-items: baseline; gap: 1ch; background: var(--faint); cursor: text; }
+.pick-filter[hidden] { display: none; }
+.pick-caret { color: var(--s3); font-weight: 700; }
+.pick-input {
+  flex: 1; min-width: 0; border: 0; outline: 0; padding: 0; margin: 0;
+  background: transparent; color: var(--fg); font: inherit; caret-color: var(--fg);
+}
+.pick-input::placeholder { color: var(--muted); }
+/* 12 rows on a laptop; a phone with the keyboard up keeps the picker on screen */
+.pick-list { max-height: min(calc(12 * 1.5em + 24 * 3px), 38dvh); overflow-y: auto; overscroll-behavior: contain; }
+.pick-list[hidden] { display: none; }
+.pick-row { display: flex; align-items: baseline; cursor: pointer; color: var(--fg); }
+.pick-row.sel { background: color-mix(in srgb, var(--panel) 86%, var(--s3)); }
+.pick-row.sel .pick-label { color: var(--s3); font-weight: 700; }
+.pick-dot { flex: none; width: 2ch; }
+.pick-label, .pick-detail { flex: none; overflow: hidden; text-overflow: ellipsis; }
+.pick-detail { color: var(--muted); }
+.pick-state { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pick-row.sub .pick-dot { margin-left: 2ch; }
+.pick-row.dim .pick-label { color: var(--muted); }
+.pick-row.dim.sel .pick-label { color: color-mix(in srgb, var(--muted) 55%, var(--s3)); }
+.pick-msg { color: var(--muted); }
+.pick-msg.err { color: var(--red); }
+.pick-msg[hidden] { display: none; }
+.tone-ok { color: var(--green); }
+.tone-err { color: var(--red); }
+.tone-accent { color: var(--s3); }
+.tone-fg { color: var(--fg); }
+.tone-muted { color: var(--muted); }
+/* iOS zooms the page into any input under 16px */
+@media (max-width: 640px) { .pick-input { font-size: 16px; } }
+
+/* command output blocks: info lines keep their columns, views and tables are real grids */
+.info, .cmdview { margin: 6px 0 10px; }
+.info-title, .cv-title { color: var(--fg); font-weight: 700; margin-bottom: 4px; }
+.info-lines { margin: 0; font: inherit; white-space: pre-wrap; color: var(--fg); }
+.info-lines a, .cv-grid a { color: var(--x4); }
+.info-lines .muted-line { color: var(--muted); }
+.cv-block { margin-top: 10px; padding-left: 2ch; }
+.cv-head { color: var(--s3); font-weight: 700; margin-bottom: 2px; }
+.cv-grid { display: grid; grid-template-columns: 2ch minmax(8ch, max-content) 1fr; column-gap: 2ch; row-gap: 0; }
+.cv-grid .cv-dot { grid-column: 1; }
+.cv-grid .cv-name { grid-column: 2; color: var(--s3); font-weight: 700; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-grid .cv-desc { grid-column: 3; color: var(--fg); min-width: 0; }
+.cv-grid .cv-sub { grid-column: 3; color: var(--muted); }
+.cv-foot, .tbl-foot { color: var(--muted); margin-top: 10px; padding-left: 2ch; }
+/* a table wider than the chat scrolls inside its own box, never the chat column */
+.tbl-wrap { max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; }
+.tbl-grid { display: grid; column-gap: 2ch; padding-left: 2ch; margin-top: 4px; }
+.tbl-grid > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tbl-grid .c1 { color: var(--muted); }
+.tbl-grid .c3 { color: var(--s5, var(--x5)); }
+/* phone: /skills and /help put the description under the name instead of a thin column beside it */
+@media (max-width: 520px) {
+  .cv-grid { grid-template-columns: 2ch minmax(0, 1fr); }
+  .cv-grid .cv-name, .cv-grid .cv-desc, .cv-grid .cv-sub { grid-column: 2; }
+  .cv-grid .cv-name { max-width: none; }
+  .cv-grid .cv-desc { margin-bottom: 4px; }
+  .tbl-grid { column-gap: 1.5ch; padding-left: 0; }
+}
+.login-state { color: var(--muted); margin-top: 4px; }
+.login-state.ok { color: var(--green); }
+.login-state.err { color: var(--red); }
+.login-code { color: var(--s2); font-weight: 700; letter-spacing: .08em; }

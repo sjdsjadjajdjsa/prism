@@ -16,35 +16,43 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-type command struct{ name, help string }
+// command is one slash command. help is the short phrase /help and the
+// suggestion box show; web says whether the browser (cli/serve.go command and
+// web/app.js runCommand) can run it too.
+type command struct {
+	name, help string
+	web        bool
+}
 
+// commands is the one list of slash commands: the TUI, /help and the web UI
+// (GET /api/commands) all read it.
 var commands = []command{
-	{"/models", "see which free AI models are ready · /models <text> narrows the list"},
-	{"/model", "the model for this chat · /model picks from a list · /model <name> pins one · /model auto lets prism choose"},
-	{"/key", "provider keys · /key <name> <secret> adds one · /key rm <name> removes it"},
-	{"/login", "plans you already pay for · /login <name> signs in · /login rm <name> signs out"},
-	{"/new", "start a fresh chat"},
-	{"/clear", "clear the screen and start fresh (saves first, like /new)"},
-	{"/compact", "summarise the conversation to free up context · /compact <focus> to guide it"},
-	{"/undo", "undo the file changes prism made in its last turn"},
-	{"/resume", "reopen an earlier chat in this folder"},
-	{"/init", "write PRISM.md, the rules prism always follows here"},
-	{"/skills", "playbooks prism can follow · /skills new <name> to write your own"},
-	{"/web", "open this chat in your browser · press enter here to come back"},
-	{"/mcp", "connected tools · /mcp add picks a free one · /mcp remove <name> · /mcp test <name>"},
-	{"/memory", "see what prism remembers · /memory forget 2 removes one"},
-	{"/usage", "free AI used today"},
-	{"/tree", "project files · /tree changed · /tree <text>"},
-	{"/files", "browse the project and read any file · type to filter · enter opens"},
-	{"/open", "read a file in the viewer · /open <path>"},
-	{"/theme", "switch theme, or /theme <name>"},
-	{"/beam", "turn the finish beam on or off"},
-	{"/quiet", "turn Shard's lines on or off"},
-	{"/tabs", "open chats with their status · ctrl+t new, ctrl+w close, alt+1..9 jump"},
-	{"/rename", "name this tab · /rename <name>"},
-	{"/ask", "ask about another tab's chat without disturbing it · /ask <n> <question>"},
-	{"/help", "show these commands · keys: ctrl+t new tab, ctrl+w close tab, ctrl+pgup/pgdown switch, ctrl+o open all steps, ctrl+y theme, esc stop"},
-	{"/quit", "close prism"},
+	{"/models", "every model in the order prism tries them · /models <text> narrows", true},
+	{"/model", "pick the model for this chat · /model <name> · /model auto", true},
+	{"/key", "your provider keys · /key <name> <secret>", true},
+	{"/login", "sign in to plans you already pay for", true},
+	{"/new", "start a fresh chat", true},
+	{"/clear", "clear the screen and start fresh", true},
+	{"/compact", "summarise the chat to free up room · /compact <focus>", true},
+	{"/undo", "undo prism's file changes from its last turn", true},
+	{"/resume", "reopen an earlier chat in this folder", true},
+	{"/init", "write PRISM.md, the rules prism follows here", true},
+	{"/skills", "playbooks prism can follow · /skills <name> · /skills new <name>", true},
+	{"/web", "open this chat in your browser", true},
+	{"/mcp", "connected tools · /mcp add picks a free one", true},
+	{"/memory", "what prism remembers · /memory forget <n>", true},
+	{"/usage", "free AI used today", true},
+	{"/tree", "project files · /tree changed · /tree <text>", true},
+	{"/files", "browse the project and read any file", true},
+	{"/open", "read a file in the viewer · /open <path>", true},
+	{"/theme", "switch the colour theme · /theme <name>", true},
+	{"/beam", "turn the finish beam on or off", true},
+	{"/quiet", "turn Shard's lines on or off", true},
+	{"/tabs", "open chats and their status", true},
+	{"/rename", "name this tab · /rename <name>", false},
+	{"/ask", "ask another tab's chat a side question · /ask <n> <question>", false},
+	{"/help", "show these commands", true},
+	{"/quit", "close prism", false},
 }
 
 type routeRow struct {
@@ -52,6 +60,8 @@ type routeRow struct {
 	Ready     bool   `json:"ready"`
 	RetryIn   int    `json:"retryInSeconds"`
 	LastError string `json:"lastError"`
+	Source    string `json:"source"` // "yours" (a key you added) or "subscription" (/login)
+	Paid      bool   `json:"paid"`
 }
 
 type modelsMsg struct {
@@ -103,31 +113,10 @@ func (m *model) command(text string) tea.Cmd {
 			m.entries = append(m.entries, &entry{kind: "note", text: "wait until prism finishes, then run /undo"})
 			return nil
 		}
-		if m.agent.undoStack == nil || m.agent.undoStack.depth() == 0 {
-			m.entries = append(m.entries, &entry{kind: "note", text: "nothing to undo"})
+		title, lines, note := undoLast(m.agent)
+		if note != "" {
+			m.entries = append(m.entries, &entry{kind: "note", text: note})
 			return nil
-		}
-		res, err := m.agent.undoStack.pop(m.agent.dir)
-		if err != nil {
-			m.entries = append(m.entries, &entry{kind: "note", text: err.Error()})
-			return nil
-		}
-		var lines []string
-		for _, f := range res.restored {
-			lines = append(lines, "✓ "+f)
-		}
-		for _, f := range res.refused {
-			lines = append(lines, "✗ "+f)
-		}
-		if len(res.refused) > 0 {
-			lines = append(lines, "", "files marked ✗ were changed after prism wrote them and were not restored")
-		}
-		if m.agent.undoStack.depth() > 0 {
-			lines = append(lines, "", fmt.Sprintf("%d earlier turn(s) available · /undo again to go further back", m.agent.undoStack.depth()))
-		}
-		title := "undo"
-		if len(res.restored) == 0 && len(res.refused) > 0 {
-			title = "undo blocked"
 		}
 		m.entries = append(m.entries, &entry{kind: "info", text: title, lines: lines})
 	case "/resume", "/continue":
@@ -215,8 +204,22 @@ func (m *model) command(text string) tea.Cmd {
 			m.entries = append(m.entries, &entry{kind: "info", text: res.title, lines: res.lines})
 		}
 	case "/skills":
-		if len(fields) > 2 && fields[1] == "new" {
+		if len(fields) > 1 && fields[1] == "new" {
+			if len(fields) == 2 {
+				m.entries = append(m.entries, &entry{kind: "note", text: "usage: /skills new <name>"})
+				return nil
+			}
 			m.entries = append(m.entries, &entry{kind: "note", text: newSkill(m.agent, fields[2])})
+			return nil
+		}
+		if len(fields) > 1 {
+			sk, ok := findSkill(m.agent.skills, fields[1])
+			if !ok {
+				m.entries = append(m.entries, &entry{kind: "note", text: "no skill called " + fields[1] + " · /skills lists them"})
+				return nil
+			}
+			v := skillView(sk)
+			m.entries = append(m.entries, &entry{kind: "cmd", view: &v})
 			return nil
 		}
 		v := skillsView(m.agent.skills)
@@ -301,6 +304,12 @@ func (m *model) command(text string) tea.Cmd {
 // openResumeMenu is /resume with no number: pick an earlier chat (the same
 // list and numbering /resume <number> uses); enter reopens it.
 func (m *model) openResumeMenu(others []session) {
+	m.openMenu(resumeMenu(others))
+}
+
+// resumeMenu is the /resume picker for both UIs: one row per earlier chat,
+// numbered like /resume <number>; the web runs "/resume <number>" instead.
+func resumeMenu(others []session) menuState {
 	var items []menuItem
 	for k, s := range others {
 		title := s.Title
@@ -317,14 +326,97 @@ func (m *model) openResumeMenu(others []session) {
 			},
 		})
 	}
-	m.openMenu(menuState{
+	return menuState{
 		kind:       "resume",
 		title:      "earlier chats",
 		hint:       "↑↓ move · enter reopen · esc close",
 		filterable: true,
 		noun:       "chat",
 		items:      items,
-	})
+	}
+}
+
+// undoLast pops the newest /undo turn and describes it. note is set instead
+// of lines when there is nothing to show (nothing to undo, or an error).
+func undoLast(a *Agent) (title string, lines []string, note string) {
+	if a.undoStack == nil || a.undoStack.depth() == 0 {
+		return "", nil, "nothing to undo"
+	}
+	res, err := a.undoStack.pop(a.dir)
+	if err != nil {
+		return "", nil, err.Error()
+	}
+	for _, f := range res.restored {
+		lines = append(lines, "✓ "+f)
+	}
+	for _, f := range res.refused {
+		lines = append(lines, "✗ "+f)
+	}
+	if len(res.refused) > 0 {
+		lines = append(lines, "", "files marked ✗ were changed after prism wrote them and were not restored")
+	}
+	if a.undoStack.depth() > 0 {
+		lines = append(lines, "", fmt.Sprintf("%d earlier turn(s) available · /undo again to go further back", a.undoStack.depth()))
+	}
+	title = "undo"
+	if len(res.restored) == 0 && len(res.refused) > 0 {
+		title = "undo blocked"
+	}
+	return title, lines, ""
+}
+
+// compactChat is /compact for the web: the same summary request and rebuilt
+// history as the TUI compactCommand (cli/compact.go), returning its lines.
+func compactChat(ctx context.Context, a *Agent, focus string) ([]string, error) {
+	if len(a.messages) <= 1 {
+		return nil, errors.New("nothing to compact yet")
+	}
+	if hasOrphanedToolCalls(a.messages) {
+		return nil, errors.New("cannot compact: history has unanswered tool calls; wait for the turn to finish")
+	}
+	before := a.tokens
+	if before == 0 {
+		before = estimate(a.messages)
+	}
+	prompt := compactPrompt
+	if focus != "" {
+		prompt = fmt.Sprintf("Summarize this conversation for yourself so you can continue the work with no other context. Focus especially on: %s. Include the user's goal and latest request, key decisions, every file read or changed and how, commands run and their results, problems found, and exactly what remains to do next. Be concise but complete. Do not call tools.", focus)
+	}
+	request := append(append([]Message{}, a.messages...), Message{Role: "user", Content: prompt})
+	light := a.light
+	a.light = false
+	reply, err := a.complete(ctx, request, map[string]any{"tool_choice": "none"}, func(any) {})
+	a.light = light
+	if err != nil {
+		return nil, errors.New("compact failed: " + err.Error())
+	}
+	summary := strings.TrimSpace(reply.Content)
+	if summary == "" {
+		return nil, errors.New("compact failed: model returned empty summary")
+	}
+	if a.mapReady != nil {
+		<-a.mapReady
+	}
+	files := a.mapProject()
+	a.touchMu.Lock()
+	a.files = files
+	a.touchMu.Unlock()
+	a.messages = []Message{
+		{Role: "system", Content: a.systemPrompt()},
+		{Role: "user", Content: summaryPrefix + " (earlier messages were compacted):\n\n" + summary + "\n\nThe user's latest request, word for word:\n" + a.latestRequest() + "\n\nContinue from where you left off."},
+	}
+	a.memMark = 1
+	after := estimate(a.messages)
+	a.tokens = after
+	lines := []string{
+		fmt.Sprintf("before  %s tokens  (%d messages)", short(before), len(request)-1),
+		fmt.Sprintf("after   %s tokens  (1 summary message)", short(after)),
+		fmt.Sprintf("saved   %s tokens", short(before-after)),
+	}
+	if focus != "" {
+		lines = append(lines, "focus: "+focus)
+	}
+	return append(lines, "", "conversation compacted · keep going"), nil
 }
 
 // reopen loads an earlier chat into this tab, like /resume <number>.

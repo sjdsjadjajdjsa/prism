@@ -31,15 +31,6 @@ func writeSkillFile(t *testing.T, dir, file, content string) {
 	}
 }
 
-func findSkill(skills []skill, name string) (skill, bool) {
-	for _, s := range skills {
-		if s.name == name {
-			return s, true
-		}
-	}
-	return skill{}, false
-}
-
 func TestSkillParseValid(t *testing.T) {
 	data := "---\nname: demo\ndescription: Does a demo thing.\n---\n\n# Steps\n1. Do it\n"
 	s, ok := parseSkill(data, "test")

@@ -48,6 +48,92 @@ func resolveModel(name string, rows []routeRow) string {
 	return name
 }
 
+// roleAutos are the role-ranked auto choices the /model picker offers after
+// plain auto, with what each one is for.
+var roleAutos = []struct{ name, what string }{
+	{"auto:code", "best at code"},
+	{"auto:fast", "quickest answers"},
+	{"auto:review", "careful reviewer"},
+}
+
+// byProvider groups routes by provider, providers in the order the router
+// tries their first route and routes in router order inside each group.
+func byProvider(rows []routeRow) []routeRow {
+	var order []string
+	groups := map[string][]routeRow{}
+	for _, r := range rows {
+		p := provider(r.Route)
+		if _, ok := groups[p]; !ok {
+			order = append(order, p)
+		}
+		groups[p] = append(groups[p], r)
+	}
+	out := make([]routeRow, 0, len(rows))
+	for _, p := range order {
+		out = append(out, groups[p]...)
+	}
+	return out
+}
+
+// routeTag labels a route that is not one of the free built-ins: "yours" for
+// a key you added, "plan" for a subscription you signed in to.
+func routeTag(r routeRow) string {
+	switch r.Source {
+	case "subscription":
+		return "plan"
+	case "yours":
+		return "yours"
+	}
+	return ""
+}
+
+// modelMenu is the /model picker: auto, the role autos, then every route
+// grouped by provider. Each row's match is what "/model <match>" pins.
+func modelMenu(rows []routeRow, current string) []menuItem {
+	items := modelItems(nil, current)
+	for _, ra := range roleAutos {
+		it := menuItem{dot: "◆", dotTone: toneAccent, label: ra.name, state: ra.what, match: ra.name}
+		if current == ra.name {
+			it.state += "  · current"
+		}
+		items = append(items, it)
+	}
+	routes := modelItems(byProvider(rows), current)[1:]
+	for i, r := range byProvider(rows) {
+		if tag := routeTag(r); tag != "" {
+			routes[i].state += " · " + tag
+		}
+	}
+	return append(items, routes...)
+}
+
+// pinModel is /model <name> for the web: auto and the role autos set
+// directly; anything else is resolved against the router's routes like the
+// TUI modelCommand. It returns the note the TUI shows for the same pin.
+func pinModel(a *Agent, name string) string {
+	switch name {
+	case "auto":
+		a.model = ""
+		return "model: auto"
+	case "auto:code", "auto:fast", "auto:review", "auto:vision":
+		a.model = name
+		return "model: " + name
+	}
+	rows, err := fetchRoutes(a.api)
+	if err != nil {
+		a.model = name
+		return "pinned " + name + " · " + err.Error()
+	}
+	full := resolveModel(name, rows)
+	a.model = full
+	for _, r := range rows {
+		if r.Route == full {
+			return "model: " + full + " · every request in this chat uses it"
+		}
+	}
+	return "pinned " + full + " · the router does not list it yet (it may appear once its key is set)"
+}
+
 type modelMsg struct {
 	name  string
 	found bool

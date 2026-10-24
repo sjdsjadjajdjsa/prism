@@ -189,6 +189,12 @@
   }
 
   toggle.addEventListener('click', () => (open ? hide() : show()))
+  // /files and /open <path> from the chat input (web/app.js runCommand)
+  window.PrismFiles = {
+    show: () => { if (!open) show(); else if (fv.pane && !fv.pane.hidden) closeFile() },
+    hide,
+    openFile: (path) => { if (!open) show(); return openFile(String(path).replace(/^\.?\//, '')) },
+  }
   document.getElementById('files-close').addEventListener('click', hide)
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape' || !open) return

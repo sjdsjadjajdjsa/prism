@@ -333,7 +333,7 @@ body.busy .inputbox::before { animation-duration: 1.6s; opacity: 1; }
   .busyhint { display: none; }
   .bubble { white-space: normal; width: max-content; max-width: 280px; }
   .status { gap: 0; }
-  .status .dot, #models { display: none; }
+  .status .dot, #models, #pinned { display: none; }
   .status > :not(.spacer):not(.route) { flex: none; }
   .status .route { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; margin-right: 8px; }
   .status .green { margin-left: 0; }
@@ -469,3 +469,7 @@ body.shake { transform: translate(var(--shake-x, 0px), var(--shake-y, 0px)); }
 .file-editor[hidden] { display: none; }
 @media (max-width: 860px) { .files-panel { left: 8px; right: 8px; width: auto; top: 52px; } }
 @media (prefers-reduced-motion: reduce) { .files-panel { animation: none; } }
+
+/* the pinned model (/model) sits after the route; the keys hint gives way first */
+.status .pinned { color: var(--muted); }
+.status .keys { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }

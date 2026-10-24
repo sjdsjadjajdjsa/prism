@@ -98,6 +98,8 @@ func newServerWithHub(agent *Agent, hub *tabHub, agentFor func(id int) *Agent, w
 func (s *server) handler(port string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/command", s.command)
+	mux.HandleFunc("GET /api/commands", s.commandList)
+	mux.HandleFunc("POST /api/login", s.loginPoll)
 	mux.HandleFunc("GET /api/ping", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	mux.HandleFunc("GET /api/info", s.info)
 	mux.HandleFunc("GET /api/tree", s.tree)
@@ -178,6 +180,7 @@ func noDirListing(root string, next http.Handler) http.Handler {
 				return
 			}
 		}
+		w.Header().Set("cache-control", "no-cache")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -292,7 +295,14 @@ func (s *server) info(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	handoff := s.handoff
 	s.mu.Unlock()
-	writeJSON(w, map[string]any{"project": projectName(s.agent.dir), "theme": s.theme, "models_ready": ready, "handoff": handoff})
+	a, err := s.agentTab(r)
+	if err != nil {
+		a = s.agent
+	}
+	s.mu.Lock()
+	pinned := a.model
+	s.mu.Unlock()
+	writeJSON(w, map[string]any{"project": projectName(s.agent.dir), "theme": s.theme, "models_ready": ready, "handoff": handoff, "model": pinned})
 }
 
 // snapshot converts the agent's messages to wire entries. Callers must hold
@@ -559,6 +569,215 @@ func webDir() string {
 	return ""
 }
 
+// toneName is a menu tone as the web picker's class suffix.
+func toneName(t tone) string {
+	switch t {
+	case toneOK:
+		return "ok"
+	case toneErr:
+		return "err"
+	case toneAccent:
+		return "accent"
+	case toneFg:
+		return "fg"
+	}
+	return "muted"
+}
+
+// pickWire is a TUI menu as JSON for the web picker (web/commands.js picker):
+// the same rows, wording and order. run gives the slash command a row runs
+// when it is picked.
+func pickWire(p menuState, run func(it menuItem) string) map[string]any {
+	items := []map[string]any{}
+	for _, it := range p.items {
+		w := map[string]any{"label": it.label, "detail": it.detail, "state": it.state, "dot": it.dot,
+			"dotTone": toneName(it.dotTone), "stateTone": toneName(it.stateTone), "sub": it.sub, "match": it.match, "run": run(it)}
+		if it.dot == "◌" && it.dotTone == toneMuted && it.stateTone == toneMuted && p.kind == "model" {
+			w["dim"] = true
+		}
+		items = append(items, w)
+	}
+	out := map[string]any{"kind": "pick", "pick": p.kind, "title": p.title, "hint": p.hint, "filterable": p.filterable,
+		"noun": p.noun, "empty": p.empty, "sel": p.sel, "items": items}
+	if p.err != "" {
+		out["error"] = p.err
+	}
+	return out
+}
+
+// modelsTable is /models for the web: the rows filterRoutes kept, aligned in
+// columns (model, provider, state, yours/plan), and the same hints as the TUI.
+func modelsTable(rows []routeRow, more int, filter string) map[string]any {
+	title := "models, in the order prism tries them"
+	if filter != "" {
+		title = fmt.Sprintf("models matching %q", filter)
+	}
+	out := []map[string]any{}
+	for _, r := range rows {
+		dot, tone, state := "●", "ok", "ready"
+		if !r.Ready {
+			dot, tone, state = "◌", "muted", fmt.Sprintf("back in %ds", r.RetryIn)
+		}
+		out = append(out, map[string]any{"dot": dot, "tone": tone, "cells": []string{modelName(r.Route), provider(r.Route), state, routeTag(r)}})
+	}
+	var footer []string
+	if more > 0 {
+		footer = append(footer, fmt.Sprintf("+%d more · /models <text> narrows", more))
+	}
+	if len(rows) == 0 && filter != "" {
+		footer = append(footer, fmt.Sprintf("no model matches %q · /models lists them all", filter))
+	}
+	if len(rows) == 0 && filter == "" {
+		footer = append(footer, "no models ready yet · add one: prism setup or /key")
+	}
+	footer = append(footer, "pin one for this chat: /model · add more free models: prism setup")
+	return map[string]any{"kind": "table", "title": title, "rows": out, "footer": footer}
+}
+
+// commandList serves GET /api/commands: the one command list (commands in
+// commands.go), with which ones the browser can run.
+func (s *server) commandList(w http.ResponseWriter, r *http.Request) {
+	out := []map[string]any{}
+	for _, c := range commands {
+		out = append(out, map[string]any{"name": c.name, "help": c.help, "web": c.web})
+	}
+	w.Header().Set("cache-control", "no-store")
+	writeJSON(w, out)
+}
+
+// modelCount reads the router's model count, sent as a number or a list.
+func modelCount(raw json.RawMessage) int {
+	var n int
+	if json.Unmarshal(raw, &n) == nil {
+		return n
+	}
+	var list []string
+	if json.Unmarshal(raw, &list) == nil {
+		return len(list)
+	}
+	return 0
+}
+
+// loginPoll serves POST /api/login {id, browser}: one check of a sign-in the
+// web started with /login <id>. Browser accounts are signed in once GET
+// /logins says so (and no longer finishing); device-code accounts poll the
+// router like cli/login.go pollLogin. status is pending, ok or error.
+func (s *server) loginPoll(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID      string `json:"id"`
+		Browser bool   `json:"browser"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" {
+		http.Error(w, "send JSON like {\"id\": \"copilot\"}", http.StatusBadRequest)
+		return
+	}
+	a, err := s.agentTab(r)
+	if err != nil {
+		a = s.agent
+	}
+	reply := func(status string, models int, note, message string, interval int) {
+		out := map[string]any{"status": status, "models": models, "note": note, "message": message, "interval": interval}
+		if status == "ok" {
+			out["text"] = fmt.Sprintf("signed in · %d models", models)
+		}
+		writeJSON(w, out)
+	}
+	if body.Browser {
+		rows, err := fetchLogins(a.api)
+		if err != nil {
+			reply("error", 0, "", err.Error(), 0)
+			return
+		}
+		for _, row := range rows {
+			switch {
+			case row.ID != body.ID:
+				continue
+			case row.Finishing:
+				reply("pending", 0, "", "", 3)
+			case row.SignedIn:
+				reply("ok", row.Models, row.Error, "", 0)
+			case row.Error != "":
+				reply("error", 0, "", row.Error, 0)
+			default:
+				reply("pending", 0, "", "", 3)
+			}
+			return
+		}
+		reply("error", 0, "", "the router has no account called "+body.ID, 0)
+		return
+	}
+	var out struct {
+		Status   string          `json:"status"`
+		Interval int             `json:"interval"`
+		Models   json.RawMessage `json:"models"`
+		Note     string          `json:"note"`
+		Message  string          `json:"message"`
+		Error    *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := loginRound(a.api, map[string]any{"id": body.ID, "poll": true}, &out); err != nil {
+		reply("error", 0, "", err.Error(), 0)
+		return
+	}
+	switch {
+	case out.Error != nil:
+		reply("error", 0, "", out.Error.Message, 0)
+	case out.Status == "ok":
+		reply("ok", modelCount(out.Models), out.Note, "", 0)
+	case out.Status == "error":
+		reply("error", 0, "", out.Message, 0)
+	case out.Status == "idle":
+		reply("error", 0, "", "the sign-in was not started; run /login "+body.ID+" again", 0)
+	default:
+		reply("pending", 0, "", "", out.Interval)
+	}
+}
+
+// compact is /compact [focus] for the web. It runs outside s.mu (the summary
+// is a model request) but marks the server busy so no chat starts meanwhile,
+// and /api/stop cancels it.
+func (s *server) compact(w http.ResponseWriter, r *http.Request, a *Agent, focus string) {
+	s.mu.Lock()
+	if s.busy {
+		s.mu.Unlock()
+		writeJSON(w, map[string]any{"kind": "error", "text": "wait until prism finishes, then run /compact"})
+		return
+	}
+	if len(a.messages) <= 1 {
+		s.mu.Unlock()
+		writeJSON(w, map[string]any{"kind": "note", "text": "nothing to compact yet"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+	defer cancel()
+	s.busy, s.cancel, s.busyAgent = true, cancel, a
+	if a == s.agent {
+		s.snap = s.snapshot()
+	} else {
+		if s.agentSnap == nil {
+			s.agentSnap = make(map[*Agent][]wireEntry)
+		}
+		s.agentSnap[a] = s.snapshotAgent(a)
+	}
+	s.mu.Unlock()
+	s.memWG.Wait()
+	lines, err := compactChat(ctx, a, focus)
+	s.mu.Lock()
+	if a == s.agent {
+		s.snap = s.snapshot()
+	} else if s.agentSnap != nil {
+		delete(s.agentSnap, a)
+	}
+	s.busy, s.cancel, s.busyAgent = false, nil, nil
+	s.mu.Unlock()
+	if err != nil {
+		writeJSON(w, map[string]any{"kind": "error", "headline": "compact", "text": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"kind": "info", "title": "compact", "lines": lines, "tokens": a.tokens, "window": a.window})
+}
+
 func (s *server) command(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Text string `json:"text"`
@@ -567,42 +786,65 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "send JSON like {\"text\": \"/models\"}", http.StatusBadRequest)
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	busy := s.busy
 	fields := strings.Fields(body.Text)
 	if len(fields) == 0 {
 		writeJSON(w, map[string]any{"kind": "error", "text": "empty command"})
 		return
 	}
-	info := func(title string, lines []string) {
-		writeJSON(w, map[string]any{"kind": "info", "title": title, "lines": lines})
-	}
 	a, _ := s.agentTab(r)
 	if a == nil {
 		a = s.agent
 	}
+	if fields[0] == "/compact" {
+		s.compact(w, r, a, strings.Join(fields[1:], " "))
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	busy := s.busy
+	info := func(title string, lines []string) {
+		writeJSON(w, map[string]any{"kind": "info", "title": title, "lines": lines})
+	}
+	note := func(text string) {
+		writeJSON(w, map[string]any{"kind": "note", "text": text})
+	}
+	fail := func(text string) {
+		writeJSON(w, map[string]any{"kind": "error", "text": text})
+	}
 	switch fields[0] {
-	case "/models", "/model", "/status":
+	case "/models", "/status":
 		rows, err := fetchRoutes(a.api)
 		if err != nil {
-			writeJSON(w, map[string]any{"kind": "error", "text": err.Error()})
+			fail(err.Error())
 			return
 		}
-		var lines []string
-		for _, row := range rows {
-			state := "ready"
-			if !row.Ready {
-				state = fmt.Sprintf("resting %ds", row.RetryIn)
+		filter := strings.Join(fields[1:], " ")
+		kept, more := filterRoutes(rows, filter)
+		writeJSON(w, modelsTable(kept, more, filter))
+	case "/model":
+		if len(fields) == 1 {
+			rows, err := fetchRoutes(a.api)
+			p := menuState{kind: "model", title: "model", hint: "↑↓ move · enter pin · esc close", filterable: true, noun: "model"}
+			if err != nil {
+				p.err = err.Error()
 			}
-			lines = append(lines, fmt.Sprintf("%s  %s  %s", modelName(row.Route), provider(row.Route), state))
+			if err == nil || len(rows) > 0 {
+				p.items = modelMenu(rows, a.model)
+			}
+			writeJSON(w, pickWire(p, func(it menuItem) string { return "/model " + it.match }))
+			return
 		}
-		info("free models, in the order prism tries them", append(lines, "", "add more free models: prism setup"))
+		if busy {
+			fail("wait until prism finishes, then pin a model")
+			return
+		}
+		text := pinModel(a, fields[1])
+		writeJSON(w, map[string]any{"kind": "model", "model": a.model, "text": text})
 	case "/key", "/keys":
 		if len(fields) == 1 {
 			list, err := fetchKeys(a.api)
 			if err != nil {
-				writeJSON(w, map[string]any{"kind": "error", "text": err.Error()})
+				fail(err.Error())
 				return
 			}
 			info("keys", keyLines(list))
@@ -611,19 +853,19 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 		var id, value string
 		if fields[1] == "rm" || fields[1] == "remove" {
 			if len(fields) != 3 {
-				writeJSON(w, map[string]any{"kind": "error", "text": "usage: /key rm <name>"})
+				fail("usage: /key rm <name>")
 				return
 			}
 			id = fields[2]
 		} else if len(fields) == 3 {
 			id, value = fields[1], fields[2]
 		} else {
-			writeJSON(w, map[string]any{"kind": "error", "text": "usage: /key <name> <secret>"})
+			fail("usage: /key <name> <secret>")
 			return
 		}
 		msg, err := postKey(a.api, id, value)
 		if err != nil {
-			writeJSON(w, map[string]any{"kind": "error", "text": err.Error()})
+			fail(err.Error())
 			return
 		}
 		if msg.masked == "" {
@@ -632,83 +874,48 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 		}
 		lines := []string{"saved · " + msg.masked}
 		if msg.models > 0 {
-			lines = append(lines, fmt.Sprintf("%d models ready · pick one by name in /models", msg.models))
+			lines = append(lines, fmt.Sprintf("%d models ready · pick one with /model", msg.models))
 		}
 		if msg.note != "" {
 			lines = append(lines, msg.note)
 		}
 		info(id+" key", lines)
 	case "/login", "/logins":
-		if len(fields) == 1 {
-			rows, err := fetchLogins(a.api)
-			if err != nil {
-				writeJSON(w, map[string]any{"kind": "error", "text": err.Error()})
-				return
-			}
-			var lines []string
-			for _, row := range rows {
-				state := "not signed in"
-				if row.SignedIn {
-					state = fmt.Sprintf("signed in · %d models", row.Models)
-				}
-				lines = append(lines, fmt.Sprintf("  %-10s %s", row.ID, state))
-			}
-			info("subscriptions", append(lines, "", "/login <name> signs in · /login rm <name> signs out"))
-			return
-		}
-		if fields[1] == "rm" || fields[1] == "remove" {
-			if len(fields) != 3 {
-				writeJSON(w, map[string]any{"kind": "error", "text": "usage: /login rm <name>"})
-				return
-			}
-			out := struct {
-				OK    bool `json:"ok"`
-				Error *struct {
-					Message string `json:"message"`
-				} `json:"error"`
-			}{}
-			if err := loginRound(a.api, map[string]any{"id": fields[2], "signOut": true}, &out); err != nil || out.Error != nil {
-				writeJSON(w, map[string]any{"kind": "error", "text": errText(err)})
-				return
-			}
-			info("signed out of "+fields[2], []string{})
-			return
-		}
-		if len(fields) != 2 {
-			writeJSON(w, map[string]any{"kind": "error", "text": "usage: /login <name>"})
-			return
-		}
-		out := struct {
-			UserCode        string `json:"userCode"`
-			VerificationURI string `json:"verificationURI"`
-			Error           *struct {
-				Message string `json:"message"`
-			} `json:"error"`
-		}{}
-		if err := loginRound(a.api, map[string]any{"id": fields[1]}, &out); err != nil {
-			writeJSON(w, map[string]any{"kind": "error", "text": err.Error()})
-			return
-		}
-		if out.Error != nil {
-			writeJSON(w, map[string]any{"kind": "error", "text": out.Error.Message})
-			return
-		}
-		info("sign in to "+fields[1], []string{"open  " + out.VerificationURI, "type " + out.UserCode, "the models appear in /models when you are done"})
+		s.login(w, a, fields)
 	case "/skills":
-		if len(fields) > 2 && fields[1] == "new" {
+		if len(fields) > 1 && fields[1] == "new" {
 			if busy {
-				writeJSON(w, map[string]any{"kind": "error", "text": "wait until prism finishes"})
+				fail("wait until prism finishes")
 				return
 			}
-			info(newSkill(a, fields[2]), []string{})
+			if len(fields) == 2 {
+				note("usage: /skills new <name>")
+				return
+			}
+			note(newSkill(a, fields[2]))
 			return
 		}
-		var lines []string
-		for _, sk := range a.skills {
-			lines = append(lines, fmt.Sprintf("%s: %s (%s)", sk.name, sk.description, sk.source))
+		if len(fields) > 1 {
+			sk, ok := findSkill(a.skills, fields[1])
+			if !ok {
+				note("no skill called " + fields[1] + " · /skills lists them")
+				return
+			}
+			writeJSON(w, skillView(sk).wire())
+			return
 		}
-		info("skills", append(lines, "", "add your own: /skills new <name> in the terminal, or .prism/skills/<name>.md"))
+		writeJSON(w, skillsView(a.skills).wire())
+	case "/help":
+		writeJSON(w, helpViewFor(true).wire())
 	case "/mcp":
+		if len(fields) == 2 && strings.ToLower(fields[1]) == "add" {
+			// The catalog text stays in lines (older pages print it); the web
+			// opens the picker from "pick".
+			cat := mcpCatalogReply(a.dir)
+			writeJSON(w, map[string]any{"kind": "info", "title": cat.title, "lines": cat.lines,
+				"pick": pickWire(mcpMenu(a.dir), func(it menuItem) string { return "/mcp add " + it.label })})
+			return
+		}
 		res, follow := mcpCommand(a, fields)
 		if follow != nil {
 			late, _ := follow(15 * time.Second)
@@ -730,7 +937,7 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 		})
 	case "/memory", "/forget":
 		if busy {
-			writeJSON(w, map[string]any{"kind": "error", "text": "wait until prism finishes"})
+			fail("wait until prism finishes")
 			return
 		}
 		title, lines, changed, err := a.store.memoryCommand(fields)
@@ -742,9 +949,31 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 			a.messages[0].Content = a.systemPrompt()
 		}
 		info(title, lines)
+	case "/undo":
+		if busy {
+			fail("wait until prism finishes, then run /undo")
+			return
+		}
+		title, lines, msg := undoLast(a)
+		if msg != "" {
+			note(msg)
+			return
+		}
+		info(title, lines)
+	case "/clear":
+		if busy {
+			fail("wait until prism finishes, or press esc to stop it first")
+			return
+		}
+		a.saveSession()
+		a.reset()
+		if a == s.agent {
+			s.snap = nil
+		}
+		writeJSON(w, map[string]any{"kind": "clear"})
 	case "/resume", "/continue":
 		if busy {
-			writeJSON(w, map[string]any{"kind": "error", "text": "wait until prism finishes"})
+			fail("wait until prism finishes")
 			return
 		}
 		var others []session
@@ -759,35 +988,142 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 		if len(fields) > 1 {
 			k, err := strconv.Atoi(fields[1])
 			if err != nil || k < 1 || k > len(others) {
-				writeJSON(w, map[string]any{"kind": "error", "text": "no chat with that number, try /resume"})
+				fail("no chat with that number, try /resume")
 				return
 			}
 			full, err := a.store.loadSession(others[k-1].ID)
 			if err != nil {
-				writeJSON(w, map[string]any{"kind": "error", "text": err.Error()})
+				fail(err.Error())
 				return
 			}
 			a.resume(full)
 			s.snap = nil
-			writeJSON(w, map[string]any{"kind": "reload"})
+			writeJSON(w, map[string]any{"kind": "reload", "model": a.model})
 			return
 		}
 		if len(others) == 0 {
 			info("no earlier chats in this folder yet", []string{})
 			return
 		}
-		var lines []string
-		for k, sess := range others {
-			lines = append(lines, fmt.Sprintf("%d  %s  %s", k+1, ago(sess.Updated), sess.Title))
-		}
-		info("earlier chats", append(lines, "", "type /resume <number> to reopen one"))
+		writeJSON(w, pickWire(resumeMenu(others), func(it menuItem) string { return "/resume " + it.dot }))
 	case "/init":
 		if busy {
-			writeJSON(w, map[string]any{"kind": "error", "text": "wait until prism finishes, then run /init"})
+			fail("wait until prism finishes, then run /init")
 			return
 		}
 		writeJSON(w, map[string]any{"kind": "send", "message": initPrompt})
+	case "/rename":
+		note("/rename works in the terminal · the tab names it sets show here")
+	case "/ask":
+		note("/ask works in the terminal · here, /tabs switches to another chat")
+	case "/quit", "/exit":
+		note("nothing to quit here · close this browser tab to leave")
 	default:
 		writeJSON(w, map[string]any{"kind": "error", "headline": "unknown command", "text": fields[0] + " isn't a command. /help lists them"})
 	}
+}
+
+// login is /login for the web: the account picker (the TUI loginItems rows),
+// sign-out, or starting a sign-in. Browser accounts answer with a URL the web
+// opens; device-code accounts with a code. The web then polls /api/login.
+func (s *server) login(w http.ResponseWriter, a *Agent, fields []string) {
+	fail := func(text string) { writeJSON(w, map[string]any{"kind": "error", "text": text}) }
+	if len(fields) == 1 {
+		rows, err := fetchLogins(a.api)
+		p := menuState{kind: "login", title: "subscriptions", hint: "↑↓ move · enter sign in · esc close", filterable: true,
+			noun: "account", empty: "the router lists no subscription accounts", items: loginItems(rows)}
+		if err != nil {
+			p.err = err.Error()
+		}
+		last := ""
+		writeJSON(w, pickWire(p, func(it menuItem) string {
+			if it.sub {
+				return "/login rm " + last
+			}
+			last = it.label
+			return "/login " + it.label
+		}))
+		return
+	}
+	if fields[1] == "rm" || fields[1] == "remove" {
+		if len(fields) != 3 {
+			fail("usage: /login rm <name>")
+			return
+		}
+		out := struct {
+			OK    bool `json:"ok"`
+			Error *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}{}
+		if err := loginRound(a.api, map[string]any{"id": fields[2], "signOut": true}, &out); err != nil || out.Error != nil {
+			msg := errText(err)
+			if out.Error != nil {
+				msg = out.Error.Message
+			}
+			fail(msg)
+			return
+		}
+		writeJSON(w, map[string]any{"kind": "note", "text": "signed out of " + fields[2]})
+		return
+	}
+	if len(fields) != 2 {
+		fail("usage: /login <name> · /login lists them all")
+		return
+	}
+	id := fields[1]
+	var out struct {
+		UserCode        string `json:"userCode"`
+		VerificationURI string `json:"verificationURI"`
+		URL             string `json:"url"`
+		Expires         int    `json:"expires"`
+		Interval        int    `json:"interval"`
+		Error           *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := loginRound(a.api, map[string]any{"id": id}, &out); err != nil {
+		fail(err.Error())
+		return
+	}
+	if out.Error != nil {
+		fail(out.Error.Message)
+		return
+	}
+	link := out.URL
+	if link == "" {
+		link = out.VerificationURI
+	}
+	if link == "" {
+		fail("the router sent no sign-in link for " + id + "; try /login " + id + " again")
+		return
+	}
+	if out.Expires <= 0 {
+		out.Expires = 900
+	}
+	browser := out.UserCode == ""
+	lines := []string{"open  " + link, "type  " + out.UserCode, "prism keeps checking; the models appear in /models when you are done"}
+	if browser {
+		lines = []string{"opening your browser…", "if nothing opens: " + link, "prism keeps checking; the models appear in /models when you are done"}
+	}
+	writeJSON(w, map[string]any{"kind": "login", "id": id, "browser": browser, "url": link, "code": out.UserCode,
+		"expires": out.Expires, "interval": out.Interval, "title": "sign in to " + id, "lines": lines})
+}
+
+// mcpMenu is the /mcp add picker, the same rows as the TUI openMCPMenu
+// (cli/mcp_setup.go).
+func mcpMenu(dir string) menuState {
+	cfg, _ := loadMCPConfig(dir)
+	var items []menuItem
+	for _, e := range mcpCatalog() {
+		it := menuItem{label: e.ID, detail: e.About, dot: "◌"}
+		if _, on := cfg[e.ID]; on {
+			it.dot, it.dotTone, it.state, it.stateTone = "●", toneOK, "added", toneOK
+		} else if len(e.Needs) > 0 {
+			it.state = "needs a free key"
+		}
+		items = append(items, it)
+	}
+	return menuState{kind: "mcp", title: "add a tool server", hint: "↑↓ move · enter add · esc close", filterable: true,
+		noun: "server", empty: "the catalog is empty", items: items}
 }

@@ -78,7 +78,7 @@ function toolColor(tool) { return `var(${TOOL_COLOR[tool] || '--x5'})`; }
 const transcript = $('transcript');
 const liveEl = $('live');
 const state = {
-  busy: false, model: null, tokens: 0, window: 0, modelsReady: null,
+  busy: false, model: null, pinned: '', tokens: 0, window: 0, modelsReady: null,
   crew: null, turn: null, steps: null, stepMap: new Map(), textBuf: '', textEl: null,
   reasoning: '', phase: 'idle', phaseAt: 0, draft: null, abort: null, route: null, waitMs: 0,
 };
@@ -489,7 +489,10 @@ function setBusy(b) {
 }
 
 function renderStatus() {
-  $('route').textContent = state.model || state.route || 'auto';
+  $('route').textContent = state.pinned ? crewModelName(state.pinned) : (state.model || state.route || 'auto');
+  // a chat pinned with /model says so, like the terminal status bar (cli/chat.go drawStatus)
+  const pin = $('pinned');
+  if (pin) { pin.hidden = !state.pinned; pin.textContent = state.pinned ? ' · pinned' : ''; pin.title = state.pinned || ''; }
   const pct = state.window ? Math.min(100, Math.round((state.tokens / state.window) * 100)) : 0;
   $('usage').textContent = pct + '%';
   const cells = $('meter').children;
@@ -897,26 +900,99 @@ async function stop() {
   if (state.abort) state.abort.abort();
 }
 
+// offline / ?demo fallback for /help; the server answers /help with the grouped view (cli/cmdview.go helpViewFor)
 function showHelp() {
-  hideHello();
-  const t = newTurn();
-  const md = el('div', 'md');
   const list = (window.PrismCommands && window.PrismCommands.list) || [];
-  const rows = list.length
-    ? list.map((c) => '- `' + c.name + '` — ' + c.help).join('\n')
-    : '- `/new` — start a fresh chat\n- `/theme <name>` — ' + THEMES.join(', ') + '\n- `/help` — this list';
-  renderMarkdown(md, '### commands\n' + rows + '\n\nenter sends · shift+enter newline · esc stops');
-  t.appendChild(md);
+  addView({
+    title: 'commands',
+    blocks: [{ title: '', items: list.map((c) => ({ name: c.name, desc: c.help })) }],
+    footer: 'keys: enter send · shift+enter new line · tab completes · ↑↓ pick · esc stop or close',
+  });
+}
+
+// ---------- command output (info lines, views, tables) ----------
+function commandTurn() { hideHello(); const t = newTurn(); state.textEl = null; return t; }
+
+// linkify appends text to parent, turning http(s) URLs into links that open in a new tab
+function linkify(parent, text) {
+  const re = /https?:\/\/[^\s)]+/g;
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) parent.appendChild(document.createTextNode(text.slice(last, m.index)));
+    const a = el('a', '', m[0]); a.href = m[0]; a.target = '_blank'; a.rel = 'noopener';
+    parent.appendChild(a);
+    last = re.lastIndex;
+  }
+  if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
+}
+
+// a server command that answered with lines (/usage, /memory, /key …): kept as
+// typed so columns stay aligned, like the terminal
+function addInfo(title, lines) {
+  const box = el('div', 'info');
+  if (title) box.appendChild(el('div', 'info-title', title));
+  const list = Array.isArray(lines) ? lines : String(lines == null ? '' : lines).split('\n');
+  if (list.length) {
+    const pre = el('pre', 'info-lines');
+    list.forEach((l, i) => { if (i) pre.appendChild(document.createTextNode('\n')); linkify(pre, String(l)); });
+    box.appendChild(pre);
+  }
+  commandTurn().appendChild(box);
+  scrollDown();
+  return box;
+}
+function addInfoBlock(text) { return addInfo('', String(text == null ? '' : text).split('\n')); }
+
+// a cmdView from the server (kind "view": /help, /skills): title, grouped grids, footer
+function addView(v) {
+  const box = el('div', 'cmdview');
+  box.appendChild(el('div', 'cv-title', v.title || ''));
+  for (const b of v.blocks || []) {
+    const blk = el('div', 'cv-block');
+    if (b.title) blk.appendChild(el('div', 'cv-head', b.title));
+    const grid = el('div', 'cv-grid');
+    for (const it of b.items || []) {
+      grid.appendChild(el('span', 'cv-dot tone-' + (it.tone || 'muted'), it.dot || ''));
+      const name = el('span', 'cv-name', it.name || '');
+      if (it.name) name.title = it.name;
+      grid.appendChild(name);
+      const desc = el('span', 'cv-desc'); linkify(desc, it.desc || ''); grid.appendChild(desc);
+      if (it.sub) { grid.appendChild(el('span', 'cv-dot', '')); grid.appendChild(el('span', 'cv-name', '')); grid.appendChild(el('span', 'cv-sub', it.sub)); }
+    }
+    blk.appendChild(grid);
+    box.appendChild(blk);
+  }
+  if (v.footer) box.appendChild(el('div', 'cv-foot', v.footer));
+  commandTurn().appendChild(box);
   scrollDown();
 }
 
-// a server command that answered with text (/models, /usage, /memory …)
-function addInfoBlock(text) {
-  hideHello();
-  const t = newTurn();
-  const md = el('div', 'md');
-  renderMarkdown(md, String(text == null ? '' : text));
-  t.appendChild(md);
+// a table from the server (kind "table": /models): dot + aligned columns
+function addTable(v) {
+  const box = el('div', 'cmdview');
+  box.appendChild(el('div', 'cv-title', v.title || ''));
+  const rows = v.rows || [];
+  const cols = rows.reduce((n, r) => Math.max(n, (r.cells || []).length), 0);
+  if (rows.length) {
+    // the name column may shrink (its spans clip with …) so a phone keeps the state column on
+    // screen; anything still too wide scrolls inside .tbl-wrap, never the chat column
+    const wrap = el('div', 'tbl-wrap');
+    const grid = el('div', 'tbl-grid');
+    grid.style.gridTemplateColumns = '2ch minmax(0,max-content) ' + Array(Math.max(0, cols - 2)).fill('max-content').join(' ') + ' minmax(0,1fr)';
+    for (const r of rows) {
+      grid.appendChild(el('span', 'tone-' + (r.tone || 'muted'), r.dot || ''));
+      for (let i = 0; i < cols; i++) {
+        const text = (r.cells || [])[i] || '';
+        const cell = el('span', 'c' + i + (i === 2 ? ' tone-' + (r.tone || 'muted') : ''), text);
+        if (i === 0) { cell.style.color = r.tone === 'muted' ? 'var(--muted)' : 'var(--fg)'; cell.title = text; }
+        grid.appendChild(cell);
+      }
+    }
+    wrap.appendChild(grid);
+    box.appendChild(wrap);
+  }
+  for (const f of v.footer || []) box.appendChild(el('div', 'tbl-foot', f));
+  commandTurn().appendChild(box);
   scrollDown();
 }
 
@@ -928,7 +1004,107 @@ function resetTranscript() {
   transcript.appendChild(hello);
 }
 
-// /new /theme /beam /quiet /help answer here; everything else goes to cli/serve.go command().
+// ---------- pickers (web/commands.js picker, the terminal's menu) ----------
+const tabQuery = () => (tabState.active > 1 ? '?tab=' + tabState.active : '');
+const picker = (opts) => window.PrismCommands.picker(opts);
+
+// /theme with no name: moving the highlight previews, enter keeps, esc puts the old one back (cli/theme.go openThemeMenu)
+function openThemePicker() {
+  const orig = themeCache.name;
+  picker({
+    title: 'theme', hint: '↑↓ preview · enter keep · esc undo', noun: 'theme',
+    items: THEMES.map((t) => ({ label: t, dot: '◆', dotTone: 'accent', state: t === orig ? 'current' : '' })),
+    sel: Math.max(0, THEMES.indexOf(orig)),
+    onHover: (it) => setTheme(it.label),
+    onPick: (it) => { setTheme(it.label); hideHello(); addNote(`theme: ${it.label}`); },
+    onClose: () => setTheme(orig),
+  });
+}
+
+// /tabs: the open chats (GET /api/tabs), enter switches this page to one (cli/tabs.go tabsCommand)
+async function openTabsPicker() {
+  const p = picker({ title: 'tabs', hint: 'enter switch · esc close', noun: 'tab', empty: 'no open chats', loading: true });
+  let data = null;
+  try { data = await api('/api/tabs'); } catch (e) { p.update({ loading: false, error: String(e.message || e) }); return; }
+  const tabs = (data && data.tabs) || [];
+  const cur = Math.max(0, tabs.findIndex((t) => t.ID === (tabState.active || (tabs[0] && tabs[0].ID))));
+  p.update({
+    loading: false, sel: cur,
+    hint: tabs.length > 1 ? 'enter switch · esc close' : 'one chat open · new tabs start in the terminal (ctrl+t)',
+    items: tabs.map((t, i) => ({
+      label: `${i + 1}  ${t.Name}`, detail: t.Status, dot: i === cur ? '●' : '◌', dotTone: i === cur ? 'accent' : 'muted',
+      state: (i === cur ? 'current · ' : '') + (t.Task || '—'), id: t.ID,
+    })),
+    onPick: (it) => { if (state.busy && it.id !== tabState.active) { addNote('wait until prism finishes, then switch tabs'); return; } switchTab(it.id); },
+  });
+}
+
+// a picker the server built (kind "pick"): the TUI's rows; picking runs the row's command
+function openServerPicker(data, p) {
+  const opts = {
+    title: data.title, hint: data.hint, noun: data.noun, empty: data.empty, filterable: data.filterable !== false,
+    items: data.items || [], sel: data.sel || 0, error: data.error, loading: false,
+    onPick: (it) => { if (it.run) runCommand(it.run); },
+  };
+  if (p && p.open) p.update(opts); else picker(opts);
+}
+
+// ---------- /login (browser or device-code sign-in, polled like cli/login.go pollLogin) ----------
+let loginPolls = 0;
+async function startLogin(data) {
+  const box = addInfo(data.title || ('sign in to ' + data.id), []);
+  const pre = el('pre', 'info-lines');
+  if (data.browser) {
+    pre.appendChild(document.createTextNode('opening your browser…\nif nothing opens: '));
+    linkify(pre, data.url);
+    const w = window.open(data.url, '_blank', 'noopener');
+    void w;
+  } else {
+    pre.appendChild(document.createTextNode('open  ')); linkify(pre, data.url);
+    pre.appendChild(document.createTextNode('\ntype  ')); pre.appendChild(el('span', 'login-code', data.code || ''));
+  }
+  pre.appendChild(document.createTextNode('\nprism keeps checking; the models appear in /models when you are done'));
+  box.appendChild(pre);
+  const status = el('div', 'login-state', 'waiting for the sign-in…');
+  status.setAttribute('role', 'status');
+  box.appendChild(status);
+  const me = ++loginPolls;
+  const tq = tabQuery(); // the tab that started the sign-in, even after a tab switch
+  const deadline = Date.now() + (data.expires || 900) * 1000;
+  let wait = data.browser ? 3 : Math.max(3, data.interval || 5);
+  while (Date.now() < deadline && me === loginPolls) {
+    await sleep(wait * 1000);
+    if (me !== loginPolls) return;
+    let r;
+    try { r = await api('/api/login' + tq, { id: data.id, browser: !!data.browser }); }
+    catch (e) { status.textContent = 'still checking… (' + String(e.message || e) + ')'; continue; }
+    if (!r) continue;
+    if (r.status === 'ok') {
+      status.className = 'login-state ok';
+      status.textContent = (r.text || 'signed in') + (r.note ? ' · ' + r.note : '');
+      refreshInfo();
+      return;
+    }
+    if (r.status === 'error') { status.className = 'login-state err'; status.textContent = data.id + ': ' + (r.message || 'sign-in failed'); return; }
+    if (!data.browser && r.interval) wait = Math.max(3, r.interval);
+  }
+  if (me === loginPolls) { status.className = 'login-state err'; status.textContent = 'the sign-in timed out; run /login ' + data.id + ' again'; }
+}
+
+async function refreshInfo() {
+  try {
+    const info = await api('/api/info' + tabQuery());
+    if (info) { state.modelsReady = info.models_ready; state.pinned = info.model || ''; renderStatus(); }
+  } catch { /* ignore */ }
+}
+
+// waits up to 5s for a running chat to end (after stop) before /clear
+async function idle() { for (let i = 0; i < 50 && state.busy; i++) await sleep(100); }
+
+// commands that open a picker the server fills: show it at once with "loading…"
+const SERVER_PICKERS = { '/model': 'model', '/login': 'subscriptions', '/logins': 'subscriptions', '/resume': 'earlier chats', '/continue': 'earlier chats' };
+
+// /new /theme /beam /quiet /web /files /open /tabs answer here; everything else goes to cli/serve.go command().
 async function runCommand(line) {
   const text = String(line || '').trim();
   if (!text) return;
@@ -936,24 +1112,42 @@ async function runCommand(line) {
   const [cmd, ...rest] = text.split(/\s+/);
   switch (cmd) {
     case '/new':
-      try { await api('/api/new', {}); } catch (e) { addError('could not start new session', String(e.message)); return; }
-      resetTranscript();
+      try { await api('/api/new' + tabQuery(), {}); } catch (e) { addError('could not start new session', String(e.message)); return; }
+      resetTranscript(); state.pinned = ''; state.model = null; renderStatus();
       say('hello', 2400); setMood('happy', 1500);
       return;
-    case '/theme':
-      if (!setTheme(rest[0] || '')) addNote(`themes: ${THEMES.join(', ')}`);
+    case '/theme': case '/themes':
+      if (!rest[0]) { openThemePicker(); return; }
+      if (!setTheme(rest[0])) addNote(`themes: ${THEMES.join(', ')}`);
       else addNote(`theme: ${rest[0]}`);
       return;
     case '/beam':
-      beamEnabled = !beamEnabled;
+      beamEnabled = rest[0] ? rest[0] !== 'off' : !beamEnabled;
       addNote(`finish beam ${beamEnabled ? 'on' : 'off'}`);
       return;
     case '/quiet':
-      quiet = !quiet;
+      quiet = rest[0] ? rest[0] !== 'off' : !quiet;
       if (quiet) hush();
-      addNote(`shard's lines ${quiet ? 'off' : 'on'}`);
+      addNote(quiet ? 'shard is quiet' : 'shard can talk again');
       return;
-    case '/help': showHelp(); return;
+    case '/files':
+      if (window.PrismFiles) window.PrismFiles.show(); else addNote('the file viewer did not load');
+      return;
+    case '/open':
+      if (!window.PrismFiles) { addNote('the file viewer did not load'); return; }
+      if (rest.length) window.PrismFiles.openFile(rest.join(' ')); else window.PrismFiles.show();
+      return;
+    case '/tabs':
+      if (DEMO) { addNote('/tabs needs the prism server'); return; }
+      openTabsPicker();
+      return;
+    case '/help':
+      if (DEMO || !window.PrismCommands) { showHelp(); return; }
+      break;
+    case '/clear':
+      if (DEMO) { resetTranscript(); return; }
+      if (state.busy) { await stop(); await idle(); }
+      break;
     case '/web': {
       const note = el('div', 'note');
       const link = el('a', 'web-link', location.origin);
@@ -980,7 +1174,7 @@ async function runCommand(line) {
         }
         if (copied) { copy.textContent = 'copied'; copy.setAttribute('aria-label', 'Browser link copied'); }
       });
-      note.append(link, ' ', copy, el('div', '', 'to go back to the terminal, close this tab or press enter there'));
+      note.append(link, ' ', copy, el('div', '', handoffSeen ? 'to go back to the terminal, close this tab or press enter there' : 'this chat is already in your browser'));
       curTurn().appendChild(note);
       state.textEl = null;
       scrollDown();
@@ -989,31 +1183,60 @@ async function runCommand(line) {
     default: break;
   }
   if (DEMO || !window.PrismCommands) { addNote(`${cmd} needs the prism server`); return; }
+  let p = null;
+  if (rest.length === 0 && SERVER_PICKERS[cmd]) p = picker({ title: SERVER_PICKERS[cmd], loading: true });
+  else if (cmd === '/mcp' && rest.length === 1 && rest[0].toLowerCase() === 'add') p = picker({ title: 'add a tool server', loading: true });
+  // /compact is a model request: the page is busy like a chat (live line, esc stops it via /api/stop)
+  const compacting = cmd === '/compact';
+  if (compacting) {
+    if (state.busy) { hideHello(); addNote('wait until prism finishes, then run /compact'); return; }
+    hideHello(); addNote('compacting the conversation…');
+    setBusy(true); setPhase('tool');
+  }
   let data = null;
-  try { data = await window.PrismCommands.runServer(text); }
-  catch (e) { addError('command failed', String((e && e.message) || e)); return; }
+  try { data = await window.PrismCommands.runServer(text, tabQuery()); }
+  catch (e) { if (p) p.close(); addError('command failed', String((e && e.message) || e)); return; }
+  finally { if (compacting) setBusy(false); }
+  if (data && data.pick && data.kind !== 'pick') data = Object.assign({}, data.pick);
   const action = data && (data.kind || data.action || data.type);
+  if (p && action !== 'pick') p.close();
   switch (action) {
-    case 'info': {
-      // server sends {kind:'info', title, lines:[]} — format into markdown
-      let body = '';
-      if (data.title) body += `### ${data.title}\n`;
-      if (Array.isArray(data.lines)) body += data.lines.join('\n');
-      else body += data.text || data.detail || '';
-      addInfoBlock(body || data.text || data.detail || '');
+    case 'pick':
+      if (p && !p.open) return; // closed while loading
+      openServerPicker(data, p);
       return;
-    }
+    case 'info':
+      addInfo(data.title, Array.isArray(data.lines) ? data.lines : String(data.text || data.detail || '').split('\n'));
+      if (data.tokens != null) { state.tokens = data.tokens; if (data.window) state.window = data.window; renderStatus(); }
+      return;
+    case 'view': addView(data); return;
+    case 'table': addTable(data); return;
+    case 'note': hideHello(); addNote(data.text || ''); scrollDown(); return;
+    case 'model':
+      state.pinned = data.model || '';
+      renderStatus();
+      hideHello(); addNote(data.text || ('model: ' + (data.model || 'auto')));
+      scrollDown();
+      return;
+    case 'login': startLogin(data); return;
+    case 'clear':
+      loginPolls++;
+      resetTranscript(); state.pinned = ''; state.model = null; renderStatus();
+      say('hello', 2400); setMood('happy', 1500);
+      return;
     case 'reload':
       try {
-        const hist = await api('/api/history');
+        const hist = await api('/api/history' + tabQuery());
         resetTranscript();
         if (hist) loadHistory(hist.entries);
+        state.pinned = data.model || ''; renderStatus();
+        addNote('chat reopened · keep going');
       } catch (e) { addError('could not reload', String((e && e.message) || e)); }
       return;
     case 'send': send(data.message || data.text || text); return;
-    case 'error': addError(data.headline || 'command failed', data.detail || data.text || ''); return;
+    case 'error': addError(data.headline || 'command failed', data.detail || data.text || ''); scrollDown(); return;
     default:
-      if (data && (data.text || data.lines)) addInfoBlock(data.text || (Array.isArray(data.lines) ? data.lines.join('\n') : ''));
+      if (data && (data.text || data.lines)) addInfo(data.title || '', Array.isArray(data.lines) ? data.lines : String(data.text).split('\n'));
       else addNote(`unknown command: ${cmd}`);
       return;
   }
@@ -1148,9 +1371,15 @@ input.addEventListener('keydown', (e) => {
 $('composer').addEventListener('submit', (e) => e.preventDefault());
 $('theme').addEventListener('change', (e) => setTheme(e.target.value));
 addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && state.busy && document.activeElement !== input) stop();
   const a = document.activeElement;
-  if (a !== input && !['SELECT', 'BUTTON', 'A'].includes(a.tagName) && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) input.focus();
+  // an open picker owns the keys: esc closes it, a typed letter goes to its filter, not the chat box
+  const PC = window.PrismCommands;
+  if (PC && PC.pickerOpen && PC.pickerOpen() && !(a && a.closest && a.closest('.pick'))) {
+    if (e.key === 'Escape') { e.preventDefault(); PC.closePicker(); return; }
+    if (a !== input && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { PC.focusPicker(); return; }
+  }
+  if (e.key === 'Escape' && state.busy && document.activeElement !== input) stop();
+  if (a !== input && !['SELECT', 'BUTTON', 'A', 'INPUT', 'TEXTAREA'].includes(a.tagName) && !a.isContentEditable && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) input.focus();
 });
 
 // ---------- shard buddy draw (web/shard.js when it is loaded) ----------
@@ -1273,6 +1502,7 @@ function switchTab(id) {
     if (gen !== tabSwitchGen) return; // stale response from a superseded switch
     if (hist) loadHistory(hist.entries);
   }).catch(() => {});
+  refreshInfo();
 }
 
 async function pollTabs() {
@@ -1323,7 +1553,7 @@ async function boot() {
     if (info) {
       if (info.project) $('project').textContent = info.project;
       if (info.theme && !params.get('theme') && !saved) setTheme(info.theme);
-      state.modelsReady = info.models_ready; renderStatus();
+      state.modelsReady = info.models_ready; state.pinned = info.model || ''; renderStatus();
       if (info.handoff) showHandoff();
     }
     const hist = await api('/api/history');

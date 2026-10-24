@@ -110,6 +110,17 @@ func (a *Agent) isSkill(name string) bool {
 	return false
 }
 
+// findSkill looks a skill up by name for /skills <name>.
+func findSkill(skills []skill, name string) (skill, bool) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	for _, s := range skills {
+		if s.name == name {
+			return s, true
+		}
+	}
+	return skill{}, false
+}
+
 // skillGroup is one display group for /skills output.
 type skillGroup struct {
 	label  string
@@ -125,12 +136,37 @@ func skillKind(name string) string {
 		return "improving code"
 	case "website", "web-app-node", "browser-game", "portfolio-site", "discord-bot", "python-project", "use-an-api", "docker-help", "automate-task", "clean-data", "game-rewrite":
 		return "building things"
-	case "learn-mode", "computer-help", "git-basics":
+	case "learn-mode", "computer-help", "git-basics", "prism":
 		return "learning & exploring"
 	case "handoff-note":
 		return "workflow"
 	}
 	return "your skills"
+}
+
+// skillShowcase is the order the /skills summary names skills in, the most
+// asked-for first; skills not listed follow in name order.
+var skillShowcase = []string{
+	"website", "browser-game", "portfolio-site", "web-app-node", "discord-bot", "python-project", "use-an-api", "automate-task", "clean-data", "docker-help", "game-rewrite",
+	"fix-bug", "test-my-app", "prove-it", "security-review", "accessibility-review", "release-check", "retry-ladder",
+	"refactor", "explain-code", "prism", "learn-mode", "git-basics", "computer-help", "handoff-note",
+}
+
+// showcaseOrder returns a copy of skills sorted by skillShowcase.
+func showcaseOrder(skills []skill) []skill {
+	rank := map[string]int{}
+	for i, n := range skillShowcase {
+		rank[n] = i + 1
+	}
+	out := append([]skill(nil), skills...)
+	sort.SliceStable(out, func(i, j int) bool {
+		ri, rj := rank[out[i].name], rank[out[j].name]
+		if ri == 0 || rj == 0 {
+			return ri != 0 && rj == 0
+		}
+		return ri < rj
+	})
+	return out
 }
 
 // groupSkills organises skills into display groups, preserving sort order within each group.

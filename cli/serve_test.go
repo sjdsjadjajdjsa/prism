@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -164,8 +165,8 @@ func TestCommand(t *testing.T) {
 		t.Fatalf("/nope kind = %v, want error", res["kind"])
 	}
 	res = post("/skills")
-	if res["kind"] != "info" {
-		t.Fatalf("/skills kind = %v, want info", res["kind"])
+	if res["kind"] != "view" {
+		t.Fatalf("/skills kind = %v, want view", res["kind"])
 	}
 }
 
@@ -376,21 +377,293 @@ func TestCommandModelsListsRoutes(t *testing.T) {
 	h, _, port := testServer(t)
 	host := "127.0.0.1:" + port
 	origin := "http://" + host
-	for _, cmd := range []string{"/models", "/model", "/status"} {
+	for _, cmd := range []string{"/models", "/status"} {
 		body, _ := json.Marshal(map[string]string{"text": cmd})
 		res := decode(t, do(t, h, http.MethodPost, "/api/command", host, origin, string(body)))
-		if res["kind"] != "info" {
-			t.Fatalf("%s: kind = %v, want info", cmd, res["kind"])
+		if res["kind"] != "table" || res["title"] != "models, in the order prism tries them" {
+			t.Fatalf("%s: got %v", cmd, res)
 		}
-		lines, _ := res["lines"].([]any)
-		var joined []string
-		for _, l := range lines {
-			joined = append(joined, l.(string))
+		all := fmt.Sprint(res["rows"])
+		if !strings.Contains(all, "ready") || !strings.Contains(all, "back in 12s") || !strings.Contains(all, "model-a") {
+			t.Fatalf("%s: rows missing route states: %q", cmd, all)
 		}
-		all := strings.Join(joined, "\n")
-		if !strings.Contains(all, "ready") || !strings.Contains(all, "resting 12s") {
-			t.Fatalf("%s: lines missing route states: %q", cmd, all)
+	}
+	// /models <text> narrows, like the TUI filterRoutes
+	res := decode(t, do(t, h, http.MethodPost, "/api/command", host, origin, `{"text":"/models model-b"}`))
+	rows, _ := res["rows"].([]any)
+	if len(rows) != 1 || !strings.Contains(fmt.Sprint(rows[0]), "model-b") || !strings.Contains(res["title"].(string), "model-b") {
+		t.Fatalf("/models model-b: %v", res)
+	}
+}
+
+func TestModelsTableCapsAndTags(t *testing.T) {
+	var rows []routeRow
+	for i := 0; i < 70; i++ {
+		rows = append(rows, routeRow{Route: fmt.Sprintf("p/m%d", i), Ready: true})
+	}
+	rows = append(rows, routeRow{Route: "chatgpt/gpt-x", Ready: true, Source: "subscription"}, routeRow{Route: "openai/gpt-y", Ready: true, Source: "yours"})
+	kept, more := filterRoutes(rows, "")
+	out := modelsTable(kept, more, "")
+	if got := len(out["rows"].([]map[string]any)); got != 60 {
+		t.Fatalf("rows = %d, want 60", got)
+	}
+	if f := strings.Join(out["footer"].([]string), "\n"); !strings.Contains(f, "+12 more · /models <text> narrows") {
+		t.Fatalf("footer = %q", f)
+	}
+	kept, more = filterRoutes(rows, "gpt")
+	out = modelsTable(kept, more, "gpt")
+	if all := fmt.Sprint(out["rows"]); !strings.Contains(all, "plan") || !strings.Contains(all, "yours") {
+		t.Fatalf("paid rows not tagged: %s", all)
+	}
+	// an empty router says what to do, not just a title
+	out = modelsTable(nil, 0, "")
+	if f := strings.Join(out["footer"].([]string), "\n"); !strings.Contains(f, "no models ready yet · add one: prism setup or /key") {
+		t.Fatalf("empty footer = %q", f)
+	}
+	out = modelsTable(nil, 0, "zzz")
+	if f := strings.Join(out["footer"].([]string), "\n"); strings.Contains(f, "no models ready yet") || !strings.Contains(f, `no model matches "zzz"`) {
+		t.Fatalf("filtered empty footer = %q", f)
+	}
+}
+
+// the web /model auto:<role> keeps the role auto on the agent, like the TUI modelCommand
+func TestPinModelRoleAutos(t *testing.T) {
+	for _, name := range []string{"auto:code", "auto:fast", "auto:review", "auto:vision"} {
+		a := &Agent{model: "some/pinned"}
+		if note := pinModel(a, name); a.model != name || note != "model: "+name {
+			t.Errorf("pinModel(%q): model=%q note=%q", name, a.model, note)
 		}
+	}
+	a := &Agent{model: "auto:code"}
+	if note := pinModel(a, "auto"); a.model != "" || note != "model: auto" {
+		t.Errorf("pinModel(auto): model=%q note=%q", a.model, note)
+	}
+}
+
+func TestCommandsEndpoint(t *testing.T) {
+	h, _, port := testServer(t)
+	host := "127.0.0.1:" + port
+	rec := do(t, h, http.MethodGet, "/api/commands", host, "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/commands: %d", rec.Code)
+	}
+	var list []struct {
+		Name string `json:"name"`
+		Help string `json:"help"`
+		Web  bool   `json:"web"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != len(commands) {
+		t.Fatalf("got %d commands, want %d", len(list), len(commands))
+	}
+	for i, c := range commands {
+		if list[i].Name != c.name || list[i].Help != c.help || list[i].Web != c.web {
+			t.Errorf("entry %d = %+v, want %+v", i, list[i], c)
+		}
+	}
+	// every command the list marks web:true gets a real answer from the
+	// server or is handled in web/app.js; web:false ones get a one-line note
+	for _, c := range commands {
+		if c.web {
+			continue
+		}
+		body, _ := json.Marshal(map[string]string{"text": c.name})
+		res := decode(t, do(t, h, http.MethodPost, "/api/command", host, "http://"+host, string(body)))
+		if res["kind"] != "note" || res["text"] == "" {
+			t.Errorf("%s (not on the web): got %v", c.name, res)
+		}
+	}
+}
+
+func TestCommandModelPin(t *testing.T) {
+	h, s, port := testServer(t)
+	host := "127.0.0.1:" + port
+	post := func(text string) map[string]any {
+		body, _ := json.Marshal(map[string]string{"text": text})
+		return decode(t, do(t, h, http.MethodPost, "/api/command", host, "http://"+host, string(body)))
+	}
+	res := post("/model")
+	if res["kind"] != "pick" || res["pick"] != "model" {
+		t.Fatalf("/model: %v", res)
+	}
+	var labels, runs []string
+	for _, it := range res["items"].([]any) {
+		m := it.(map[string]any)
+		labels = append(labels, m["label"].(string))
+		runs = append(runs, m["run"].(string))
+	}
+	if got := strings.Join(labels, ","); got != "auto,auto:code,auto:fast,auto:review,model-a,model-b" {
+		t.Fatalf("picker rows = %s", got)
+	}
+	if runs[4] != "/model fake/model-a:free" {
+		t.Fatalf("run = %q", runs[4])
+	}
+	if dim, _ := res["items"].([]any)[5].(map[string]any)["dim"].(bool); !dim {
+		t.Fatalf("resting row should be dim: %v", res["items"].([]any)[5])
+	}
+
+	res = post("/model model-a")
+	if res["kind"] != "model" || res["model"] != "fake/model-a:free" || !strings.Contains(res["text"].(string), "every request in this chat uses it") {
+		t.Fatalf("/model model-a: %v", res)
+	}
+	if s.agent.model != "fake/model-a:free" {
+		t.Fatalf("agent.model = %q", s.agent.model)
+	}
+	if info := decode(t, do(t, h, http.MethodGet, "/api/info", host, "", "")); info["model"] != "fake/model-a:free" {
+		t.Fatalf("/api/info model = %v", info["model"])
+	}
+	// the picker marks the pinned row current
+	if res = post("/model"); !strings.Contains(fmt.Sprint(res["items"].([]any)[4]), "current") {
+		t.Fatalf("pinned row not current: %v", res["items"].([]any)[4])
+	}
+	res = post("/model auto:fast")
+	if s.agent.model != "auto:fast" || res["model"] != "auto:fast" {
+		t.Fatalf("auto:fast: %v / %q", res, s.agent.model)
+	}
+	res = post("/model auto")
+	if s.agent.model != "" || res["text"] != "model: auto" {
+		t.Fatalf("auto: %v / %q", res, s.agent.model)
+	}
+	s.mu.Lock()
+	s.busy = true
+	s.mu.Unlock()
+	if res = post("/model model-a"); res["kind"] != "error" || s.agent.model != "" {
+		t.Fatalf("pin while busy: %v", res)
+	}
+}
+
+func TestCommandUndo(t *testing.T) {
+	h, s, port := testServer(t)
+	host := "127.0.0.1:" + port
+	post := func(text string) map[string]any {
+		body, _ := json.Marshal(map[string]string{"text": text})
+		return decode(t, do(t, h, http.MethodPost, "/api/command", host, "http://"+host, string(body)))
+	}
+	if res := post("/undo"); res["kind"] != "note" || res["text"] != "nothing to undo" {
+		t.Fatalf("empty /undo: %v", res)
+	}
+	path := filepath.Join(s.agent.dir, "made.txt")
+	turn := s.agent.undoStack.beginTurn()
+	s.agent.undoStack.recordBefore(turn, path)
+	if err := os.WriteFile(path, []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.agent.undoStack.recordAfter(turn, path)
+
+	s.mu.Lock()
+	s.busy = true
+	s.mu.Unlock()
+	if res := post("/undo"); res["kind"] != "error" {
+		t.Fatalf("/undo while busy: %v", res)
+	}
+	s.mu.Lock()
+	s.busy = false
+	s.mu.Unlock()
+
+	res := post("/undo")
+	if res["kind"] != "info" || res["title"] != "undo" || !strings.Contains(fmt.Sprint(res["lines"]), "✓ made.txt") {
+		t.Fatalf("/undo: %v", res)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("made.txt should be gone after /undo: %v", err)
+	}
+}
+
+func TestCommandSkillsSummaryAndOne(t *testing.T) {
+	h, s, port := testServer(t)
+	s.agent.skills = loadSkills(s.agent.dir)
+	host := "127.0.0.1:" + port
+	post := func(text string) map[string]any {
+		body, _ := json.Marshal(map[string]string{"text": text})
+		return decode(t, do(t, h, http.MethodPost, "/api/command", host, "http://"+host, string(body)))
+	}
+	res := post("/skills")
+	if res["kind"] != "view" || !strings.HasPrefix(res["title"].(string), "skills") {
+		t.Fatalf("/skills: %v", res)
+	}
+	if f := res["footer"].(string); strings.Contains(f, "terminal") || !strings.Contains(f, "/skills new") {
+		t.Fatalf("footer = %q", f)
+	}
+	blocks := res["blocks"].([]any)
+	items := blocks[0].(map[string]any)["items"].([]any)
+	first := items[0].(map[string]any)
+	if !strings.HasPrefix(first["name"].(string), "building things (") || !strings.HasPrefix(first["desc"].(string), "website · ") {
+		t.Fatalf("first group = %v", first)
+	}
+
+	res = post("/skills fix-bug")
+	if res["kind"] != "view" || res["title"] != "skill · fix-bug" {
+		t.Fatalf("/skills fix-bug: %v", res)
+	}
+	all := fmt.Sprint(res["blocks"])
+	if !strings.Contains(all, "built in") || !strings.Contains(all, "steps") {
+		t.Fatalf("/skills fix-bug blocks: %s", all)
+	}
+	if res = post("/skills nope-nope"); res["kind"] != "note" || !strings.Contains(res["text"].(string), "no skill called nope-nope") {
+		t.Fatalf("/skills nope-nope: %v", res)
+	}
+	if res = post("/help"); res["kind"] != "view" || strings.Contains(fmt.Sprint(res["blocks"]), "/quit") {
+		t.Fatalf("/help on the web should list only web commands: %v", res)
+	}
+}
+
+func TestLoginOnWeb(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	polls := 0
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		switch {
+		case r.Method == http.MethodGet:
+			polls++
+			signed := polls > 1
+			json.NewEncoder(w).Encode(map[string]any{"subscriptions": []map[string]any{
+				{"id": "chatgpt", "name": "ChatGPT", "signedIn": signed, "finishing": !signed, "models": 3},
+				{"id": "copilot", "name": "GitHub Copilot", "signedIn": false, "models": 0},
+			}})
+		case body["poll"] == true:
+			w.Write([]byte(`{"status":"ok","models":["a","b"]}`))
+		case body["id"] == "chatgpt":
+			polls = 0
+			w.Write([]byte(`{"url":"https://auth.example/authorize?x=1"}`))
+		default:
+			w.Write([]byte(`{"userCode":"ABCD-1234","verificationURI":"https://github.com/login/device","expires":900}`))
+		}
+	}))
+	t.Cleanup(router.Close)
+	web := t.TempDir()
+	os.WriteFile(filepath.Join(web, "index.html"), []byte("x"), 0o644)
+	s := newServer(newAgent(router.URL, t.TempDir(), "prism"), web, "prism")
+	h, host := s.handler("4849"), "127.0.0.1:4849"
+	post := func(path, body string) map[string]any {
+		return decode(t, do(t, h, http.MethodPost, path, host, "http://"+host, body))
+	}
+	res := post("/api/command", `{"text":"/login"}`)
+	if res["kind"] != "pick" || res["pick"] != "login" || !strings.Contains(fmt.Sprint(res["items"]), "run:/login copilot") {
+		t.Fatalf("/login picker: %v", res)
+	}
+	res = post("/api/command", `{"text":"/login chatgpt"}`)
+	if res["kind"] != "login" || res["browser"] != true || res["url"] != "https://auth.example/authorize?x=1" || !strings.Contains(fmt.Sprint(res["lines"]), "if nothing opens: https://auth.example") {
+		t.Fatalf("browser login start: %v", res)
+	}
+	// first GET still finishing, so pending; then signed in with its count
+	if res = post("/api/login", `{"id":"chatgpt","browser":true}`); res["status"] != "pending" {
+		t.Fatalf("finishing poll: %v", res)
+	}
+	if res = post("/api/login", `{"id":"chatgpt","browser":true}`); res["status"] != "ok" || res["text"] != "signed in · 3 models" {
+		t.Fatalf("browser poll: %v", res)
+	}
+	res = post("/api/command", `{"text":"/login copilot"}`)
+	if res["kind"] != "login" || res["browser"] != false || res["code"] != "ABCD-1234" {
+		t.Fatalf("device login start: %v", res)
+	}
+	if res = post("/api/login", `{"id":"copilot"}`); res["status"] != "ok" || res["text"] != "signed in · 2 models" {
+		t.Fatalf("device poll: %v", res)
 	}
 }
 
@@ -421,10 +694,10 @@ func TestCommandBusyRefusals(t *testing.T) {
 		}
 	}
 	// Read-only commands still work while busy.
-	for _, text := range []string{"/usage", "/skills"} {
+	for text, kind := range map[string]string{"/usage": "info", "/skills": "view", "/model": "pick"} {
 		body, _ := json.Marshal(map[string]string{"text": text})
 		res := decode(t, do(t, h, http.MethodPost, "/api/command", host, origin, string(body)))
-		if res["kind"] != "info" {
+		if res["kind"] != kind {
 			t.Fatalf("%s while busy: got %v", text, res)
 		}
 	}

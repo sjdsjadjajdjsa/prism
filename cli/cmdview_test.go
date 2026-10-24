@@ -54,23 +54,53 @@ func TestSkillsViewGrouping(t *testing.T) {
 	if v.title == "" {
 		t.Error("title should not be empty")
 	}
-	// Should have at least 3 groups (building, fixing, improving, yours)
-	if len(v.blocks) < 3 {
-		t.Errorf("expected ≥3 groups, got %d", len(v.blocks))
+	// One summary line per group, in groupSkills order, with a count and names.
+	if len(v.blocks) != 1 {
+		t.Fatalf("want one summary block, got %d", len(v.blocks))
 	}
-	// "your skills" group should contain my-skill
-	found := false
-	for _, blk := range v.blocks {
-		if blk.title == "your skills" {
-			for _, it := range blk.items {
-				if it.name == "my-skill" {
-					found = true
-				}
-			}
+	var got []string
+	for _, it := range v.blocks[0].items {
+		got = append(got, it.name+"  "+it.desc)
+	}
+	want := []string{"building things (1)  website", "fixing & checking (1)  fix-bug", "improving code (1)  refactor", "your skills (1)  my-skill"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("summary:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if !strings.Contains(v.footer, "/skills <name>") || strings.Contains(v.footer, "terminal") {
+		t.Errorf("footer: %q", v.footer)
+	}
+}
+
+func TestSkillsViewSummaryClipsNames(t *testing.T) {
+	var skills []skill
+	for _, n := range []string{"automate-task", "browser-game", "clean-data", "discord-bot", "portfolio-site", "website", "web-app-node"} {
+		skills = append(skills, skill{name: n, description: "x", source: "built in"})
+	}
+	v := skillsView(skills)
+	it := v.blocks[0].items[0]
+	if it.name != "building things (7)" {
+		t.Fatalf("name = %q", it.name)
+	}
+	if !strings.HasPrefix(it.desc, "website · browser-game · portfolio-site") || !strings.HasSuffix(it.desc, " …") {
+		t.Errorf("desc = %q", it.desc)
+	}
+	// the summary is one line per group at a normal width
+	if out := renderCmdView(v, 100); !strings.Contains(out, "building things (7)  "+it.desc+"\n") {
+		t.Errorf("the group should render on one line:\n%s", out)
+	}
+}
+
+func TestSkillView(t *testing.T) {
+	sk := skill{name: "fix-bug", description: "Fix a bug.", source: "built in", body: "# fix-bug\n\n- one\n- two\n- three\n- four\n- five\n- six\n- seven\n- eight\n- nine"}
+	v := skillView(sk)
+	out := renderCmdView(v, 100)
+	for _, want := range []string{"skill · fix-bug", "Fix a bug.", "built in", "- one", "… 2 more lines", ".prism/skills/fix-bug.md"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
 		}
 	}
-	if !found {
-		t.Error("my-skill should appear in 'your skills' group")
+	if strings.Contains(out, "- nine") {
+		t.Errorf("steps should stop after %d lines:\n%s", skillStepLines, out)
 	}
 }
 
@@ -194,7 +224,7 @@ func TestHelpViewGroups(t *testing.T) {
 	for _, blk := range v.blocks {
 		labels[blk.title] = true
 	}
-	for _, want := range []string{"chat", "models and accounts", "project", "settings"} {
+	for _, want := range []string{"chat", "models & keys", "project", "look & feel", "tabs"} {
 		if !labels[want] {
 			t.Errorf("helpView missing group %q; got %v", want, labels)
 		}
@@ -233,6 +263,29 @@ func TestHelpViewListsEveryCommand(t *testing.T) {
 			if !strings.Contains(rendered, c.name) {
 				t.Errorf("@%d: rendered help is missing %s", width, c.name)
 			}
+		}
+	}
+}
+
+func TestHelpViewWebListsOnlyWebCommands(t *testing.T) {
+	v := helpViewFor(true)
+	seen := map[string]bool{}
+	for _, blk := range v.blocks {
+		for _, it := range blk.items {
+			seen[it.name] = true
+		}
+	}
+	for _, c := range commands {
+		if seen[c.name] != c.web {
+			t.Errorf("web help lists %s = %v, want %v", c.name, seen[c.name], c.web)
+		}
+	}
+	if strings.Contains(v.footer, "ctrl+t") || !strings.HasPrefix(v.footer, "keys: ") {
+		t.Errorf("web keys line: %q", v.footer)
+	}
+	for _, c := range commands {
+		if n := utf8.RuneCountInString(c.help); n > 72 {
+			t.Errorf("%s help is %d chars; keep it one short phrase", c.name, n)
 		}
 	}
 }

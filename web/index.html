@@ -86,13 +86,13 @@
       <form id="composer" class="composer" autocomplete="off">
         <div id="inputbox" class="inputbox">
           <span class="prompt grad">›</span>
-          <textarea id="input" rows="1" placeholder="ask anything…" spellcheck="false" aria-label="Chat input"></textarea>
+          <textarea id="input" rows="1" placeholder="ask anything…  / for commands" spellcheck="false" aria-label="Chat input" role="combobox" aria-expanded="false" aria-haspopup="listbox"></textarea>
           <span id="busyhint" class="busyhint muted" hidden>working…  esc to stop</span>
           <div id="cmd-suggest" class="cmd-suggest" role="listbox" aria-label="Slash commands" hidden></div>
         </div>
       </form>
       <div class="status">
-        <span class="grad">◆ </span><span id="route" class="route">auto</span>
+        <span class="grad">◆ </span><span id="route" class="route">auto</span><span id="pinned" class="pinned muted" hidden></span>
         <span class="dot faint">  ·  </span><span class="green">free</span>
         <span class="meter" id="meter"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
         <span id="usage" class="muted">0%</span>

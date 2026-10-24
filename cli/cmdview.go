@@ -16,8 +16,9 @@ import (
 //
 // A zero-value cmdBlock with no items is silently skipped.
 type cmdBlock struct {
-	title string // group heading; empty = no heading
-	items []cmdItem
+	title   string // group heading; empty = no heading
+	items   []cmdItem
+	nameMax int // widest name column (0 = 20)
 }
 
 type cmdItem struct {
@@ -63,8 +64,12 @@ func cmdLines(t theme, v cmdView, width int) []line {
 				nameW = n
 			}
 		}
-		if nameW > 20 {
-			nameW = 20
+		nameMax := blk.nameMax
+		if nameMax == 0 {
+			nameMax = 20
+		}
+		if nameW > nameMax {
+			nameW = nameMax
 		}
 
 		for _, it := range blk.items {
@@ -185,31 +190,82 @@ func wrapWords(s string, width int) []string {
 
 // ── helpers used by commands.go ──────────────────────────────────────────────
 
-// skillsView builds a cmdView for /skills output.
+// skillsView builds the /skills summary: one line per group (from
+// groupSkills) with its count and the first few names; /skills <name> shows
+// one skill in full.
 func skillsView(skills []skill) cmdView {
-	groups := groupSkills(skills)
-	var blocks []cmdBlock
-	for _, g := range groups {
-		blk := cmdBlock{title: g.label}
-		for _, s := range g.skills {
-			blk.items = append(blk.items, cmdItem{
-				name: s.name,
-				desc: s.description,
-				sub:  sourceLabel(s.source),
-			})
-		}
-		blocks = append(blocks, blk)
+	blk := cmdBlock{nameMax: 26}
+	for _, g := range groupSkills(skills) {
+		blk.items = append(blk.items, cmdItem{
+			name: fmt.Sprintf("%s (%d)", g.label, len(g.skills)),
+			desc: skillNames(showcaseOrder(g.skills), 44),
+		})
 	}
-	footer := "prism picks the right skill automatically · add your own: /skills new <name>"
+	footer := "prism picks the right skill by itself · /skills <name> shows one · /skills new <name> writes your own"
 	if len(skills) == 0 {
-		blocks = []cmdBlock{{items: []cmdItem{{name: "(none)", desc: "no skills found"}}}}
+		blk = cmdBlock{items: []cmdItem{{name: "(none)", desc: "no skills found"}}}
 		footer = "add a skill: /skills new <name>"
 	}
 	return cmdView{
 		title:  fmt.Sprintf("skills  (%d)", len(skills)),
-		blocks: blocks,
+		blocks: []cmdBlock{blk},
 		footer: footer,
 	}
+}
+
+// skillNames joins names with " · " while they fit in max runes, then "…".
+func skillNames(skills []skill, max int) string {
+	var out string
+	for i, s := range skills {
+		next := s.name
+		if i > 0 {
+			next = out + " · " + s.name
+		}
+		if i > 0 && utf8.RuneCountInString(next) > max {
+			return out + " …"
+		}
+		out = next
+	}
+	return out
+}
+
+// skillStepLines is how many lines of a skill's steps /skills <name> shows.
+const skillStepLines = 8
+
+// skillView is /skills <name>: what the skill is for, where it comes from and
+// the first lines of its steps.
+func skillView(s skill) cmdView {
+	source := sourceLabel(s.source)
+	if source == "" {
+		source = "built in"
+	}
+	info := cmdBlock{items: []cmdItem{{name: "use", desc: s.description}, {name: "from", desc: source}}}
+	steps := cmdBlock{title: "steps"}
+	var body []string
+	for _, l := range strings.Split(s.body, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			body = append(body, l)
+		}
+	}
+	for i, l := range body {
+		if i == skillStepLines {
+			steps.items = append(steps.items, cmdItem{desc: fmt.Sprintf("… %d more lines", len(body)-i)})
+			break
+		}
+		steps.items = append(steps.items, cmdItem{desc: clipText(l, 160)})
+	}
+	footer := "prism loads it by itself when a task fits"
+	switch s.source {
+	case "built in":
+		footer += " · to change it, save a copy as .prism/skills/" + s.name + ".md"
+	case "this project":
+		footer += " · edit .prism/skills/" + s.name + ".md"
+	}
+	blocks := []cmdBlock{info}
+	if len(steps.items) > 0 {
+		blocks = append(blocks, steps)
+	}
+	return cmdView{title: "skill · " + s.name, blocks: blocks, footer: footer}
 }
 
 func sourceLabel(src string) string {
@@ -327,47 +383,89 @@ func mcpView(list []mcpStatus) cmdView {
 	}
 }
 
-// helpView builds a cmdView for /help output.
-func helpView() cmdView {
-	groups := []struct {
-		label string
-		names []string
-	}{
-		{"chat", []string{"/new", "/resume", "/clear", "/compact", "/undo", "/tabs", "/rename", "/ask", "/quit"}},
-		{"models and accounts", []string{"/models", "/model", "/key", "/login", "/usage"}},
-		{"project", []string{"/init", "/tree", "/files", "/open", "/memory", "/skills", "/mcp", "/web"}},
-		{"settings", []string{"/theme", "/beam", "/quiet", "/help"}},
-	}
+// helpGroups orders /help: every command in commands belongs to one group.
+var helpGroups = []struct {
+	label string
+	names []string
+}{
+	{"chat", []string{"/new", "/clear", "/resume", "/compact", "/undo", "/quit"}},
+	{"models & keys", []string{"/models", "/model", "/key", "/login", "/usage"}},
+	{"project", []string{"/init", "/files", "/open", "/tree", "/skills", "/memory", "/mcp", "/web"}},
+	{"look & feel", []string{"/theme", "/beam", "/quiet", "/help"}},
+	{"tabs", []string{"/tabs", "/rename", "/ask"}},
+}
+
+// The one keys line at the bottom of /help.
+const (
+	helpKeysTUI = "keys: enter send · esc stop · tab completes · ctrl+o open all steps · ctrl+y theme · ctrl+t new tab · ctrl+w close tab · ctrl+pgup/pgdown switch · alt+1..9 jump"
+	helpKeysWeb = "keys: enter send · shift+enter new line · tab completes · ↑↓ pick · esc stop or close"
+)
+
+// helpView builds /help for the terminal.
+func helpView() cmdView { return helpViewFor(false) }
+
+// helpViewFor builds /help, grouped with one short phrase per command. For the
+// browser (web) it lists only the commands the web can run.
+func helpViewFor(web bool) cmdView {
 	byName := map[string]command{}
 	for _, c := range commands {
 		byName[c.name] = c
 	}
 	listed := map[string]bool{}
 	var blocks []cmdBlock
-	for _, g := range groups {
+	add := func(blk cmdBlock) {
+		if len(blk.items) > 0 {
+			blocks = append(blocks, blk)
+		}
+	}
+	for _, g := range helpGroups {
 		blk := cmdBlock{title: g.label}
 		for _, name := range g.names {
 			if c, ok := byName[name]; ok {
 				listed[name] = true
-				blk.items = append(blk.items, cmdItem{name: c.name, desc: c.help})
+				if !web || c.web {
+					blk.items = append(blk.items, cmdItem{name: c.name, desc: c.help})
+				}
 			}
 		}
-		blocks = append(blocks, blk)
+		add(blk)
 	}
 	// a command added to the list but missing from the groups above still shows
-	var more cmdBlock
+	more := cmdBlock{title: "more"}
 	for _, c := range commands {
-		if !listed[c.name] {
+		if !listed[c.name] && (!web || c.web) {
 			more.items = append(more.items, cmdItem{name: c.name, desc: c.help})
 		}
 	}
-	if len(more.items) > 0 {
-		more.title = "more"
-		blocks = append(blocks, more)
+	add(more)
+	footer := helpKeysTUI
+	if web {
+		footer = helpKeysWeb
 	}
-	return cmdView{
-		title:  "commands",
-		blocks: blocks,
-		footer: "keys: ctrl+t new tab · ctrl+w close tab · ctrl+pgup/pgdown switch · alt+1..9 jump · ctrl+o open all steps · ctrl+y theme · esc stop",
+	return cmdView{title: "commands", blocks: blocks, footer: footer}
+}
+
+// wire is the JSON form of a cmdView for the web (kind "view"), rendered as a
+// grid by web/app.js addView.
+func (v cmdView) wire() map[string]any {
+	blocks := []map[string]any{}
+	for _, b := range v.blocks {
+		items := []map[string]any{}
+		for _, it := range b.items {
+			w := map[string]any{"name": it.name, "desc": it.desc}
+			if it.sub != "" {
+				w["sub"] = it.sub
+			}
+			if it.dot != "" {
+				w["dot"] = it.dot
+				w["tone"] = map[bool]string{true: "ok", false: "muted"}[it.dotOK]
+				if it.dotErr {
+					w["tone"] = "err"
+				}
+			}
+			items = append(items, w)
+		}
+		blocks = append(blocks, map[string]any{"title": b.title, "items": items})
 	}
+	return map[string]any{"kind": "view", "title": v.title, "blocks": blocks, "footer": v.footer}
 }
