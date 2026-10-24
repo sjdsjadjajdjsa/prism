@@ -336,6 +336,25 @@ export class AntigravityStream {
   }
 }
 
+// Grok OAuth stays on OpenAI chat completions. Header names/Accept adapted
+// from xAI grok-build's sampler client.rs (Apache-2.0).
+export const grokRequestHeaders = (body, sessionId) => {
+  // Prism has no conversation handle: derive one from the account and first
+  // user turn so follow-up turns share it without persisting chat content.
+  const seed = JSON.stringify([sessionId, body.messages?.find(m => m.role === 'user') ?? null])
+  const hex = createHash('sha256').update(seed).digest('hex')
+  const convId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+  return {
+    accept: 'text/event-stream',
+    'x-grok-session-id': sessionId,
+    'x-grok-conv-id': convId,
+    'x-grok-req-id': randomUUID(),
+    'x-grok-model-override': body.model,
+    // Prism has one root agent per conversation, rather than CLI subagents.
+    'x-grok-agent-id': convId,
+  }
+}
+
 const max = (a, b) => (a > b ? a : b)
 
 export const wireFor = name => ({ codex: { to: toCodex, stream: CodexStream }, anthropic: { to: toAnthropic, stream: AnthropicStream }, gemini: { to: toGemini, stream: GeminiStream }, antigravity: { to: toAntigravity, stream: AntigravityStream } }[name] ?? null)

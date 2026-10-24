@@ -97,7 +97,7 @@ test('POST /logins code requires admin auth and returns the paste contract', asy
   const models = await upstream((req, res) => res.end(JSON.stringify({ data: [{ id: 'grok-test' }] })))
   const { url } = await startRouter([], { PRISM_ROUTER_TOKEN: 'admin' }, source => source
     .replace("tokenURL: 'https://auth.x.ai/oauth2/token'", `tokenURL: '${token}'`)
-    .replace("apiBase: 'https://api.x.ai/v1'", `apiBase: '${models}'`)
+    .replace("apiBase: 'https://cli-chat-proxy.grok.com/v1'", `apiBase: '${models}'`)
     .replace('redirectPort: 56121', 'redirectPort: 0'))
   const post = (body, auth = true) => fetch(url + '/logins', { method: 'POST', headers: { 'content-type': 'application/json', ...(auth && { 'x-prism-token': 'admin' }) }, body: JSON.stringify(body) })
   assert.equal((await post({ id: 'grok', code: 'code' }, false)).status, 403)

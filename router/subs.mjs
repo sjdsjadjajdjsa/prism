@@ -101,8 +101,11 @@ export const SUBSCRIPTIONS = [
     redirectPath: '/callback',
     redirectHost: '127.0.0.1',
     scopes: 'openid profile email offline_access api:access',
-    apiBase: 'https://api.x.ai/v1',
-    apiUserAgent: 'grok-cli/1.2.0',
+    // Adapted from xAI's grok-build (Apache-2.0): endpoints, OAuth auth,
+    // and sampler User-Agent (xai-grok-version 1.0.45).
+    apiBase: 'https://cli-chat-proxy.grok.com/v1',
+    apiHeaders: { 'X-XAI-Token-Auth': 'xai-grok-cli', 'x-grok-client-identifier': 'grok-shell', 'x-grok-client-version': '1.0.45' },
+    apiUserAgent: `grok-shell/1.0.45 (${({ darwin: 'macos', win32: 'windows' })[process.platform] ?? process.platform}; ${({ x64: 'x86_64', arm64: 'aarch64', ia32: 'x86' })[process.arch] ?? process.arch})`,
     models: ['grok-4.7'],
   },
   {
@@ -208,6 +211,12 @@ const refreshOAuth = async sub => {
 export const subToken = async sub => {
   const stored = loadSubs()[sub.id]
   if (!stored?.accessToken) throw new Error(`not signed in to ${sub.id}`)
+  // Older signed-in Grok accounts predate the persisted CLI session identity.
+  if (sub.id === 'grok' && !stored.sessionId) {
+    stored.sessionId = randomUUID()
+    const file = subsPath()
+    saveSubs(file, { ...loadSubs(file), [sub.id]: stored })
+  }
   if (sub.kind === 'browser') {
     if (!stored.expiresAt || stored.expiresAt > Date.now() + 120_000) return { token: stored.accessToken }
     const fresh = await refreshOAuth(sub)

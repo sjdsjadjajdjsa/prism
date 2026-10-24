@@ -102,6 +102,22 @@ test('a Gemini tool call signature survives the round trip and stays off other w
   assert.equal(toCodex(history).input.find(i => i.type === 'function_call').call_id, 'call_ab12')
 })
 
+test('Grok OAuth headers keep the session and conversation stable, not request ids', async () => {
+  const { grokRequestHeaders } = await import('./wire.mjs')
+  const first = grokRequestHeaders(chat, 'account-session')
+  const next = grokRequestHeaders({ ...chat, messages: [...chat.messages, { role: 'user', content: 'next' }] }, 'account-session')
+  assert.equal(first.accept, 'text/event-stream')
+  assert.equal(first['x-grok-session-id'], 'account-session')
+  assert.equal(first['x-grok-model-override'], 'm')
+  assert.ok(first['x-grok-agent-id'])
+  assert.match(first['x-grok-req-id'], /^[0-9a-f-]{36}$/)
+  assert.match(first['x-grok-conv-id'], /^[0-9a-f-]{36}$/)
+  assert.notEqual(first['x-grok-req-id'], next['x-grok-req-id'])
+  assert.equal(first['x-grok-conv-id'], next['x-grok-conv-id'])
+  assert.notEqual(first['x-grok-conv-id'], grokRequestHeaders(chat, 'another-account')['x-grok-conv-id'])
+  assert.notEqual(first['x-grok-conv-id'], grokRequestHeaders({ messages: [{ role: 'user', content: 'different' }] }, 'account-session')['x-grok-conv-id'])
+})
+
 test('wireFor maps the names', () => {
   assert.equal(wireFor('codex').to, toCodex)
   assert.equal(wireFor('anthropic').to, toAnthropic)

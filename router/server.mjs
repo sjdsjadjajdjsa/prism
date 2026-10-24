@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { randomUUID, createHash, timingSafeEqual } from 'node:crypto'
 import { customProviders, eligible, PRESETS, maskKey, syncKeys, setKeyVar, keysPath, customFilePath, upsertPresetEntry, probeModels } from './custom.mjs'
 import { SUBSCRIPTIONS, subscriptionProviders, startLogin, pollLogin, signOut, loadSubs, subToken, startBrowserLogin, submitLoginCode, handleOAuthCallback, pendingLoginURL, loginStatus, localOnly, visibleModels } from './subs.mjs'
-import { wireFor } from './wire.mjs'
+import { wireFor, grokRequestHeaders } from './wire.mjs'
 
 const config = JSON.parse(readFileSync(new URL('./providers.json', import.meta.url), 'utf8'))
 const port = Number(process.env.PORT) || 4848
@@ -254,10 +254,10 @@ const complete = async (req, res) => {
         } else {
           headers = {
             'content-type': 'application/json',
-            'user-agent': 'free-ai-router',
+            'user-agent': sub.id === 'grok' ? sub.apiUserAgent : 'free-ai-router',
             authorization: `Bearer ${key}`,
             ...(sub.apiHeaders ?? {}),
-            ...(attempt.route.sub && { 'editor-version': 'prism/1.0', 'copilot-integration-id': 'prism' }),
+            ...(sub.id === 'grok' ? grokRequestHeaders(body, stored.sessionId) : { 'editor-version': 'prism/1.0', 'copilot-integration-id': 'prism' }),
           }
         }
       }
