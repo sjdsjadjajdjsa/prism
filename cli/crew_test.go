@@ -647,13 +647,23 @@ func TestCrewWorkersAvoidRoutesOfEarlierWorkers(t *testing.T) {
 	var gate sync.WaitGroup
 	gate.Add(2)
 	arrived := make(chan struct{})
+	aSecond := make(chan struct{})
 	go func() { gate.Wait(); close(arrived) }()
 	fake := &crewFake{script: func(w http.ResponseWriter, r crewReq) {
 		if r.n == 0 {
+			if r.who == "b" {
+				select {
+				case <-aSecond:
+				case <-time.After(5 * time.Second):
+				}
+			}
 			replyCall(w, "route-"+r.who, "", "write", map[string]any{"path": r.who + ".txt", "content": "x"})
 			return
 		}
 		if r.n == 1 {
+			if r.who == "a" {
+				close(aSecond)
+			}
 			gate.Done()
 			select {
 			case <-arrived:
