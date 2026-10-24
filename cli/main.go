@@ -382,11 +382,18 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.pending != nil {
+		if m.now-m.askedAt < askGuard {
+			return m, nil // a key meant for the chat box, typed as the question appeared
+		}
 		switch k {
 		case "y", "Y", "enter":
-			m.answer(true)
+			m.answer(answerYes)
+		case "a", "A":
+			if len(m.pending.risks) > 0 {
+				m.answer(answerChat)
+			}
 		case "n", "N", "esc":
-			m.answer(false)
+			m.answer(answerNo)
 		}
 		m.syncTab(m.tab)
 		return m, nil
@@ -513,7 +520,7 @@ func (m *model) handle(event any) {
 	case evApprove:
 		m.thinking = false
 		if m.pending == nil {
-			m.pending = &e
+			m.pending, m.askedAt = &e, m.now
 		} else {
 			m.queued = append(m.queued, &e)
 		}
@@ -637,11 +644,11 @@ func (m *model) settleCrews() {
 }
 
 // answer replies to the approval on screen and brings up the next one.
-func (m *model) answer(ok bool) {
-	m.pending.reply <- ok
+func (m *model) answer(a answer) {
+	m.pending.reply <- a
 	m.pending = nil
 	if len(m.queued) > 0 {
-		m.pending, m.queued = m.queued[0], m.queued[1:]
+		m.pending, m.queued, m.askedAt = m.queued[0], m.queued[1:], m.now
 	}
 }
 
@@ -904,8 +911,9 @@ func main() {
 	}
 	if args := flag.Args(); len(args) > 0 && args[0] == "run" {
 		agent.mcp.wait(90 * time.Second)
+		agent.confirm = askOnTerminal
 		if agent.system {
-			agent.approve = askOnTerminal
+			agent.approve = yesNo(askOnTerminal)
 		}
 		os.Exit(runPlain(agent, strings.Join(args[1:], " ")))
 	}
@@ -982,17 +990,6 @@ func entriesFrom(messages []Message) []*entry {
 		}
 	}
 	return out
-}
-
-func askOnTerminal(ctx context.Context, tool, arg string) bool {
-	verb := map[string]string{"bash": "run", "write": "write", "edit": "edit"}[tool]
-	if verb == "" {
-		verb = "use " + tool
-	}
-	fmt.Printf("\n? prism wants to %s:\n    %s\n  allow? [y/N] ", verb, arg)
-	var answer string
-	fmt.Scanln(&answer)
-	return strings.EqualFold(strings.TrimSpace(answer), "y")
 }
 
 func pastSummary(tool, output string, ok bool) string {

@@ -127,8 +127,8 @@ func TestBackgroundTabEvents(t *testing.T) {
 	if len(fg.entries) != 0 {
 		t.Fatalf("event leaked into the shown tab: %+v", fg.entries)
 	}
-	reply := make(chan bool, 1)
-	upd(tabMsg{bg, evApprove{"bash", "rm -rf build", reply}})
+	reply := make(chan answer, 1)
+	upd(tabMsg{bg, evApprove{approval{tool: "bash", arg: "rm -rf build"}, reply}})
 	if bg.pending == nil || fg.pending != nil || bg.status() != "waiting" {
 		t.Fatal("approval must wait on the background tab")
 	}
@@ -143,9 +143,15 @@ func TestBackgroundTabEvents(t *testing.T) {
 	default:
 	}
 	m.switchTo(0)
+	m.now += askGuard
 	m = press(t, m, 'y', 0)
-	if ok := <-reply; !ok || bg.pending != nil {
-		t.Fatal("approval not answered on its tab")
+	select {
+	case a := <-reply:
+		if a != answerYes || bg.pending != nil {
+			t.Fatal("approval not answered on its tab")
+		}
+	default:
+		t.Fatal("y did not answer the question on its own tab")
 	}
 	m.switchTo(1)
 	upd(tabMsg{bg, evDone{errors.New("boom")}})

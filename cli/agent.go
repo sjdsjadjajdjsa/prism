@@ -140,7 +140,8 @@ type Agent struct {
 	skills     []skill
 	mcp        *mcpHub
 	system     bool
-	approve    func(ctx context.Context, tool, arg string) bool
+	approve    func(ctx context.Context, tool, arg string) bool // prism fix: a yes before every change
+	confirm    func(ctx context.Context, q approval) answer     // asks the user one question (approve.go)
 
 	role      string
 	model     string
@@ -164,6 +165,9 @@ type Agent struct {
 	hookTries   int     // turn_end checks that failed this turn
 	turnChanged bool    // this turn edited files or ran commands, so turn_end checks run
 
+	rules        ruleSet         // the user's command rules, read once per turn (risk.go)
+	allowedRisks map[string]bool // risky kinds the user allowed for this chat
+
 	// turnBrief is the other tabs' status, read once per turn so every request in a turn
 	// sends the same text and the provider's prompt cache keeps working.
 	turnBrief string
@@ -176,9 +180,10 @@ type Agent struct {
 	currentTurn *undoTurn
 }
 
+// evApprove asks the user something (approve.go) and waits for the answer on reply.
 type evApprove struct {
-	tool, arg string
-	reply     chan bool
+	approval
+	reply chan answer
 }
 
 var needsApproval = map[string]bool{"bash": true, "write": true, "edit": true}
@@ -215,6 +220,7 @@ func (a *Agent) reset() {
 	a.model = ""
 	a.plan.Store(false)
 	a.planSent = false
+	a.allowedRisks = nil
 	a.touchMu.Lock()
 	a.touched = map[string]string{}
 	a.touchMu.Unlock()
@@ -410,6 +416,7 @@ func (a *Agent) Run(ctx context.Context, prompt string, emit func(any)) {
 	a.turnBrief = a.hub.brief(a.tabID)
 	a.rememberBrief()
 	a.startHooks(emit)
+	a.startRules()
 	err := a.loop(ctx, emit)
 	a.currentTurn = nil // turn is sealed; no more recording
 	if errors.Is(err, context.Canceled) {
@@ -526,8 +533,7 @@ func (a *Agent) loop(ctx context.Context, emit func(any)) error {
 				result = fail("MCP tools are not available to crew workers.")
 			case a.owned != nil && (call.Function.Name == "write" || call.Function.Name == "edit") && !a.owns(sarg(argsOf(call.Function.Arguments), "path")):
 				result = fail(a.notOwned(sarg(argsOf(call.Function.Arguments), "path")))
-			case a.approve != nil && (needsApproval[call.Function.Name] || a.mcp.has(call.Function.Name)) && !a.approve(ctx, call.Function.Name, approvalText(call.Function.Name, call.Function.Arguments)):
-				result = toolResult{output: "The user said no to this. Do not try it again another way; explain what you wanted to do and ask what they prefer.", summary: "you said no"}
+			case a.refused(ctx, call.Function, &result):
 			case a.mcp.has(call.Function.Name):
 				a.turnChanged = true
 				result = a.mcp.run(ctx, call.Function.Name, call.Function.Arguments)

@@ -325,8 +325,15 @@ func (m model) transcript(t theme, width int) []line {
 		for _, row := range wrapAll(arg, width-12) {
 			out = append(out, line{fill: &warn, indent: 2, segs: []seg{{text: "     " + row, fg: t.at(0.6)}}})
 		}
+		for _, row := range wrapAll(m.pending.why, width-12) {
+			out = append(out, line{fill: &warn, indent: 2, segs: []seg{{text: "     " + row, fg: t.muted}}})
+		}
 		out = append(out, line{fill: &warn, indent: 2})
-		keys := []seg{{text: "   y", fg: t.green, bold: true}, {text: " allow   ", fg: t.muted}, {text: "n", fg: t.red, bold: true}, {text: " no", fg: t.muted}}
+		keys := []seg{{text: "   y", fg: t.green, bold: true}, {text: " yes, once   ", fg: t.muted}}
+		if len(m.pending.risks) > 0 {
+			keys = append(keys, seg{text: "a", fg: t.green, bold: true}, seg{text: " yes for this chat   ", fg: t.muted})
+		}
+		keys = append(keys, seg{text: "n", fg: t.red, bold: true}, seg{text: " no", fg: t.muted})
 		if len(m.queued) > 0 {
 			keys = append(keys, seg{text: fmt.Sprintf("   +%d waiting", len(m.queued)), fg: t.at(0.1)})
 		}

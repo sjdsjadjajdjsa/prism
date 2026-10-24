@@ -30,6 +30,9 @@ type server struct {
 	agentSnap map[*Agent][]wireEntry // per-agent snapshots for non-default running agents
 	memWG     sync.WaitGroup         // outstanding background memory job
 
+	asks   map[int]chan answer // questions a running turn is waiting on (askWeb)
+	askSeq int
+
 	handoff  bool
 	lastSeen time.Time
 	requests int
@@ -112,6 +115,7 @@ func (s *server) handler(port string) http.Handler {
 	mux.HandleFunc("POST /api/chat", s.chat)
 	mux.HandleFunc("POST /api/stop", s.stop)
 	mux.HandleFunc("POST /api/new", s.reset)
+	mux.HandleFunc("POST /api/approve", s.answerAsk)
 	mux.Handle("GET /", noDirListing(s.webDir, http.FileServer(http.Dir(s.webDir))))
 	return localOnly(port, s.seen(mux))
 }
@@ -377,6 +381,55 @@ func (s *server) agentTab(r *http.Request) (*Agent, error) {
 	return nil, &httpError{http.StatusNotFound, "tab not found"}
 }
 
+// askWeb asks the page a running turn's questions: an approve event the page answers
+// with POST /api/approve. A closed page or esc stops the turn, which answers no.
+func (s *server) askWeb(send func(map[string]any)) func(context.Context, approval) answer {
+	return func(ctx context.Context, q approval) answer {
+		reply := make(chan answer, 1)
+		s.mu.Lock()
+		s.askSeq++
+		id := s.askSeq
+		if s.asks == nil {
+			s.asks = map[int]chan answer{}
+		}
+		s.asks[id] = reply
+		s.mu.Unlock()
+		defer func() {
+			s.mu.Lock()
+			delete(s.asks, id)
+			s.mu.Unlock()
+		}()
+		send(map[string]any{"type": "approve", "id": id, "tool": q.tool, "arg": q.arg, "why": q.why, "chat": len(q.risks) > 0})
+		select {
+		case a := <-reply:
+			return a
+		case <-ctx.Done():
+			return answerNo
+		}
+	}
+}
+
+func (s *server) answerAsk(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID     int    `json:"id"`
+		Answer string `json:"answer"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10)).Decode(&body); err != nil {
+		http.Error(w, "send JSON like {\"id\": 1, \"answer\": \"yes\"}", http.StatusBadRequest)
+		return
+	}
+	s.mu.Lock()
+	reply := s.asks[body.ID]
+	delete(s.asks, body.ID)
+	s.mu.Unlock()
+	if reply == nil {
+		http.Error(w, "nothing is waiting for that answer", http.StatusNotFound)
+		return
+	}
+	reply <- answerOf(body.Answer)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // tabsWorking says whether a terminal tab sharing this page's hub is mid-turn: the request's
 // tab (?tab=, or the page's own agent without one), or any of them when all is true.
 func (s *server) tabsWorking(r *http.Request, a *Agent, all bool) bool {
@@ -451,6 +504,10 @@ func (s *server) reset(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
+	if s.tabsWorking(r, a, false) {
+		http.Error(w, "busy", http.StatusConflict)
+		return
+	}
 	a.reset()
 	if a == s.agent {
 		s.snap = nil
@@ -476,7 +533,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
-	if s.busy {
+	if s.busy || s.tabsWorking(r, a, false) {
 		s.mu.Unlock()
 		http.Error(w, "prism is already working on something", http.StatusConflict)
 		return
@@ -510,7 +567,10 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 	flusher, _ := w.(http.Flusher)
 	w.Header().Set("content-type", "text/event-stream")
 	w.Header().Set("cache-control", "no-cache")
+	var sendMu sync.Mutex // crew workers may ask from their own goroutines
 	send := func(v map[string]any) {
+		sendMu.Lock()
+		defer sendMu.Unlock()
 		data, _ := json.Marshal(v)
 		fmt.Fprintf(w, "data: %s\n\n", data)
 		if flusher != nil {
@@ -519,6 +579,13 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	start, route, tools, tests := time.Now(), "", 0, false
 	pending := map[string]string{}
+	// this turn's questions go to the page that started it, even on a terminal tab's agent
+	confirm, approve := a.confirm, a.approve
+	a.confirm = s.askWeb(send)
+	if a.system {
+		a.approve = yesNo(a.confirm)
+	}
+	defer func() { a.confirm, a.approve = confirm, approve }()
 	a.Run(ctx, strings.TrimSpace(body.Message), func(event any) {
 		if v, ok := crewWire(event); ok {
 			send(v)
@@ -809,7 +876,7 @@ func loginCode(api, id, code string) map[string]any {
 // and /api/stop cancels it.
 func (s *server) compact(w http.ResponseWriter, r *http.Request, a *Agent, focus string) {
 	s.mu.Lock()
-	if s.busy {
+	if s.busy || s.tabsWorking(r, a, false) {
 		s.mu.Unlock()
 		writeJSON(w, map[string]any{"kind": "error", "text": "wait until prism finishes, then run /compact"})
 		return
@@ -1092,6 +1159,16 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, map[string]any{"kind": "send", "message": initPrompt})
+	case "/rules":
+		if (busy || s.tabsWorking(r, a, true)) && len(fields) > 1 {
+			fail("wait until prism finishes, then " + strings.Join(fields, " "))
+			return
+		}
+		title, lines, footer := rulesView(a.dir, fields[1:])
+		if footer != "" {
+			lines = append(lines, footer)
+		}
+		info(title, lines)
 	case "/hooks":
 		if (busy || s.tabsWorking(r, a, true)) && len(fields) > 1 {
 			fail("wait until prism finishes, then " + strings.Join(fields, " "))

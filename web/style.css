@@ -235,6 +235,17 @@ textarea:focus-visible, select:focus-visible {
 .note .web-copy { color: var(--muted); background: var(--panel); border: 1px solid var(--faint); border-radius: 3px; cursor: pointer; font-size: 12px; padding: 0 6px; }
 .note .web-copy:hover { color: var(--fg); }
 .note .web-copy:focus-visible { outline: 2px solid var(--x4); outline-offset: 2px; }
+/* a question before a risky command (cli/chat.go draws the same box) */
+.ask { margin: 10px 0; padding: 10px 12px; border-radius: 4px; background: color-mix(in srgb, var(--s0) 9%, var(--panel)); border-left: 3px solid var(--s0); }
+.ask-head { color: var(--fg); font-weight: 700; }
+.ask-arg { margin: 6px 0 4px 2ch; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--s3); font: inherit; }
+.ask-why { margin-left: 2ch; color: var(--muted); }
+.ask-keys { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.ask-btn { background: transparent; color: var(--fg); border: 1px solid color-mix(in srgb, var(--muted) 45%, transparent); border-radius: 999px; padding: 3px 12px; font: inherit; font-size: 13px; cursor: pointer; transition: border-color .15s; }
+.ask-btn b { color: var(--green); }
+.ask-no b { color: var(--red); }
+.ask-btn:hover, .ask-btn:focus-visible { border-color: var(--s6, var(--s0)); outline: none; }
+.ask-done { padding-left: 2ch; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .error { color: var(--red); margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .error .detail { color: var(--muted); font-size: 13px; }
 

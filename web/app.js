@@ -874,6 +874,7 @@ function handleEvent(ev) {
       finishStep(ev); setPhase('thinking'); state.reasoning = '';
       if (ev.ok === false) { setMood('surprised', 1500); say('crack', 2600); } break;
     case 'note': addNote(ev.text || ''); break;
+    case 'approve': addAsk(ev); break;
     case 'crew_start': state.draft = null; setPhase('tool'); setMood('working'); say('split', 3000); crewStart(ev); break;
     case 'crew_worker': crewWorker(ev); break;
     case 'crew_done': crewDone(ev); say('done', 3000); break;
@@ -921,12 +922,80 @@ async function send(message) {
     else addNote('stopped.');
   } finally {
     setBusy(false); state.abort = null;
+    if (state.ask) { settleAsk(state.ask.box, 'stopped'); state.ask = null; }
     offerPlan();
     crewSettle();
     document.querySelectorAll('.step.running').forEach((s) => { s.classList.remove('running'); s.querySelector('.dia').textContent = '◆'; });
     if (buddy.mood === 'thinking' || buddy.mood === 'working') setMood('idle');
     flushText(); pin();
   }
+}
+
+// ---------- a question before a risky command (cli/approve.go; the terminal draws the same box) ----------
+const ASK_DONE = { yes: 'allowed once', chat: 'allowed for this chat', no: 'you said no' };
+function addAsk(ev) {
+  hideHello(); flushText(); state.textEl = null;
+  const verb = { bash: 'run this command', write: 'write this file', edit: 'apply this edit' }[ev.tool] || 'use ' + ev.tool;
+  const box = el('div', 'ask');
+  box.setAttribute('role', 'group');
+  box.setAttribute('aria-label', 'prism asks first');
+  box.appendChild(el('div', 'ask-head', '? prism wants to ' + verb + ':'));
+  box.appendChild(el('pre', 'ask-arg', ev.arg || ''));
+  if (ev.why) box.appendChild(el('div', 'ask-why', ev.why));
+  const keys = el('div', 'ask-keys');
+  const opts = [['yes', 'y', 'yes, once']];
+  if (ev.chat) opts.push(['chat', 'a', 'yes for this chat']);
+  opts.push(['no', 'n', 'no']);
+  for (const [ans, key, label] of opts) {
+    const b = el('button', 'ask-btn ask-' + ans);
+    b.type = 'button';
+    b.appendChild(el('b', '', key));
+    b.appendChild(document.createTextNode(' ' + label));
+    b.addEventListener('click', () => { if (state.ask && performance.now() - state.ask.at >= 600) answerAsk(ans); });
+    keys.appendChild(b);
+  }
+  box.appendChild(keys);
+  // the question sits under the step it is about; answered, it shrinks to one line there
+  const step = [...curTurn().querySelectorAll('.step.running')].pop();
+  if (step) step.after(box); else curTurn().appendChild(box);
+  state.ask = { id: ev.id, box, chat: !!ev.chat, at: performance.now() };
+  scrollDown();
+  // the keys move to the question only from an empty chat box or the page, never from a field you type in
+  const at = document.activeElement;
+  if (!matchMedia('(pointer: coarse)').matches && (at === document.body || (at === input && !input.value.trim()))) keys.firstChild.focus({ preventScroll: true });
+}
+function settleAsk(box, text) {
+  box.replaceWith(el('div', 'ask-done', '↳ ' + text));
+}
+// the box shows the answer only once prism has it; if it didn't arrive, the buttons stay
+async function answerAsk(ans) {
+  const a = state.ask;
+  if (!a || a.sending || (ans === 'chat' && !a.chat)) return;
+  a.sending = true;
+  const buttons = a.box.querySelectorAll('.ask-btn');
+  buttons.forEach((b) => { b.disabled = true; });
+  try { await api('/api/approve', { id: a.id, answer: ans }); }
+  catch (e) {
+    a.sending = false;
+    buttons.forEach((b) => { b.disabled = false; });
+    addError('your answer did not reach prism', String((e && e.message) || e));
+    return;
+  }
+  if (state.ask === a) state.ask = null;
+  const hadFocus = a.box.contains(document.activeElement);
+  settleAsk(a.box, ASK_DONE[ans]);
+  scrollDown();
+  if (hadFocus && !matchMedia('(pointer: coarse)').matches) input.focus({ preventScroll: true });
+}
+
+// askKey is the answer a key gives, or nothing: keys typed into a field (other than an empty
+// chat box on a computer) or right as the question appeared are not answers
+function askKey(e) {
+  const a = document.activeElement;
+  if (!state.ask || e.ctrlKey || e.metaKey || e.altKey || performance.now() - state.ask.at < 600) return null;
+  const typing = a && (['INPUT', 'TEXTAREA', 'SELECT'].includes(a.tagName) || a.isContentEditable) && !a.closest('.ask');
+  if (typing && (a !== input || input.value || matchMedia('(pointer: coarse)').matches)) return null;
+  return { y: 'yes', a: 'chat', n: 'no', escape: 'no' }[e.key.toLowerCase()] || null;
 }
 
 async function stop() {
@@ -1518,6 +1587,7 @@ input.addEventListener('keydown', (e) => {
     runCommand(v);
   } else if (e.key === 'Escape') {
     e.preventDefault();
+    if (state.ask) return; // the page's key handler answers no; with text in the box esc does nothing
     const suggest = $('cmd-suggest');
     if (suggest && !suggest.hidden) { suggest.hidden = true; return; }
     if (state.busy) stop(); else { input.value = ''; autosize(); }
@@ -1533,7 +1603,10 @@ addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.preventDefault(); PC.closePicker(); return; }
     if (a !== input && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { PC.focusPicker(); return; }
   }
-  if (e.key === 'Escape' && state.busy && document.activeElement !== input) stop();
+  // y / a / n (esc for no) answer a question before a risky command, like the terminal
+  const ans = askKey(e);
+  if (ans) { e.preventDefault(); answerAsk(ans); return; }
+  if (e.key === 'Escape' && state.busy && document.activeElement !== input && !state.ask) stop();
   if (a !== input && !['SELECT', 'BUTTON', 'A', 'INPUT', 'TEXTAREA'].includes(a.tagName) && !a.isContentEditable && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) input.focus();
 });
 

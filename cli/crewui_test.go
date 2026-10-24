@@ -164,16 +164,16 @@ func TestCrewEventsTurnTheToolRowIntoTheBlock(t *testing.T) {
 func TestCrewApprovalShowsWorkerAndQueue(t *testing.T) {
 	m := crewTestModel(80, 24)
 	feed(&m, evToolStart{"c1", "crew", "x"}, evCrewStart{crewDemoTasks})
-	first, second := make(chan bool, 1), make(chan bool, 1)
-	feed(&m, evApprove{"bash", "worker ui: npm test", first}, evApprove{"edit", "worker docs: README.md", second})
+	first, second := make(chan answer, 1), make(chan answer, 1)
+	feed(&m, evApprove{approval{tool: "bash", arg: "worker ui: npm test"}, first}, evApprove{approval{tool: "edit", arg: "worker docs: README.md"}, second})
 	screen := crewScreen(m)
 	for _, want := range []string{"worker ui", "wants to run this command", "npm test", "+1 waiting"} {
 		if !strings.Contains(screen, want) {
 			t.Errorf("missing %q\n%s", want, screen)
 		}
 	}
-	m.answer(true)
-	if !<-first || m.pending == nil || m.pending.reply != second || len(m.queued) != 0 {
+	m.answer(answerYes)
+	if <-first != answerYes || m.pending == nil || m.pending.reply != second || len(m.queued) != 0 {
 		t.Fatalf("queue did not advance: %+v", m.pending)
 	}
 	if strings.Contains(crewScreen(m), "waiting") {

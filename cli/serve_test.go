@@ -277,7 +277,7 @@ func TestOriginChecks(t *testing.T) {
 func TestOriginRejectionOnAllPostEndpoints(t *testing.T) {
 	h, _, port := testServer(t)
 	host := "127.0.0.1:" + port
-	for _, p := range []string{"/api/command", "/api/chat", "/api/stop", "/api/new"} {
+	for _, p := range []string{"/api/command", "/api/chat", "/api/stop", "/api/new", "/api/approve"} {
 		t.Run(p, func(t *testing.T) {
 			if got := do(t, h, http.MethodPost, p, host, "http://evil.com", `{"text":"x"}`).Code; got != http.StatusForbidden {
 				t.Fatalf("POST %s evil origin: got %d, want 403", p, got)

@@ -38,6 +38,7 @@ type tab struct {
 	answering  bool
 	expandAll  bool
 	pending    *evApprove
+	askedAt    time.Duration // when pending showed: keys typed right before don't answer it
 	queued     []*evApprove
 	planAsk    bool // a planned turn ended: offer run / keep planning / leave when shown
 
@@ -134,9 +135,7 @@ func newTab(agent *Agent) *tab {
 	if agent != nil {
 		t.window, t.tokens = agent.window, agent.tokens
 		t.entries = entriesFrom(agent.messages)
-		if agent.system {
-			wireApprove(agent, t.events)
-		}
+		wireApprove(agent, t.events)
 		if title := firstUserText(agent.messages); title != "" {
 			t.name = autoName(title)
 		}
@@ -144,21 +143,25 @@ func newTab(agent *Agent) *tab {
 	return t
 }
 
-// wireApprove makes the agent ask for approval through this tab's events.
+// wireApprove makes the agent ask its questions through this tab's events; prism fix also
+// asks before every change.
 func wireApprove(agent *Agent, events chan any) {
-	agent.approve = func(ctx context.Context, tool, arg string) bool {
-		reply := make(chan bool, 1)
+	agent.confirm = func(ctx context.Context, q approval) answer {
+		reply := make(chan answer, 1)
 		select {
-		case events <- evApprove{tool, arg, reply}:
+		case events <- evApprove{q, reply}:
 		case <-ctx.Done():
-			return false
+			return answerNo
 		}
 		select {
-		case ok := <-reply:
-			return ok
+		case a := <-reply:
+			return a
 		case <-ctx.Done():
-			return false
+			return answerNo
 		}
+	}
+	if agent.system {
+		agent.approve = yesNo(agent.confirm)
 	}
 }
 

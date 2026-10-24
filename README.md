@@ -202,6 +202,33 @@ When the plan is ready you pick:
 
 The status bar says `plan mode` while it's on. `/plan` again (or `/plan off`) turns it off. Works the same in the terminal and the browser.
 
+## Asks before risky commands
+
+Prism runs most commands on its own, inside the Docker box. It stops and asks first when a command could do real damage or reach other people:
+
+- deleting folders (`rm -rf src`; clearing `node_modules`, `dist`, `build` and other cache folders doesn't ask)
+- throwing away changes (`git reset --hard`, `git checkout -- .`)
+- `git push`, and force pushes
+- publishing or deploying (`npm publish`, `docker push`, `gh pr create`, `vercel --prod`, …)
+- running a script straight from the internet (`curl … | sh`)
+- connecting to another computer (`ssh`, `scp`)
+- deleting database data (`DROP TABLE`, `dropdb`, …)
+- commands that can break the system (`mkfs`, `shutdown`, …)
+
+You answer **yes, once**, **yes for this chat** (the same kind of command won't ask again until `/new`) or **no** (Prism is told not to try another way). In the terminal press `y`, `a` or `n`; in the browser click or press the same keys. `prism fix` still asks before every command, and `prism run` without a terminal answers no.
+
+**Your own rules.** Put them in `.prism/rules.json` for one project, or `~/.config/prism/rules.json` for every project:
+
+```json
+{
+  "allow": ["git push origin main", "npm publish*"],
+  "ask":   ["docker *"],
+  "block": ["git push --force*"]
+}
+```
+
+`*` matches anything. `block` stops the command, `ask` always asks, `allow` runs it without asking. A project's `allow` rules only count after `/rules trust`, and any change to the file turns them off again, so a project you download can't let itself run risky commands. `/rules` lists everything, `/rules off` turns a project's allow rules off.
+
 ## Hooks (your own checks)
 
 Hooks are your own commands that Prism runs at set moments. Put them in `.prism/hooks.json`:
@@ -312,6 +339,7 @@ Prism can search the web and read pages when it needs facts it doesn't have, lik
 | `/new` `/clear` `/compact` `/undo` `/resume` | fresh chat · clear · shorten the chat · undo the last changes · reopen a chat |
 | `/skills` `/init` `/memory` `/mcp` | playbooks · write PRISM.md · what Prism remembers · connected tools |
 | `/plan` | plan first, nothing changes until you pick run (see [Plan first](#plan-first)) |
+| `/rules` | which commands Prism asks about first (see [Asks before risky commands](#asks-before-risky-commands)) |
 | `/commands` `/hooks` | your saved prompts, run as `/<name>` (see below) · your own checks (see [Hooks](#hooks-your-own-checks)) |
 | `/files` `/open` `/tree` | browse and read project files |
 | `/tabs` `/rename` `/ask` | several chats at once |

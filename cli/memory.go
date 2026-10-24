@@ -642,6 +642,7 @@ func (a *Agent) resume(sess session) {
 	a.session = sess.ID
 	a.memMark = len(a.messages)
 	a.tokens = estimate(a.messages)
+	a.allowedRisks = nil
 }
 
 func (a *Agent) worthRemembering() bool {
