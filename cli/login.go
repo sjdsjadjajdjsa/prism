@@ -123,7 +123,7 @@ func pollLogin(api, id string, interval, expires int, browser bool) tea.Cmd {
 					if row.Finishing || row.Pending {
 						continue
 					}
-					if row.Error != "" && row.Models == 0 {
+					if row.Error != "" && (row.Models == 0 || row.Error == "the sign-in timed out; run /login again") {
 						return loginDoneMsg{id: id, err: errors.New(row.Error)}
 					}
 					if row.SignedIn {
@@ -214,6 +214,9 @@ func (m *model) loginCommand(fields []string) tea.Cmd {
 		}
 		if out.Expires <= 0 {
 			out.Expires = 900
+			if out.UserCode == "" {
+				out.Expires = 600
+			}
 		}
 		return loginCodeMsg{id: id, code: out.UserCode, url: out.VerificationURI, expires: out.Expires, browser: out.UserCode == ""}
 	}

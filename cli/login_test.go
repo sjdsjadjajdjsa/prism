@@ -154,6 +154,43 @@ func TestBrowserPollShowsModelSaveError(t *testing.T) {
 	}
 }
 
+func TestBrowserPollReportsTimeoutForExistingAccount(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"subscriptions":[{"id":"chatgpt","signedIn":true,"models":9,"error":"the sign-in timed out; run /login again"}]}`)
+	}))
+	defer srv.Close()
+	msg := pollLogin(srv.URL+"/v1", "chatgpt", 3, 10, true)().(loginDoneMsg)
+	if msg.err == nil || msg.err.Error() != "the sign-in timed out; run /login again" {
+		t.Fatalf("timeout hidden as success: %+v", msg)
+	}
+}
+
+func TestLoginCommandExpiry(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want int
+	}{
+		{"browser advertised", `{"verificationURI":"https://auth.test","expires":600}`, 600},
+		{"browser fallback", `{"verificationURI":"https://auth.test"}`, 600},
+		{"device fallback", `{"userCode":"CODE","verificationURI":"https://auth.test"}`, 900},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testEnv(t)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, tc.body)
+			}))
+			defer srv.Close()
+			a := newTestAgent(t, srv.URL+"/v1", t.TempDir())
+			m := model{tab: &tab{agent: a}}
+			msg := m.loginCommand([]string{"/login", "chatgpt"})().(loginCodeMsg)
+			if msg.err != nil || msg.expires != tc.want {
+				t.Fatalf("expiry: %+v, want %d", msg, tc.want)
+			}
+		})
+	}
+}
+
 func TestLoginForbiddenIsActionable(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "admin token missing", http.StatusForbidden)

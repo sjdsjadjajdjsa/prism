@@ -501,6 +501,83 @@ const deferred = () => {
 }
 
 const browserSub = id => ({ id, name: id, kind: 'browser', authorizeURL: 'https://auth.test/authorize', tokenURL: 'https://auth.test/token', clientID: 'cid', redirectPath: '/callback', apiBase: 'https://api.test' })
+
+for (const phase of ['token', 'models']) {
+  test(`a duplicate browser callback during ${phase} leaves the first sign-in finishing`, async t => {
+    const sub = browserSub(`duplicate-${phase}`)
+    const file = write('{}')
+    process.env.PRISM_SUBS_FILE = file
+    const entered = deferred(), release = deferred()
+    let exchanges = 0
+    t.after(() => { signOut(sub); delete process.env.PRISM_SUBS_FILE })
+    t.mock.method(globalThis, 'fetch', async url => {
+      if (url === sub.tokenURL && ++exchanges > 1) return new Response('code already used', { status: 400 })
+      if (phase === 'token' ? url === sub.tokenURL : url.endsWith('/models')) {
+        entered.resolve()
+        await release.promise
+      }
+      return Response.json(url === sub.tokenURL ? { access_token: 'new-token' } : { data: [{ id: 'new-model' }] })
+    })
+    const started = await startBrowserLogin(sub)
+    const finishing = callback(started)
+    await entered.promise
+    let html = ''
+    try {
+      await handleOAuthCallback(
+        { url: `/callback?code=code&state=${new URL(started.url).searchParams.get('state')}` },
+        { writeHead() {}, end(value) { html = value } }, '/callback')
+      assert.match(html, /the sign-in is already finishing/)
+      assert.equal(exchanges, 1)
+      assert.equal(loginError(sub.id), null)
+      assert.equal(loginStatus(sub).finishing, true)
+      assert.equal(loginStatus(sub).pending, true)
+    } finally {
+      release.resolve()
+      await finishing
+    }
+    assert.equal(loadSubs(file)[sub.id].accessToken, 'new-token')
+    assert.deepEqual(loadSubs(file)[sub.id].models, ['new-model'])
+    assert.equal(loginStatus(sub).signedIn, true)
+    assert.equal(loginError(sub.id), null)
+  })
+}
+
+test('browser sign-ins advertise their ten-minute lifetime', async t => {
+  const sub = browserSub('expiry-contract')
+  t.after(() => signOut(sub))
+  assert.equal((await startBrowserLogin(sub)).expires, 600)
+})
+
+for (const expiry of ['status', 'timer']) {
+  test(`browser ${expiry} expiry reports a timeout even for an existing account`, async t => {
+    const sub = browserSub(`expiry-${expiry}`)
+    process.env.PRISM_SUBS_FILE = write({ [sub.id]: { accessToken: 'old', models: ['old-model'] } })
+    t.after(() => { signOut(sub); delete process.env.PRISM_SUBS_FILE })
+    let now = Date.now()
+    t.mock.method(Date, 'now', () => now)
+    if (expiry === 'timer') {
+      const probe = http.createServer().listen(0, '127.0.0.1')
+      await new Promise(resolve => probe.once('listening', resolve))
+      sub.redirectPort = probe.address().port
+      await new Promise(resolve => probe.close(resolve))
+      t.mock.timers.enable({ apis: ['setTimeout'] })
+    }
+    await startBrowserLogin(sub)
+    now += 600_000
+    if (expiry === 'timer') {
+      t.mock.timers.tick(600_000)
+      assert.equal(loginError(sub.id), 'the sign-in timed out; run /login again')
+    }
+    const status = loginStatus(sub)
+    assert.equal(status.pending, false)
+    assert.equal(status.finishing, false)
+    assert.equal(status.error, 'the sign-in timed out; run /login again')
+    assert.equal(loadSubs()[sub.id].accessToken, 'old')
+    // An old listener timer must not poison a replacement sign-in.
+    await startBrowserLogin(sub)
+    assert.equal(loginError(sub.id), null)
+  })
+}
 const callback = started => handleOAuthCallback(
   { url: `/callback?code=code&state=${new URL(started.url).searchParams.get('state')}` },
   { writeHead() {}, end() {} }, '/callback')

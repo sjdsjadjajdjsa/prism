@@ -255,7 +255,7 @@ const loginErrors = new Map()
 export const loginError = id => loginErrors.get(id) ?? loadSubs()[id]?.loginError ?? null
 export const loginStatus = sub => {
   for (const entry of browserPending.values()) {
-    if (Date.now() >= entry.until) closeBrowserLogin(entry)
+    if (Date.now() >= entry.until) expireBrowserLogin(entry)
   }
   const pending = [...browserPending.values()].some(entry => entry.sub.id === sub.id)
   return {
@@ -323,9 +323,16 @@ export const startBrowserLogin = async sub => {
       return { error: message }
     }
     entry.until = Date.now() + 10 * 60_000
-    setTimeout(() => closeBrowserLogin(entry), 10 * 60_000).unref?.()
+    setTimeout(() => expireBrowserLogin(entry), 10 * 60_000).unref?.()
   }
-  return { url }
+  return { url, expires: 600 }
+}
+
+const expireBrowserLogin = entry => {
+  // A completed or superseded sign-in's timer must not poison a newer attempt.
+  if (browserPending.get(entry.state) !== entry) return
+  loginErrors.set(entry.sub.id, 'the sign-in timed out; run /login again')
+  closeBrowserLogin(entry)
 }
 
 const closeBrowserLogin = entry => {
@@ -368,7 +375,14 @@ export const pendingLoginURL = () => [...browserPending.values()][0]?.url ?? nul
 
 const finishBrowserLogin = async (code, state) => {
   const entry = browserPending.get(state)
-  if (!entry || !code || entry.cancelled || Date.now() >= entry.until) {
+  if (entry && finishingAccounts.get(entry.sub.id) === entry) {
+    return { error: 'the sign-in is already finishing' }
+  }
+  if (entry && Date.now() >= entry.until) {
+    expireBrowserLogin(entry)
+    return { error: loginError(entry.sub.id) }
+  }
+  if (!entry || !code || entry.cancelled) {
     if (entry) closeBrowserLogin(entry)
     loginErrors.set(entry?.sub.id ?? 'unknown', 'the sign-in was cancelled')
     return { error: 'the sign-in was cancelled' }
