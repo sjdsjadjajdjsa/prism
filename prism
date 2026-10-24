@@ -106,6 +106,17 @@ images_current() {
 build_id() { git -C "$HERE" rev-parse HEAD 2>/dev/null || echo none; }
 mark_built() { build_id > "$HERE/.built"; }
 
+# build_images builds both images. With host networking, compose's bake builder refuses
+# --network host without an extra privilege flag it has no way to pass, so use docker build.
+build_images() {
+  if [[ "$(network_mode)" == host ]]; then
+    docker build -q --network host -t prism-router "$HERE/router" >/dev/null &&
+      docker build -q --network host -t prism-agent -f "$HERE/agent/Dockerfile" "$HERE" >/dev/null
+  else
+    compose build --quiet router agent
+  fi
+}
+
 router_ready() { curl -fsS -m 2 "$ROUTER/health" >/dev/null 2>&1; }
 
 start_router() {
@@ -115,7 +126,7 @@ start_router() {
   fi
   if images_current; then
     :
-  elif output="$(compose build --quiet router agent 2>&1)"; then
+  elif output="$(build_images 2>&1)"; then
     mark_built
   else
     if docker image inspect prism-agent prism-router >/dev/null 2>&1; then
@@ -130,7 +141,7 @@ start_router() {
       elif echo "$output" | grep -q 'error getting credentials'; then
         echo "Docker couldn't read its login settings. Move them aside and try again:" >&2
         echo "  mv ~/.docker/config.json ~/.docker/config.json.bak" >&2
-      elif echo "$output" | grep -qiE 'buildx|requires buildx'; then
+      elif echo "$output" | grep -qiE "requires buildx|buildx (plugin )?(is )?(not found|not installed|missing)|'buildx' is not a docker command"; then
         echo "Docker is missing its build helper (buildx). Install it, then try again:" >&2
         echo "  Arch, CachyOS, Manjaro: sudo pacman -S docker-buildx" >&2
         echo "  Ubuntu, Mint, Debian:   sudo apt install docker-buildx" >&2
@@ -379,7 +390,7 @@ save_custom_lines() {
 
 entry_field() { sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p" <<<"$2"; }
 
-restart_router() { compose up -d --build --force-recreate router >/dev/null 2>&1 || { echo "Couldn't restart the AI router. Run: $(prism_cmd) logs" >&2; exit 1; }; }
+restart_router() { { build_images >/dev/null 2>&1 && mark_built && compose up -d --force-recreate router >/dev/null 2>&1; } || { echo "Couldn't restart the AI router. Run: $(prism_cmd) logs" >&2; exit 1; }; }
 
 keys_list() {
   local pair key any=0 line id models var paid
@@ -544,7 +555,7 @@ tree_cmd() {
   local folder
   folder="$(pick_folder "")"
   if ! images_current; then
-    compose build --quiet router agent >/dev/null && mark_built || { echo "Couldn't build Prism. Run: $(prism_cmd) update" >&2; exit 1; }
+    build_images >/dev/null && mark_built || { echo "Couldn't build Prism. Run: $(prism_cmd) update" >&2; exit 1; }
   fi
   PROJECT_DIR="$folder" HOST_UID="$(id -u)" HOST_GID="$(id -g)" compose run --rm --no-deps -T agent tree "$@" 2> >(grep -v 'level=warning' >&2) |
     sed "s#^\(wrote\|updated\) \([^/]\)#\1 $folder/\2#"
@@ -561,7 +572,7 @@ case "${1:-}" in
   install) install ;;
   update)
     git -C "$HERE" pull --ff-only || { echo "Couldn't update. If you changed files in $HERE, move that folder away and run the install command again." >&2; exit 1; }
-    compose build --quiet router agent && mark_built && compose up -d router >/dev/null 2>&1
+    build_images && mark_built && compose up -d router >/dev/null 2>&1
     echo "Prism is up to date."
     ;;
   web) folder="$(pick_folder "${2:-}")" || exit 1; web "$folder" ;;
