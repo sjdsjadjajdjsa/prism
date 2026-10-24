@@ -41,14 +41,64 @@
     return loaded;
   }
 
+  // PICKERS open a picker when run bare (cli/commands.go pickerCommands): taking one from the
+  // suggestion list runs it, tab too, so the picker opens with no second enter.
+  var PICKERS = { "/model": 1, "/login": 1, "/key": 1, "/resume": 1, "/theme": 1, "/tabs": 1 };
+  // the other names commands answer to (cli/commands.go commandAliases): enter runs them as typed
+  var ALIASES = ["/exit", "/status", "/continue", "/keys", "/logins", "/themes", "/forget"];
+
+  // rank mirrors rankCommand in cli/commands.go: [tier, score] or null. Tier 0 is the exact name,
+  // 1 a prefix (shorter first; a bare "/" keeps the list order), 2 a close match: the query inside
+  // the name ("odel"), then its letters in order ("mdl"). A lower score sorts first.
+  function rank(name, q) {
+    var n = name.replace(/^\//, "").toLowerCase();
+    if (q === "") return [1, 0];
+    if (n === q) return [0, 0];
+    if (n.indexOf(q) === 0) return [1, n.length];
+    if (q.length < 2) return null;
+    var at = n.indexOf(q);
+    if (at > 0) return [2, 100 + at * 10 + n.length];
+    var k = 0, first = -1, last = -1;
+    for (var i = 0; i < n.length && k < q.length; i++) {
+      if (n.charAt(i) === q.charAt(k)) { if (first < 0) first = i; last = i; k++; }
+    }
+    if (k < q.length) return null;
+    return [2, 1000 + (last - first + 1 - q.length) * 10 + first * 5 + n.length];
+  }
+
+  // match is the suggestion list for what is typed so far (cli/commands.go suggestIn): rows of
+  // {name, help, saved, close}, exact match first, then prefixes, then close matches.
   function match(text) {
     if (text.charAt(0) !== "/" || text.indexOf(" ") !== -1 || text.indexOf("\n") !== -1) return [];
-    var found = [];
+    var q = text.slice(1).toLowerCase(), ranked = [];
     for (var i = 0; i < list.length; i++) {
-      if (list[i].name.indexOf(text) === 0) found.push(list[i]);
+      var r = rank(list[i].name, q);
+      if (r) ranked.push({ c: list[i], tier: r[0], score: r[1], i: i });
     }
-    found.sort(function (a, b) { return (b.name === text) - (a.name === text); });
-    return found;
+    ranked.sort(function (a, b) { return a.tier - b.tier || a.score - b.score || a.i - b.i; });
+    return ranked.map(function (f) { return { name: f.c.name, help: f.c.help || "", saved: !!f.c.saved, close: f.tier === 2 }; });
+  }
+
+  // isName: text is a whole command name (listed or an alias); enter runs it as typed
+  function isName(text) {
+    if (ALIASES.indexOf(text) !== -1) return true;
+    for (var i = 0; i < all.length; i++) if (all[i].name === text) return true;
+    return false;
+  }
+
+  // splitHelp mirrors cli/commands.go splitHelp: "pick the model · /model <name>" → ["pick the model", "/model <name>"]
+  function splitHelp(help) {
+    var k = help.indexOf(" · ");
+    return k < 0 ? [help, ""] : [help.slice(0, k), help.slice(k + 3)];
+  }
+
+  // hintFor mirrors cli/chat.go suggestHint: the usage hints, or what taking the command does
+  function hintFor(c) {
+    var usage = splitHelp(c.help)[1];
+    if (usage) return usage;
+    if (PICKERS[c.name]) return c.name + " · enter opens the list";
+    if (c.saved) return c.name + " <words> · sends your saved prompt";
+    return c.name + " · enter runs it";
   }
 
   function el(tag, cls, text) {
@@ -73,16 +123,25 @@
   }
 
   // ---------- suggestion box (mirrors drawSuggestions in cli/chat.go) ----------
+  // Typing "/" opens it above the input: the matching commands, a highlight on the best match that
+  // ↑↓ move (wrapping) and the pointer follows, a "close matches" divider, and a hint line with the
+  // highlighted command's usage. tab or enter takes the highlighted command, a click runs it, esc
+  // closes the list and keeps what is typed; any edit reopens it with the highlight on the best match.
+  var MAX_SUGGEST = 10; // list lines before it scrolls (cli/chat.go suggestMaxRows)
   function attach(opts) {
     var input = opts.input;
     var box = opts.suggestBox;
     var run = opts.run;
-    var found = [], sel = -1;
+    var found = [], sel = 0, closed = false, typed = null;
+    var rows = [], listEl = null, usageEl = null, keysEl = null, lastMove = "";
     box.hidden = true;
+
+    function open() { return found.length > 0 && !closed && !pickerOpen(); }
 
     function paint() {
       box.textContent = "";
-      if (!found.length || pickerOpen()) {
+      rows = [];
+      if (!open()) {
         box.hidden = true;
         input.removeAttribute("aria-activedescendant");
         input.setAttribute("aria-expanded", "false");
@@ -90,31 +149,110 @@
       }
       box.hidden = false;
       input.setAttribute("aria-expanded", "true");
+      listEl = el("div", "cmd-list");
+      listEl.setAttribute("role", "presentation");
       for (var i = 0; i < found.length; i++) {
-        var row = el("div", "cmd-row" + (i === sel ? " sel" : ""));
+        var c = found[i];
+        if (c.close && (i === 0 || !found[i - 1].close)) {
+          var div = el("div", "cmd-div", "close matches");
+          div.setAttribute("role", "separator");
+          listEl.appendChild(div);
+        }
+        var row = el("div", "cmd-row" + (c.saved ? " saved" : ""));
         row.id = "cmd-opt-" + i;
         row.setAttribute("role", "option");
-        row.setAttribute("aria-selected", String(i === sel));
-        row.appendChild(el("span", "cmd-name", found[i].name));
-        row.appendChild(el("span", "cmd-help", found[i].help));
-        if (i === (sel < 0 ? 0 : sel)) row.appendChild(el("span", "cmd-hint", sel < 0 ? "tab" : "enter"));
-        (function (c) {
+        row.appendChild(el("span", "cmd-name", c.name));
+        row.appendChild(el("span", "cmd-help", splitHelp(c.help)[0]));
+        if (c.saved) row.appendChild(el("span", "cmd-tag", "saved"));
+        (function (k) {
           row.addEventListener("mousedown", function (ev) { ev.preventDefault(); });
-          row.addEventListener("click", function () {
-            setValue(input, "");
-            found = []; sel = -1; paint();
-            input.focus();
-            if (typeof run === "function") run(c.name);
+          // mousemove, not mouseenter: a list scrolling under a still pointer keeps the keyboard's highlight
+          row.addEventListener("mousemove", function (ev) {
+            var at = ev.screenX + "," + ev.screenY;
+            if (at === lastMove) return;
+            lastMove = at;
+            if (sel !== k) select(k, false);
           });
-        })(found[i]);
-        box.appendChild(row);
+          row.addEventListener("click", function () { take(k, true); });
+        })(i);
+        rows.push(row);
+        listEl.appendChild(row);
       }
-      if (sel >= 0) input.setAttribute("aria-activedescendant", "cmd-opt-" + sel);
-      else input.removeAttribute("aria-activedescendant");
+      var foot = el("div", "cmd-foot");
+      foot.setAttribute("aria-hidden", "true");
+      usageEl = el("span", "cmd-usage");
+      keysEl = el("span", "cmd-keys");
+      foot.appendChild(usageEl);
+      foot.appendChild(keysEl);
+      foot.addEventListener("mousedown", function (ev) { ev.preventDefault(); });
+      box.appendChild(listEl);
+      box.appendChild(foot);
+      fit();
+      select(Math.min(sel, found.length - 1), true);
     }
+
+    // fit caps the list so the box stays between the page header and the input (it sits above the
+    // input, so it never covers it) and scrolls when longer than that.
+    function fit() {
+      var rowH = rows[0].offsetHeight || 21;
+      var head = document.querySelector("header.top");
+      var limit = head ? head.getBoundingClientRect().bottom : 0;
+      var anchor = (box.offsetParent || box.parentElement).getBoundingClientRect();
+      var foot = box.lastChild.offsetHeight || rowH;
+      var room = anchor.top - limit - 12 - foot - 8;
+      listEl.style.maxHeight = Math.max(rowH * 2, Math.min(rowH * MAX_SUGGEST + 6, room)) + "px";
+    }
+
+    // keepInView scrolls the list so row shows, with the divider when it sits just above it.
+    function keepInView(row) {
+      var top = row.offsetTop, bottom = top + row.offsetHeight;
+      var prev = row.previousElementSibling;
+      if (prev && prev.classList.contains("cmd-div")) top = prev.offsetTop;
+      if (row === rows[0]) top = 0;
+      if (top < listEl.scrollTop) listEl.scrollTop = top;
+      else if (bottom > listEl.scrollTop + listEl.clientHeight) listEl.scrollTop = bottom - listEl.clientHeight + (row === rows[rows.length - 1] ? 6 : 0);
+    }
+
+    function select(i, scroll) {
+      sel = i;
+      for (var k = 0; k < rows.length; k++) {
+        rows[k].classList.toggle("sel", k === sel);
+        rows[k].setAttribute("aria-selected", String(k === sel));
+      }
+      if (!rows[sel]) return;
+      input.setAttribute("aria-activedescendant", rows[sel].id);
+      if (scroll) keepInView(rows[sel]);
+      usageEl.textContent = hintFor(found[sel]);
+      var keys = "↑↓ · tab · enter · esc";
+      if (listEl.scrollHeight > listEl.clientHeight + 1) {
+        var lineH = rows[0].offsetHeight || 21;
+        var hidden = listEl.children.length - Math.floor(listEl.clientHeight / lineH);
+        if (hidden > 0) keys = hidden + " more · " + keys;
+      }
+      keysEl.textContent = keys;
+    }
+
+    // take is tab or enter on row i (a click is enter). Enter runs it; tab writes "name " so words
+    // can follow, except for a command that opens a picker, which tab runs too.
+    function take(i, enter) {
+      var c = found[i];
+      if (!c) return;
+      if (enter || PICKERS[c.name]) {
+        found = []; sel = 0; paint();
+        setValue(input, "");
+        input.focus();
+        if (typeof run === "function") run(c.name);
+        return;
+      }
+      setValue(input, c.name + " ");
+    }
+
     function refresh() {
       var text = valueOf(input);
-      found = match(text); sel = -1; paint();
+      if (text !== typed) { typed = text; sel = 0; closed = false; }
+      found = match(text);
+      if (sel >= found.length) sel = 0;
+      paint();
       if (text === "/") load(true).then(function () { if (valueOf(input) === text) { found = match(text); paint(); } });
     }
 
@@ -123,35 +261,31 @@
     input.addEventListener("input", refresh);
     input.addEventListener("blur", function () { setTimeout(function () { if (document.activeElement !== input) { box.hidden = true; } }, 120); });
     input.addEventListener("focus", refresh);
+    window.addEventListener("resize", function () { if (!box.hidden && rows.length) { fit(); select(sel, true); } });
+    // capture: the list answers its keys before the chat input's own handler (web/app.js) sees them
     input.addEventListener("keydown", function (ev) {
+      if (ev.isComposing) return;
       var text = valueOf(input);
-      if (!box.hidden && found.length && (ev.key === "ArrowDown" || ev.key === "ArrowUp")) {
-        ev.preventDefault();
+      var plain = !ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey;
+      var shown = open() && !box.hidden;
+      var done = function () { ev.preventDefault(); ev.stopImmediatePropagation(); };
+      if (shown && plain && (ev.key === "ArrowDown" || ev.key === "ArrowUp")) {
+        done();
         var n = found.length;
-        sel = ev.key === "ArrowDown" ? (sel + 1) % n : (sel <= 0 ? n - 1 : sel - 1);
-        paint();
+        select(ev.key === "ArrowDown" ? (sel + 1) % n : (sel - 1 + n) % n, true);
         return;
       }
-      if (ev.key === "Tab" && !ev.shiftKey) {
-        if (found.length) {
-          ev.preventDefault();
-          setValue(input, found[sel < 0 ? 0 : sel].name + " ");
-        }
-        return;
+      if (shown && plain && ev.key === "Tab") { done(); take(sel, false); return; }
+      if (shown && ev.key === "Escape") { done(); closed = true; paint(); return; }
+      if (ev.key === "Enter" && plain && text.charAt(0) === "/") {
+        done();
+        // a whole command name typed with the highlight untouched (an alias like /exit has no row
+        // of its own) runs as typed, like a line with words after the command
+        if (shown && !(sel === 0 && isName(text) && found[0].name !== text)) { take(sel, true); return; }
+        found = []; sel = 0; paint();
+        if (typeof run === "function") run(text);
       }
-      if (ev.key === "Escape") {
-        if (!box.hidden) { box.hidden = true; found = []; sel = -1; }
-        return;
-      }
-      if (ev.key === "Enter" && !ev.shiftKey && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
-        if (text.charAt(0) === "/") {
-          ev.preventDefault();
-          var line = sel >= 0 && found[sel] ? found[sel].name : text;
-          found = []; sel = -1; paint();
-          if (typeof run === "function") run(line);
-        }
-      }
-    });
+    }, true);
   }
 
   async function runServer(text, query) {
@@ -406,7 +540,7 @@
     return handle;
   }
 
-  var api = { list: list, all: all, load: load, match: match, attach: attach, runServer: runServer, picker: picker, pickerOpen: pickerOpen, focusPicker: focusPicker, closePicker: closePicker };
+  var api = { list: list, all: all, load: load, match: match, rank: rank, attach: attach, runServer: runServer, picker: picker, pickerOpen: pickerOpen, focusPicker: focusPicker, closePicker: closePicker };
   window.PrismCommands = api;
   load();
 })();

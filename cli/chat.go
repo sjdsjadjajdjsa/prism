@@ -5,6 +5,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 type seg struct {
@@ -524,7 +526,7 @@ func drawChat(cv *canvas, t theme, m model) {
 	case m.fb.open:
 		drawFiles(cv, t, m, cx, boxY, colW, top)
 	default:
-		drawSuggestions(cv, t, m, cx, boxY, colW)
+		drawSuggestions(cv, t, m, cx, boxY, colW, top)
 	}
 	drawInput(cv, t, m, cx, boxY, colW, boxH, n, enter)
 	drawStatus(cv, t, m, cx, cv.h-2, colW, enter)
@@ -747,20 +749,288 @@ func modelLines(t theme, e *entry, width int) []line {
 	return out
 }
 
-func drawSuggestions(cv *canvas, t theme, m model, x, y, w int) {
-	found := matching(string(m.input))
-	for i, c := range found {
-		row := y - len(found) + i
-		cv.fill(x+1, row, w-2, 1, t.panel)
-		for k := x + 1; k < x+w-1; k++ {
-			cv.set(k, row, ' ', t.fg, false)
+// The suggestion list is what typing "/" opens above the input box: the
+// matching commands (commands.go suggestions), a highlight that ↑↓ move and
+// the pointer follows, and a hint line with the highlighted command's usage.
+// tab or enter takes the highlighted command, esc closes the list and keeps
+// what is typed. web/commands.js attach is the same list for the browser.
+
+// suggestState is the list's highlight. It belongs to the input it was made
+// for: any edit puts the highlight back on the best match and reopens a list
+// esc closed.
+type suggestState struct {
+	input  string
+	sel    int
+	off    int
+	closed bool
+}
+
+const suggestMaxRows = 10
+
+// suggestLayout is where the list's lines land; drawing and mouse
+// hit-testing both use it, so a row on screen maps to the command drawn there.
+type suggestLayout struct {
+	rows  []suggestion
+	items []int // each list line: an index into rows, or -1 for the divider
+	sel   int   // the highlighted row
+	off   int   // first list line shown
+	shown int   // list lines on screen
+	lines int   // shown plus the hint line under them
+}
+
+// suggest is the highlight for the input as it is now.
+func (m model) suggest() suggestState {
+	if in := string(m.input); m.sug.input != in {
+		return suggestState{input: in}
+	}
+	return m.sug
+}
+
+// suggesting is the list as it is on screen now; no rows when there is none
+// (not a slash word, esc closed it, or something else has the keys).
+func (m model) suggesting() suggestLayout {
+	if !m.chat || m.menu.open || m.fb.open || m.closeAsk || m.pending != nil {
+		return suggestLayout{}
+	}
+	s := m.suggest()
+	if s.closed {
+		return suggestLayout{}
+	}
+	rows := suggestions(string(m.input))
+	if len(rows) == 0 {
+		return suggestLayout{}
+	}
+	_, y, _, top := m.overlayArea()
+	return layoutSuggest(rows, s, y, top)
+}
+
+// layoutSuggest fits the list between the first chat row top and the input
+// box at y (it never covers either), scrolled so the highlight shows.
+func layoutSuggest(rows []suggestion, s suggestState, y, top int) suggestLayout {
+	l := suggestLayout{rows: rows, sel: clamp(s.sel, 0, len(rows)-1)}
+	pos := 0
+	for i, r := range rows {
+		if r.close && (i == 0 || !rows[i-1].close) {
+			l.items = append(l.items, -1)
 		}
-		nx := cv.text(x+3, row, pad(c.name, 10), t.at(0.5+float64(i)*0.08), true)
-		cv.text(nx, row, c.help, t.muted, false)
-		if i == 0 {
-			cv.text(x+w-12, row, "tab ↹", t.muted, false)
+		if i == l.sel {
+			pos = len(l.items)
+		}
+		l.items = append(l.items, i)
+	}
+	n := len(l.items)
+	l.shown = min(n, max(1, min(suggestMaxRows, y-top-1)))
+	l.off = keepInView(s.off, pos, l.shown, n)
+	if l.off == pos && pos > 0 && l.items[pos-1] < 0 && l.shown > 1 {
+		l.off-- // show the divider above the first close match
+	}
+	l.lines = l.shown + 1
+	return l
+}
+
+// pos is the list line the highlighted row is on.
+func (l suggestLayout) pos() int {
+	for p, it := range l.items {
+		if it == l.sel {
+			return p
 		}
 	}
+	return 0
+}
+
+// suggestMove moves the highlight d rows, wrapping at either end.
+func (m *model) suggestMove(d int) {
+	l := m.suggesting()
+	n := len(l.rows)
+	if n == 0 {
+		return
+	}
+	s := m.suggest()
+	s.sel, s.off = ((l.sel+d)%n+n)%n, l.off
+	_, y, _, top := m.overlayArea()
+	s.off = layoutSuggest(l.rows, s, y, top).off
+	m.sug = s
+}
+
+// suggestTake is tab or enter on the highlighted command. Enter runs it; tab
+// writes "name " so words can follow, except for a command that opens a
+// menu (pickerCommands), which tab runs too so its menu opens at once.
+func (m *model) suggestTake(l suggestLayout, enter bool) tea.Cmd {
+	c := l.rows[l.sel]
+	m.sug = suggestState{}
+	if enter || pickerCommands[c.name] {
+		m.input = []rune(c.name)
+		return m.submit()
+	}
+	m.input = []rune(c.name + " ")
+	return nil
+}
+
+// suggestKey handles the keys the open list answers to; ok is false for any
+// other key (or no list), which then goes to the input as usual.
+func (m *model) suggestKey(k string) (cmd tea.Cmd, ok bool) {
+	l := m.suggesting()
+	if len(l.rows) == 0 {
+		return nil, false
+	}
+	switch k {
+	case "up":
+		m.suggestMove(-1)
+	case "down":
+		m.suggestMove(1)
+	case "esc":
+		s := m.suggest()
+		s.closed = true
+		m.sug = s
+	case "tab":
+		return m.suggestTake(l, false), true
+	case "enter":
+		// a whole command name typed with the highlight untouched (an alias
+		// like /exit has no row of its own) runs as typed
+		if text := string(m.input); l.sel == 0 && isCommandName(text) && l.rows[0].name != text {
+			return nil, false
+		}
+		return m.suggestTake(l, true), true
+	default:
+		return nil, false
+	}
+	return nil, true
+}
+
+// suggestHit maps a screen cell to the list: the row drawn there (-1 for
+// none) and whether the cell is inside the list at all.
+func (m model) suggestHit(l suggestLayout, mx, my int) (idx int, inside bool) {
+	if len(l.rows) == 0 {
+		return -1, false
+	}
+	x, y, w, top := m.overlayArea()
+	first := y - l.lines
+	if mx < x+1 || mx > x+w-2 || my < max(top, first) || my >= y {
+		return -1, false
+	}
+	if r := my - first; r < l.shown {
+		return l.items[l.off+r], true
+	}
+	return -1, true
+}
+
+// suggestMouse: the pointer highlights, a left click runs the row under it,
+// the wheel scrolls a long list. ok is false when the pointer is not on the
+// list, so the chat gets the event.
+func (m model) suggestMouse(msg tea.Msg) (model, tea.Cmd, bool) {
+	l := m.suggesting()
+	var mo tea.Mouse
+	switch msg := msg.(type) {
+	case tea.MouseWheelMsg:
+		mo = tea.Mouse(msg)
+	case tea.MouseMotionMsg:
+		mo = tea.Mouse(msg)
+	case tea.MouseClickMsg:
+		mo = tea.Mouse(msg)
+	default:
+		return m, nil, false
+	}
+	idx, inside := m.suggestHit(l, mo.X, mo.Y)
+	if !inside {
+		return m, nil, false
+	}
+	s := m.suggest()
+	switch msg := msg.(type) {
+	case tea.MouseWheelMsg:
+		s.off = clamp(l.off+wheelDelta(msg), 0, max(0, len(l.items)-l.shown))
+		if p := l.pos(); p < s.off || p >= s.off+l.shown {
+			// keep the highlight on screen: the nearest row in the new window
+			for _, it := range l.items[s.off : s.off+l.shown] {
+				if it >= 0 {
+					s.sel = it
+					if p < s.off {
+						break
+					}
+				}
+			}
+		}
+		m.sug = s
+	case tea.MouseMotionMsg:
+		if idx >= 0 {
+			s.sel, s.off = idx, l.off
+			m.sug = s
+		}
+	case tea.MouseClickMsg:
+		if idx >= 0 && mo.Button == tea.MouseLeft {
+			l.sel = idx
+			return m, m.suggestTake(l, true), true
+		}
+	}
+	return m, nil, true
+}
+
+// suggestHint is the hint line's left side: the highlighted command's usage
+// ("/model <name> · /model auto"), or what taking it does.
+func suggestHint(c suggestion) string {
+	if _, usage := splitHelp(c.help); usage != "" {
+		return usage
+	}
+	switch {
+	case pickerCommands[c.name]:
+		return c.name + " · enter opens the list"
+	case c.saved:
+		return c.name + " <words> · sends your saved prompt"
+	}
+	return c.name + " · enter runs it"
+}
+
+// drawSuggestions draws the list so its hint line sits just above the input
+// box at y, never above top.
+func drawSuggestions(cv *canvas, t theme, m model, x, y, w, top int) {
+	l := m.suggesting()
+	if len(l.rows) == 0 {
+		return
+	}
+	accent := t.at(0.5)
+	inner := w - 6
+	nameW := 8
+	for _, r := range l.rows {
+		nameW = max(nameW, len([]rune(r.name)))
+	}
+	nameW = min(nameW, max(6, inner/3))
+	var lines []pickLine
+	for k, it := range l.items[l.off : l.off+l.shown] {
+		if it < 0 {
+			lines = append(lines, pickLine{fill: t.panel, segs: []seg{{text: "── close matches " + strings.Repeat("─", max(0, inner-17)), fg: mix(t.panel, t.muted, 0.7)}}})
+			continue
+		}
+		r := l.rows[it]
+		hi := it == l.sel
+		fill, mark, nameCol, descCol := t.panel, "  ", t.at(0.5+float64(l.off+k)*0.08), t.muted
+		if hi {
+			fill, mark, nameCol, descCol = mix(t.panel, accent, 0.2), "› ", accent, t.fg
+		}
+		tag := ""
+		if r.saved {
+			tag = "  saved"
+		}
+		desc, _ := splitHelp(r.help)
+		descW := max(0, inner-2-(nameW+2)-len(tag))
+		segs := []seg{
+			{text: mark, fg: accent, bold: true},
+			{text: padRunes(clip(r.name, nameW), nameW+2), fg: nameCol, bold: true},
+			{text: padRunes(clip(desc, descW), descW), fg: descCol},
+		}
+		if tag != "" {
+			segs = append(segs, seg{text: tag, fg: mix(t.panel, t.muted, 0.8)})
+		}
+		lines = append(lines, pickLine{fill: fill, segs: segs})
+	}
+	keys := "↑↓ · tab · enter · esc"
+	if hidden := len(l.items) - l.shown; hidden > 0 {
+		keys = fmt.Sprintf("%d more · %s", hidden, keys)
+	}
+	hintW := max(0, inner-len([]rune(keys))-2)
+	lines = append(lines, pickLine{fill: t.faint, segs: []seg{
+		{text: padRunes(clip(suggestHint(l.rows[l.sel]), hintW), hintW+2), fg: mix(t.muted, accent, 0.5)},
+		{text: keys, fg: t.muted},
+	}})
+	drawPickLines(cv, t, lines, x, y, w, top)
 }
 
 func (m model) visible(t theme) (lines []line, start, end, top, height int) {

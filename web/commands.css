@@ -11,24 +11,37 @@
   overflow: hidden;
   font: 14px/1.5 ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
   z-index: 8;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
 }
 .cmd-suggest[hidden] { display: none; }
+
+/* commands.js fit() sets max-height so the box stays between the header and the input; a long list scrolls */
+.cmd-list {
+  position: relative;
+  max-height: min(calc(10 * (1.5em + 6px) + 6px), 45dvh);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding: 3px 0;
+  scrollbar-width: thin;
+}
 
 .cmd-row {
   display: flex;
   align-items: baseline;
   gap: 14px;
-  padding: 3px 12px;
+  padding: 3px 12px 3px 10px;
+  border-left: 2px solid transparent;
   background: var(--panel, #14141c);
   color: var(--fg, #e8e6f0);
   white-space: nowrap;
 }
-.cmd-row:first-child { padding-top: 6px; }
-.cmd-row:last-child { padding-bottom: 6px; }
 
 .cmd-name {
   flex: none;
-  width: 9ch;
+  width: 10ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: 700;
   color: var(--s4, #6fd3ff);
 }
@@ -41,7 +54,10 @@
 .cmd-row:nth-child(7n+7) .cmd-name { color: var(--s2, #f9e27d); }
 
 .cmd-row { cursor: pointer; }
-.cmd-row:hover, .cmd-row.sel { background: color-mix(in srgb, var(--panel) 86%, var(--s3)); }
+/* one highlight, moved by the keys and the pointer alike (commands.js select) */
+.cmd-row.sel { background: color-mix(in srgb, var(--panel) 80%, var(--s3)); border-left-color: var(--s3); }
+.cmd-row.sel .cmd-name { color: var(--s3); }
+.cmd-row.sel .cmd-help { color: var(--fg); }
 
 .cmd-help {
   flex: 1;
@@ -51,13 +67,41 @@
   color: var(--muted, #6e6a86);
   font-weight: 400;
 }
-.cmd-hint {
+.cmd-tag {
   flex: none;
   margin-left: auto;
+  padding: 0 6px;
+  border: 1px solid var(--faint, #1d1c29);
+  border-radius: 3px;
   color: var(--muted, #6e6a86);
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 1.4;
   letter-spacing: 0.04em;
 }
+/* the divider above the close (fuzzy) matches */
+.cmd-div {
+  display: flex;
+  align-items: center;
+  gap: 1ch;
+  padding: 2px 12px;
+  color: color-mix(in srgb, var(--muted) 75%, var(--panel));
+  font-size: 12px;
+  white-space: nowrap;
+}
+.cmd-div::after { content: ""; flex: 1; border-top: 1px solid var(--faint, #1d1c29); }
+/* the hint line: the highlighted command's usage, then the keys */
+.cmd-foot {
+  display: flex;
+  align-items: baseline;
+  gap: 2ch;
+  padding: 3px 12px;
+  background: var(--faint, #1d1c29);
+  white-space: nowrap;
+  font-size: 13px;
+}
+.cmd-usage { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: color-mix(in srgb, var(--muted) 50%, var(--s3)); }
+.cmd-keys { flex: none; color: var(--muted, #6e6a86); }
+@media (max-width: 520px) { .cmd-keys { display: none; } }
 
 /* picker — the one "choose something" overlay (/model, /login, /theme, /resume, /mcp add, /tabs);
    mirrors drawMenu in cli/menu.go: title + hint, filter line, rows, "N more" line */

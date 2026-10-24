@@ -75,11 +75,12 @@ type model struct {
 	web            *webSession
 	ticking        bool
 	active         time.Duration
-	menu           menuState  // the pick-one-thing overlay; see menu.go
-	fb             filesState // the /files browser and viewer overlay
-	loginTab       *tab       // only the tab that started the browser poll captures codes
-	loginWaiting   string     // browser sign-in using the main input for pasted codes
-	loginFinished  string     // suppress a late poll after paste completion or cancellation
+	menu           menuState    // the pick-one-thing overlay; see menu.go
+	sug            suggestState // the slash-command suggestion list's highlight; see chat.go
+	fb             filesState   // the /files browser and viewer overlay
+	loginTab       *tab         // only the tab that started the browser poll captures codes
+	loginWaiting   string       // browser sign-in using the main input for pasted codes
+	loginFinished  string       // suppress a late poll after paste completion or cancellation
 }
 
 // idleAfter is how long the screen keeps animating after the last key, event or resize.
@@ -290,6 +291,9 @@ func (m model) mouse(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.fb.open {
 			return m.filesMouse(msg)
 		}
+		if next, cmd, ok := m.suggestMouse(msg); ok {
+			return next, cmd
+		}
 	}
 	switch msg := msg.(type) {
 	case tea.MouseClickMsg:
@@ -383,6 +387,9 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.syncTab(m.tab)
 		return m, nil
 	}
+	if cmd, ok := m.suggestKey(k); ok {
+		return m, cmd
+	}
 	switch k {
 	case "esc":
 		m.loginWaiting, m.loginTab = "", nil
@@ -402,9 +409,7 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.submit()
 	case "tab":
-		if found := matching(string(m.input)); len(found) > 0 {
-			m.input = []rune(found[0].name + " ")
-		}
+		// tab only takes a suggestion (suggestKey); it never types a tab
 	case "shift+enter", "ctrl+j":
 		m.input = append(m.input, '\n')
 	case "backspace":
@@ -652,7 +657,7 @@ func (m model) View() tea.View {
 	v.WindowTitle = "prism"
 	if m.chat {
 		v.MouseMode = tea.MouseModeCellMotion
-		if m.menu.open || m.fb.open {
+		if m.menu.open || m.fb.open || len(m.suggesting().rows) > 0 {
 			// an overlay highlights the row under the pointer, so it needs
 			// motion without a button held
 			v.MouseMode = tea.MouseModeAllMotion

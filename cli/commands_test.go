@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 // ---------------------------------------------------------------------------
@@ -430,5 +432,193 @@ func TestFriendlyPlanLimit(t *testing.T) {
 	head, detail := friendly(err)
 	if !strings.Contains(head, "grok plan's usage is used up") || !strings.Contains(detail, "Grok Build usage balance exhausted") {
 		t.Fatalf("got %q / %q", head, detail)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// the suggestion list: ranking, keys, mouse, layout (web/commands.js mirrors it)
+// ---------------------------------------------------------------------------
+
+func suggestNames(rows []suggestion) []string {
+	var out []string
+	for _, r := range rows {
+		name := r.name
+		if r.close {
+			name = "~" + name
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+func TestSuggestRanking(t *testing.T) {
+	dir, mine := savedEnv(t)
+	writeCmd(t, mine, "mreview", "---\ndescription: review my change\n---\nReview it")
+	tests := []struct {
+		input string
+		want  []string // the first rows, in order; "~" marks a close match
+	}{
+		{"/model", []string{"/model", "/models"}},
+		{"/mo", []string{"/model", "/models", "~/memory"}},
+		{"/m", []string{"/mcp", "/model", "/models", "/memory", "/mreview"}},
+		{"/mdl", []string{"~/model", "~/models"}},
+		{"/odel", []string{"~/model", "~/models"}},
+		{"/MODEL", []string{"/model", "/models"}},
+		{"/", []string{"/models", "/model", "/key", "/login"}},
+		{"/xyz", nil},
+		{"/x", nil}, // one letter only matches as a prefix
+	}
+	for _, tc := range tests {
+		got := suggestNames(suggestIn(dir, tc.input))
+		if len(got) < len(tc.want) || strings.Join(got[:len(tc.want)], " ") != strings.Join(tc.want, " ") || (tc.want == nil && len(got) > 0) {
+			t.Errorf("suggestIn(%q) = %v, want it to start %v", tc.input, got, tc.want)
+		}
+	}
+	for _, r := range suggestIn(dir, "/mrev") {
+		if r.name == "/mreview" && !r.saved {
+			t.Errorf("saved command not tagged: %+v", r)
+		}
+	}
+	if desc, usage := splitHelp(commands[1].help); desc != "pick the model for this chat" || usage != "/model <name> · /model auto" {
+		t.Errorf("splitHelp = %q, %q", desc, usage)
+	}
+}
+
+func suggestModel(t *testing.T, w, h int) model {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	return model{tab: &tab{agent: &Agent{}, events: make(chan any, 8)}, w: w, h: h, chat: true, ticking: true, chatAt: -time.Hour, now: time.Second, lastTextAt: -time.Hour, sayAt: -time.Hour}
+}
+
+func hit(t *testing.T, m model, code rune) model {
+	t.Helper()
+	next, _ := m.Update(tea.KeyPressMsg{Code: code})
+	return next.(model)
+}
+
+// highlighted is the command on the screen row marked "›" in the list.
+func highlighted(t *testing.T, m model) string {
+	t.Helper()
+	for _, row := range strings.Split(crewScreen(m), "\n") {
+		if f := strings.Fields(row); len(f) > 1 && f[0] == "›" && strings.HasPrefix(f[1], "/") {
+			return f[1]
+		}
+	}
+	return ""
+}
+
+func TestSuggestKeys(t *testing.T) {
+	m := typeText(t, suggestModel(t, 80, 24), "/mo")
+	if got := highlighted(t, m); got != "/model" {
+		t.Fatalf("typing highlights %q, want the best match /model\n%s", got, crewScreen(m))
+	}
+	if v := m.View(); v.MouseMode != tea.MouseModeAllMotion {
+		t.Errorf("an open list needs pointer motion for hover")
+	}
+	if screen := crewScreen(m); !strings.Contains(screen, "/model <name> · /model auto") || !strings.Contains(screen, "close matches") {
+		t.Errorf("no usage hint or divider:\n%s", screen)
+	}
+	for _, step := range []struct {
+		key  rune
+		want string
+	}{{tea.KeyDown, "/models"}, {tea.KeyDown, "/memory"}, {tea.KeyDown, "/model"}, {tea.KeyUp, "/memory"}} {
+		m = hit(t, m, step.key)
+		if got := highlighted(t, m); got != step.want {
+			t.Fatalf("after a key the highlight is %q, want %q (wraps)\n%s", got, step.want, crewScreen(m))
+		}
+	}
+	m = typeText(t, m, "d")
+	if got := highlighted(t, m); got != "/model" {
+		t.Errorf("typing must put the highlight back on the best match, got %q", got)
+	}
+	m = hit(t, m, tea.KeyEscape)
+	if string(m.input) != "/mod" || strings.Contains(crewScreen(m), "close matches") || highlighted(t, m) != "" {
+		t.Errorf("esc must close the list and keep the input %q", string(m.input))
+	}
+	m = hit(t, m, tea.KeyTab)
+	if string(m.input) != "/mod" {
+		t.Errorf("tab with the list closed changed the input to %q", string(m.input))
+	}
+	m = typeText(t, m, "e")
+	if highlighted(t, m) != "/model" {
+		t.Errorf("typing after esc must reopen the list")
+	}
+
+	// tab writes a command that takes words; one with a menu opens it at once
+	m = typeText(t, suggestModel(t, 80, 24), "/comp")
+	if m = hit(t, m, tea.KeyTab); string(m.input) != "/compact " {
+		t.Errorf("tab on /comp = %q", string(m.input))
+	}
+	m = typeText(t, suggestModel(t, 80, 24), "/them")
+	if m = hit(t, m, tea.KeyTab); !m.menu.open || m.menu.kind != "theme" || len(m.input) != 0 {
+		t.Errorf("tab on /theme must open its menu: open=%v kind=%q input=%q", m.menu.open, m.menu.kind, string(m.input))
+	}
+	// enter takes the highlighted command, partial or not
+	m = typeText(t, suggestModel(t, 80, 24), "/mdl")
+	if m = hit(t, m, tea.KeyEnter); !m.menu.open || m.menu.kind != "model" {
+		t.Errorf("enter on /mdl must open the /model menu: %+v", m.entries)
+	}
+	m = typeText(t, suggestModel(t, 80, 24), "/model")
+	m = hit(t, m, tea.KeyDown)
+	if next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil || next.(model).menu.open || len(next.(model).input) != 0 {
+		t.Errorf("enter must run the highlighted /models (a fetch), not /model's menu")
+	}
+	// an alias with no row of its own runs as typed
+	m = typeText(t, suggestModel(t, 80, 24), "/exit")
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter}); cmd == nil {
+		t.Errorf("enter on /exit did nothing")
+	}
+}
+
+func TestSuggestListFitsAndScrolls(t *testing.T) {
+	m := typeText(t, suggestModel(t, 80, 16), "/")
+	rows := strings.Split(crewScreen(m), "\n")
+	if !strings.Contains(rows[1], "◆ prism") || !strings.Contains(rows[2], "────") {
+		t.Fatalf("the list covers the header:\n%s", strings.Join(rows, "\n"))
+	}
+	_, y, _, _ := m.overlayArea()
+	if !strings.Contains(rows[y], "╭") || !strings.Contains(rows[y+1], "› /") {
+		t.Fatalf("the list covers the input box:\n%s", strings.Join(rows, "\n"))
+	}
+	if !strings.Contains(crewScreen(m), "more · ↑↓") {
+		t.Errorf("a long list must say how many rows are hidden")
+	}
+	for range 12 {
+		m = hit(t, m, tea.KeyDown)
+	}
+	if got, want := highlighted(t, m), commands[12].name; got != want {
+		t.Errorf("after 12 downs the highlight shows %q, want %q scrolled into view\n%s", got, want, crewScreen(m))
+	}
+	for range 12 {
+		m = hit(t, m, tea.KeyUp)
+	}
+	if got := highlighted(t, m); got != commands[0].name {
+		t.Errorf("back at the top the highlight is %q", got)
+	}
+	m = hit(t, m, tea.KeyUp) // wraps to the last row
+	if got := highlighted(t, m); got != commands[len(commands)-1].name {
+		t.Errorf("up from the top wraps to %q", got)
+	}
+}
+
+func TestSuggestMouse(t *testing.T) {
+	m := typeText(t, suggestModel(t, 80, 24), "/mo")
+	x, y, _, _ := m.overlayArea()
+	l := m.suggesting()
+	first := y - l.lines
+	next, _ := m.Update(tea.MouseMotionMsg{X: x + 6, Y: first + 1})
+	m = next.(model)
+	if got := highlighted(t, m); got != "/models" {
+		t.Fatalf("hover highlights %q, want /models", got)
+	}
+	next, cmd := m.Update(tea.MouseClickMsg{X: x + 6, Y: first + 1, Button: tea.MouseLeft})
+	if m = next.(model); len(m.input) != 0 || cmd == nil || m.menu.open {
+		t.Errorf("a click must run /models: input %q", string(m.input))
+	}
+	// a click on the chat above the list does not touch the input
+	m = typeText(t, suggestModel(t, 80, 24), "/mo")
+	next, _ = m.Update(tea.MouseClickMsg{X: x + 6, Y: 5, Button: tea.MouseLeft})
+	if m = next.(model); string(m.input) != "/mo" {
+		t.Errorf("click outside changed the input to %q", string(m.input))
 	}
 }

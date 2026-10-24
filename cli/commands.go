@@ -93,37 +93,140 @@ func isBuiltin(name string) bool {
 	return false
 }
 
-// matching is the suggestion list for what is typed so far: built-in
-// commands, then saved commands (usercmds.go) for the folder prism runs in.
-func matching(input string) []command {
+// pickerCommands open a pick-one-thing menu when run bare, so taking one from
+// the suggestion list (tab as well as enter) runs it at once and the menu
+// opens with no second enter. web/commands.js PICKERS is the same list.
+var pickerCommands = map[string]bool{"/model": true, "/login": true, "/key": true, "/resume": true, "/theme": true, "/tabs": true}
+
+// suggestion is one row of the slash-command suggestion list.
+type suggestion struct {
+	command
+	saved bool // a saved command (usercmds.go): tagged "saved" in the list
+	close bool // a fuzzy match: listed under the "close matches" divider
+}
+
+// splitHelp splits a help phrase into what the command does and its usage
+// hints: "pick the model · /model <name> · /model auto" gives "pick the
+// model" and "/model <name> · /model auto".
+func splitHelp(help string) (desc, usage string) {
+	desc, usage, _ = strings.Cut(help, " · ")
+	return desc, usage
+}
+
+// rankCommand says whether name (with the slash) answers query (what is typed
+// after the slash, lower case) and where it sorts: tier 0 is the exact name,
+// tier 1 a prefix (shorter first; a bare "/" keeps the list order), tier 2 a
+// close match — the query inside the name ("odel"), then its letters in order
+// ("mdl"). A lower score sorts first within a tier.
+func rankCommand(name, query string) (tier, score int, ok bool) {
+	n := strings.ToLower(strings.TrimPrefix(name, "/"))
+	switch {
+	case query == "":
+		return 1, 0, true
+	case n == query:
+		return 0, 0, true
+	case strings.HasPrefix(n, query):
+		return 1, len(n), true
+	case len([]rune(query)) < 2:
+		return 0, 0, false
+	case strings.Contains(n, query):
+		return 2, 100 + strings.Index(n, query)*10 + len(n), true
+	}
+	// the query's letters in order: score by how spread out they are
+	q, at, first, last := []rune(query), 0, -1, -1
+	for i, r := range []rune(n) {
+		if at < len(q) && r == q[at] {
+			if first < 0 {
+				first = i
+			}
+			last, at = i, at+1
+		}
+	}
+	if at < len(q) {
+		return 0, 0, false
+	}
+	return 2, 1000 + (last-first+1-len(q))*10 + first*5 + len(n), true
+}
+
+// rankSuggestions sorts rows into the suggestion order for query; rows not
+// matching it are dropped. The web (web/commands.js rank) does the same.
+func rankSuggestions(rows []suggestion, query string) []suggestion {
+	type ranked struct {
+		s           suggestion
+		tier, score int
+	}
+	var out []ranked
+	for _, s := range rows {
+		if tier, score, ok := rankCommand(s.name, query); ok {
+			s.close = tier == 2
+			out = append(out, ranked{s, tier, score})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].tier != out[j].tier {
+			return out[i].tier < out[j].tier
+		}
+		return out[i].score < out[j].score
+	})
+	found := make([]suggestion, len(out))
+	for i, r := range out {
+		found[i] = r.s
+	}
+	return found
+}
+
+// suggestions is the suggestion list for what is typed so far: built-in
+// commands and saved commands (usercmds.go) for the folder prism runs in,
+// exact match first, then prefixes, then close matches.
+func suggestions(input string) []suggestion {
 	if !strings.HasPrefix(input, "/") || strings.ContainsAny(input, " \n") {
 		return nil
 	}
+	dir, _ := os.Getwd()
+	return suggestIn(dir, input)
+}
+
+func suggestIn(dir, input string) []suggestion {
+	if !strings.HasPrefix(input, "/") || strings.ContainsAny(input, " \n") {
+		return nil
+	}
+	rows := make([]suggestion, 0, len(commands))
+	for _, c := range commands {
+		rows = append(rows, suggestion{command: c})
+	}
+	if dir != "" {
+		for _, u := range loadUserCommands(dir, time.Second) {
+			if u.runnable() {
+				rows = append(rows, suggestion{command: command{u.name, u.help, true}, saved: true})
+			}
+		}
+	}
+	return rankSuggestions(rows, strings.ToLower(strings.TrimPrefix(input, "/")))
+}
+
+// matching is the suggestion list as plain commands.
+func matching(input string) []command {
 	dir, _ := os.Getwd()
 	return matchingIn(dir, input)
 }
 
 func matchingIn(dir, input string) []command {
-	if !strings.HasPrefix(input, "/") || strings.ContainsAny(input, " \n") {
-		return nil
+	var out []command
+	for _, s := range suggestIn(dir, input) {
+		out = append(out, s.command)
 	}
-	var found []command
-	for _, c := range commands {
-		if strings.HasPrefix(c.name, input) {
-			found = append(found, c)
-		}
+	return out
+}
+
+// isCommandName says whether text is a whole command name: built in, an
+// alias, or a saved command. Enter runs such a line as typed.
+func isCommandName(text string) bool {
+	if isBuiltin(text) {
+		return true
 	}
-	if dir != "" {
-		for _, u := range loadUserCommands(dir, time.Second) {
-			if u.runnable() && strings.HasPrefix(u.name, input) {
-				found = append(found, command{u.name, u.help, true})
-			}
-		}
-	}
-	sort.SliceStable(found, func(i, j int) bool {
-		return (found[i].name == input) && (found[j].name != input)
-	})
-	return found
+	dir, _ := os.Getwd()
+	_, ok := findUserCommand(dir, text)
+	return ok
 }
 
 func (m *model) command(text string) tea.Cmd {
