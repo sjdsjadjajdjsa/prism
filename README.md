@@ -254,9 +254,21 @@ Prism can search the web and read pages when it needs facts it doesn't have, lik
 | `/login` `/key` | sign in to a plan you pay for · add a provider key |
 | `/new` `/clear` `/compact` `/undo` `/resume` | fresh chat · clear · shorten the chat · undo the last changes · reopen a chat |
 | `/skills` `/init` `/memory` `/mcp` | playbooks · write PRISM.md · what Prism remembers · connected tools |
+| `/commands` | your saved prompts, run as `/<name>` (see below) |
 | `/files` `/open` `/tree` | browse and read project files |
 | `/tabs` `/rename` `/ask` | several chats at once |
 | `/web` `/usage` `/theme` `/beam` `/quiet` `/help` `/quit` | |
+
+**Saved commands.** Save a prompt you type often as `.prism/commands/<name>.md` in a project (or `~/.config/prism/commands/<name>.md` for every project; the project's wins) and it becomes `/<name>`, in the terminal and the browser:
+
+```markdown
+---
+description: review my change before I commit
+---
+Review the uncommitted changes. Focus on $ARGUMENTS. List real bugs first, then small things.
+```
+
+`/review error handling` sends that text with `$ARGUMENTS` replaced by `error handling` (`$1`, `$2` are single words). With no placeholder, the words are added at the end. `/commands` lists them, `/commands new <name>` writes a starter file, and edits take effect right away. Names use lowercase letters, numbers and dashes; built-in commands always win.
 
 ## Meet Shard
 

@@ -38,6 +38,7 @@ var commands = []command{
 	{"/resume", "reopen an earlier chat in this folder", true},
 	{"/init", "write PRISM.md, the rules prism follows here", true},
 	{"/skills", "playbooks prism can follow · /skills <name> · /skills new <name>", true},
+	{"/commands", "your saved prompts, run as /<name> · /commands new <name>", true},
 	{"/web", "open this chat in your browser", true},
 	{"/mcp", "connected tools · /mcp add picks a free one", true},
 	{"/memory", "what prism remembers · /memory forget <n>", true},
@@ -71,7 +72,36 @@ type modelsMsg struct {
 	more   int
 }
 
+// commandAliases are the other names command() answers to; a saved command
+// file can't take them either.
+var commandAliases = []string{"/exit", "/status", "/continue", "/keys", "/logins", "/themes", "/forget"}
+
+// isBuiltin says whether name (with the slash) is a built-in command.
+func isBuiltin(name string) bool {
+	for _, c := range commands {
+		if c.name == name {
+			return true
+		}
+	}
+	for _, a := range commandAliases {
+		if a == name {
+			return true
+		}
+	}
+	return false
+}
+
+// matching is the suggestion list for what is typed so far: built-in
+// commands, then saved commands (usercmds.go) for the folder prism runs in.
 func matching(input string) []command {
+	if !strings.HasPrefix(input, "/") || strings.ContainsAny(input, " \n") {
+		return nil
+	}
+	dir, _ := os.Getwd()
+	return matchingIn(dir, input)
+}
+
+func matchingIn(dir, input string) []command {
 	if !strings.HasPrefix(input, "/") || strings.ContainsAny(input, " \n") {
 		return nil
 	}
@@ -79,6 +109,14 @@ func matching(input string) []command {
 	for _, c := range commands {
 		if strings.HasPrefix(c.name, input) {
 			found = append(found, c)
+		}
+	}
+	if dir == "" {
+		return found
+	}
+	for _, u := range loadUserCommands(dir, time.Second) {
+		if u.runnable() && strings.HasPrefix(u.name, input) {
+			found = append(found, command{u.name, u.help, true})
 		}
 	}
 	return found
@@ -224,6 +262,17 @@ func (m *model) command(text string) tea.Cmd {
 		}
 		v := skillsView(m.agent.skills)
 		m.entries = append(m.entries, &entry{kind: "cmd", view: &v})
+	case "/commands":
+		if len(fields) > 1 && fields[1] == "new" {
+			if len(fields) == 2 {
+				m.entries = append(m.entries, &entry{kind: "note", text: "usage: /commands new <name>"})
+				return nil
+			}
+			m.entries = append(m.entries, &entry{kind: "note", text: newUserCommand(m.agent.dir, fields[2])})
+			return nil
+		}
+		v := commandsView(loadUserCommands(m.agent.dir, 0))
+		m.entries = append(m.entries, &entry{kind: "cmd", view: &v})
 	case "/tree":
 		title, lines := treeCommand(m.agent, strings.Join(fields[1:], " "))
 		m.entries = append(m.entries, &entry{kind: "info", text: title, lines: lines})
@@ -296,6 +345,20 @@ func (m *model) command(text string) tea.Cmd {
 	case "/ask":
 		return m.askCommand(fields)
 	default:
+		if msg, ok := savedMessage(m.agent.dir, text); ok {
+			if m.busy {
+				m.entries = append(m.entries, &entry{kind: "note", text: "wait until prism finishes, then run " + name})
+				return nil
+			}
+			if msg == "" || strings.HasPrefix(msg, "/") {
+				m.entries = append(m.entries, &entry{kind: "note", text: name + " has nothing to send · /commands shows where its file is"})
+				return nil
+			}
+			m.input = []rune(msg)
+			cmd := m.submit()
+			m.input = nil
+			return cmd
+		}
 		m.entries = append(m.entries, &entry{kind: "help", text: name + " isn't a command"})
 	}
 	return nil

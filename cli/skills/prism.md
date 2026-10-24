@@ -27,6 +27,7 @@ Project
 - `/init` writes PRISM.md, rules Prism always follows in this folder.
 - `/memory` shows what Prism remembers; `/memory forget <n>` removes one, `/memory forget all` clears.
 - `/skills` lists playbooks; `/skills new <name>` writes your own (kept in ~/.config/prism/skills/ or .prism/skills/).
+- `/commands` lists saved commands: a prompt saved as `.prism/commands/<name>.md` (or ~/.config/prism/commands/) becomes `/<name>`. `/<name> some words` sends the file's text with `$ARGUMENTS` replaced by the words (`$1`, `$2` single words; with no placeholder the words go at the end). Optional front matter `description:` is the one-line help. `/commands new <name>` writes a starter file. Built-in names always win; edits take effect right away.
 - `/mcp` shows connected tools; `/mcp add`, `/mcp remove <name>`, `/mcp test <name>`.
 - `/tree` project files; `/tree changed`; `/tree <text>` filters.
 - `/files` browse the project and open a file read-only (arrows, enter, type to filter, esc); `/open <path>` opens one file. In the browser, click a file in Files to view it, then Edit and Save.

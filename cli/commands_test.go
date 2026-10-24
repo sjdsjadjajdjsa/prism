@@ -167,6 +167,7 @@ func TestMatchingNewlineVariants(t *testing.T) {
 }
 
 func TestMatchingBareSlashListsAll(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // no saved commands of yours here
 	if got := matching("/"); len(got) != len(commands) {
 		t.Errorf("matching(\"/\") returned %d commands, want %d", len(got), len(commands))
 	}

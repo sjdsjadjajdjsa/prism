@@ -641,6 +641,16 @@ func (s *server) commandList(w http.ResponseWriter, r *http.Request) {
 	for _, c := range commands {
 		out = append(out, map[string]any{"name": c.name, "help": c.help, "web": c.web})
 	}
+	// saved commands (usercmds.go) follow, re-read when their files change
+	a, _ := s.agentTab(r)
+	if a == nil {
+		a = s.agent
+	}
+	for _, c := range loadUserCommands(a.dir, 0) {
+		if c.runnable() {
+			out = append(out, map[string]any{"name": c.name, "help": c.help, "web": true, "saved": true, "source": c.source})
+		}
+	}
 	w.Header().Set("cache-control", "no-store")
 	writeJSON(w, out)
 }
@@ -943,6 +953,16 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, skillsView(a.skills).wire())
+	case "/commands":
+		if len(fields) > 1 && fields[1] == "new" {
+			if len(fields) == 2 {
+				note("usage: /commands new <name>")
+				return
+			}
+			note(newUserCommand(a.dir, fields[2]))
+			return
+		}
+		writeJSON(w, commandsView(loadUserCommands(a.dir, 0)).wire())
 	case "/help":
 		writeJSON(w, helpViewFor(true).wire())
 	case "/mcp":
@@ -1057,6 +1077,18 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 	case "/quit", "/exit":
 		note("nothing to quit here · close this browser tab to leave")
 	default:
+		if msg, ok := savedMessage(a.dir, body.Text); ok {
+			if busy {
+				fail("wait until prism finishes, then run " + fields[0])
+				return
+			}
+			if msg == "" || strings.HasPrefix(msg, "/") {
+				note(fields[0] + " has nothing to send · /commands shows where its file is")
+				return
+			}
+			writeJSON(w, map[string]any{"kind": "send", "message": msg})
+			return
+		}
 		writeJSON(w, map[string]any{"kind": "error", "headline": "unknown command", "text": fields[0] + " isn't a command. /help lists them"})
 	}
 }

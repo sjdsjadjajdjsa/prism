@@ -213,6 +213,46 @@ func skillsView(skills []skill) cmdView {
 	}
 }
 
+// commandsView is /commands: saved commands grouped yours / this project,
+// one line each; a file that can't run says why.
+func commandsView(list []userCommand) cmdView {
+	var blocks []cmdBlock
+	ready := 0
+	for _, src := range []string{"yours", "this project"} {
+		blk := cmdBlock{title: src}
+		for _, c := range list {
+			if c.source != src {
+				continue
+			}
+			it := cmdItem{name: c.name, desc: c.help}
+			if c.runnable() {
+				ready++
+			} else {
+				it.dot, it.dotErr, it.desc = "!", true, c.problem
+				if strings.HasSuffix(c.problem, "is used instead") {
+					it.dot, it.dotErr = "◌", false
+				}
+			}
+			blk.items = append(blk.items, it)
+		}
+		if len(blk.items) > 0 {
+			blocks = append(blocks, blk)
+		}
+	}
+	if len(blocks) == 0 {
+		return cmdView{
+			title:  "saved commands  (0)",
+			blocks: []cmdBlock{{items: []cmdItem{{name: "none yet", desc: "save a prompt as .prism/commands/<name>.md (or ~/.config/prism/commands/), then type /<name>"}}}},
+			footer: "/commands new <name> writes a starter file",
+		}
+	}
+	return cmdView{
+		title:  fmt.Sprintf("saved commands  (%d)", ready),
+		blocks: blocks,
+		footer: "type /<name> and any words · $ARGUMENTS in the file takes them · /commands new <name> writes one",
+	}
+}
+
 // skillNames joins names with " · " while they fit in max runes, then "…".
 func skillNames(skills []skill, max int) string {
 	var out string
@@ -390,7 +430,7 @@ var helpGroups = []struct {
 }{
 	{"chat", []string{"/new", "/clear", "/resume", "/compact", "/undo", "/quit"}},
 	{"models & keys", []string{"/models", "/model", "/key", "/login", "/usage"}},
-	{"project", []string{"/init", "/files", "/open", "/tree", "/skills", "/memory", "/mcp", "/web"}},
+	{"project", []string{"/init", "/files", "/open", "/tree", "/skills", "/commands", "/memory", "/mcp", "/web"}},
 	{"look & feel", []string{"/theme", "/beam", "/quiet", "/help"}},
 	{"tabs", []string{"/tabs", "/rename", "/ask"}},
 }

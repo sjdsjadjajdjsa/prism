@@ -26,10 +26,14 @@
     api.all = all; api.list = list;
   }
 
-  // load fetches the shared command list once; offline it keeps FALLBACK.
-  function load() {
-    if (loaded) return loaded;
-    if (/[?&]demo\b/.test(location.search)) { loaded = Promise.resolve(list); return loaded; }
+  // load fetches the shared command list; offline it keeps FALLBACK. load(true) fetches again when the
+  // last fetch is a few seconds old, so a saved command file (.prism/commands/<name>.md) added while the
+  // page is open shows up the next time "/" is typed.
+  var loadedAt = 0;
+  function load(fresh) {
+    if (/[?&]demo\b/.test(location.search)) { if (!loaded) loaded = Promise.resolve(list); return loaded; }
+    if (loaded && !(fresh && Date.now() - loadedAt > 3000)) return loaded;
+    loadedAt = Date.now();
     loaded = fetch("/api/commands", { cache: "no-store" })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
       .then(function (rows) { if (Array.isArray(rows) && rows.length) setList(rows); return list; })
@@ -107,7 +111,11 @@
       if (sel >= 0) input.setAttribute("aria-activedescendant", "cmd-opt-" + sel);
       else input.removeAttribute("aria-activedescendant");
     }
-    function refresh() { found = match(valueOf(input)); sel = -1; paint(); }
+    function refresh() {
+      var text = valueOf(input);
+      found = match(text); sel = -1; paint();
+      if (text === "/") load(true).then(function () { if (valueOf(input) === text) { found = match(text); paint(); } });
+    }
 
     input.setAttribute("aria-controls", box.id || "cmd-suggest");
     input.setAttribute("aria-autocomplete", "list");
