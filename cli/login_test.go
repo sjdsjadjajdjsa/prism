@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -378,5 +379,116 @@ func TestLoginForbiddenIsActionable(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "admin token missing") || !strings.Contains(err.Error(), "restart prism") {
 			t.Fatalf("unhelpful forbidden error: %v", err)
 		}
+	}
+}
+
+// loginScreen drives the real TUI message flow against a fake router and
+// returns the drawn chat screen (ANSI stripped). pick chooses grok in the
+// /login picker; otherwise /login grok is typed.
+func loginScreen(t *testing.T, reply string, pick bool) (model, string) {
+	t.Helper()
+	testEnv(t)
+	t.Setenv("PRISM_NO_BROWSER", "1")
+	var started atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			fmt.Fprint(w, `{"subscriptions":[{"id":"chatgpt","name":"ChatGPT"},{"id":"grok","name":"Grok"}]}`)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["id"] != "grok" {
+			t.Errorf("sign-in for %v", body["id"])
+		}
+		started.Add(1)
+		fmt.Fprint(w, reply)
+	}))
+	t.Cleanup(srv.Close)
+	a := newTestAgent(t, srv.URL+"/v1", t.TempDir())
+	m := model{tab: newTab(a), chat: true, ticking: true, start: time.Now(), w: 110, h: 32}
+	up := func(msg tea.Msg) tea.Cmd {
+		next, cmd := m.Update(msg)
+		m = next.(model)
+		return cmd
+	}
+	if pick {
+		m.input = []rune("/login")
+		up(up(tea.KeyPressMsg{Code: tea.KeyEnter})())
+		if !m.menu.open || len(m.menu.visible()) != 2 {
+			t.Fatalf("picker: %+v", m.menu)
+		}
+		up(tea.KeyPressMsg{Code: tea.KeyDown})
+	} else {
+		m.input = []rune("/login grok")
+	}
+	cmd := up(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("no sign-in started")
+	}
+	code, ok := cmd().(loginCodeMsg)
+	if !ok || code.err != nil || started.Load() != 1 {
+		t.Fatalf("start: %+v", code)
+	}
+	if up(code) == nil {
+		t.Fatal("no poll after the sign-in started")
+	}
+	return m, regexp.MustCompile("\x1b\\[[0-9;]*m|\x1b\\]8;;[^\x1b]*\x1b\\\\").ReplaceAllString(m.View().Content, "")
+}
+
+// The router answers a browser sign-in with {url} only; the terminal once
+// read verificationURI, so the link was blank and nothing looked pasteable.
+func TestBrowserLoginScreenShowsLinkAndPasteInput(t *testing.T) {
+	link := "https://auth.x.ai/oauth2/auth?client_id=abc&state=s1"
+	for _, pick := range []bool{false, true} {
+		t.Run(fmt.Sprintf("picker=%v", pick), func(t *testing.T) {
+			m, screen := loginScreen(t, `{"url":"`+link+`","expires":600}`, pick)
+			if m.loginWaiting != "grok" {
+				t.Fatalf("not waiting for a paste: %q", m.loginWaiting)
+			}
+			for _, want := range []string{"sign in to grok", link, "paste the code or link from the sign-in page here", "› " + loginInputHint} {
+				if !strings.Contains(screen, want) {
+					t.Errorf("screen missing %q:\n%s", want, screen)
+				}
+			}
+			if strings.Contains(screen, "ask anything") {
+				t.Errorf("input still looks like chat:\n%s", screen)
+			}
+		})
+	}
+}
+
+func TestDeviceLoginScreenShowsCode(t *testing.T) {
+	for _, pick := range []bool{false, true} {
+		t.Run(fmt.Sprintf("picker=%v", pick), func(t *testing.T) {
+			m, screen := loginScreen(t, `{"userCode":"WXYZ-9876","verificationURI":"https://accounts.x.ai/device","expires":1800,"interval":7}`, pick)
+			if m.loginWaiting != "" {
+				t.Fatal("device code sign-in captured the chat input")
+			}
+			for _, want := range []string{"https://accounts.x.ai/device", "enter this code there", "WXYZ-9876", "ask anything"} {
+				if !strings.Contains(screen, want) {
+					t.Errorf("screen missing %q:\n%s", want, screen)
+				}
+			}
+		})
+	}
+}
+
+func TestLoginBrowserKeywordAndMissingLink(t *testing.T) {
+	testEnv(t)
+	var bodies []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		bodies = append(bodies, body)
+		fmt.Fprint(w, `{"expires":600}`)
+	}))
+	defer srv.Close()
+	m := model{tab: &tab{agent: newTestAgent(t, srv.URL+"/v1", t.TempDir())}}
+	msg := m.loginCommand([]string{"/login", "grok", "browser"})().(loginCodeMsg)
+	if len(bodies) != 1 || bodies[0]["browser"] != true {
+		t.Fatalf("browser keyword not sent: %v", bodies)
+	}
+	if msg.err == nil || !strings.Contains(msg.err.Error(), "no sign-in link") {
+		t.Fatalf("blank link accepted: %+v", msg)
 	}
 }

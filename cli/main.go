@@ -178,16 +178,18 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		m.loginFinished, m.loginWaiting, m.loginTab = "", "", nil
-		lines := []string{"open  " + msg.url}
 		if msg.browser {
+			// The chat input takes the pasted code until the sign-in ends.
 			m.loginWaiting, m.loginTab = msg.id, m.tab
-			lines = []string{"opening your browser…", "if nothing opens: " + msg.url, loginPastePrompt}
-		} else {
-			lines = append(lines, "type "+msg.code, "prism keeps checking; the models appear in /models when you are done")
 		}
-		m.entries = append(m.entries, &entry{kind: "info", text: "sign in to " + msg.id, lines: lines})
+		// kind "login": the link renders as a clickable link and the device code stands out.
+		m.entries = append(m.entries, &entry{kind: "login", text: "sign in to " + msg.id, lines: loginLines(msg), arg: msg.url, tool: msg.code})
 		m.scroll = 0
-		return m, pollLogin(m.agent.api, msg.id, 5, msg.expires, msg.browser)
+		interval := 5
+		if msg.interval > 0 {
+			interval = msg.interval
+		}
+		return m, tea.Batch(pollLogin(m.agent.api, msg.id, interval, msg.expires, msg.browser), loginStarted(msg))
 	case loginDoneMsg:
 		if m.loginFinished == msg.id {
 			break

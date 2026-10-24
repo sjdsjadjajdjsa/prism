@@ -1,4 +1,4 @@
-import { test } from 'node:test'
+import { test, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
 import { createHash } from 'node:crypto'
@@ -7,6 +7,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadSubs, startLogin, pollLogin, signOut, subscriptionProviders, subToken, startBrowserLogin, loginError, loginStatus, handleOAuthCallback, submitLoginCode, SUBSCRIPTIONS } from './subs.mjs'
 
+// All Grok tests use a fake npm registry, never the network.
+const realFetch = globalThis.fetch
+mock.method(globalThis, 'fetch', (url, options) => String(url) === 'https://registry.npmjs.org/@xai-official/grok/latest'
+  ? Promise.resolve(Response.json({ version: '1.0.46' })) : realFetch(url, options))
 const servers = []
 const upstream = handler =>
   new Promise(resolve => {
@@ -41,7 +45,7 @@ test('pasted browser codes race callbacks and validate optional state', async t 
     })
   })
   const models = await upstream((req, res) => res.end(JSON.stringify({ data: [{ id: 'grok-test' }] })))
-  const sub = { id: 'grok', name: 'Grok', kind: 'browser', authorizeURL: 'https://auth.test', tokenURL: token, clientID: 'cid', redirectPath: '/callback', stateInExchange: true, apiBase: models }
+  const sub = { id: 'grok', name: 'Grok', kind: 'browser', scopes: 'openid grok-cli:access', authorizeURL: 'https://auth.test', tokenURL: token, clientID: 'cid', redirectPath: '/callback', stateInExchange: true, apiBase: models }
   const start = async () => {
     authorize = new URL((await startBrowserLogin(sub)).url)
     expectedState = authorize.searchParams.get('state')
@@ -87,9 +91,8 @@ test('a pasted code that cannot reach the vendor says so and keeps waiting', asy
 test('Grok OAuth uses the CLI proxy and probes its /v1/models endpoint', async t => {
   const grok = SUBSCRIPTIONS.find(s => s.id === 'grok')
   assert.equal(grok.apiBase, 'https://cli-chat-proxy.grok.com/v1')
-  const os = process.platform === 'darwin' ? 'macos' : process.platform === 'win32' ? 'windows' : process.platform
-  const arch = { x64: 'x86_64', arm64: 'aarch64', ia32: 'x86' }[process.arch] ?? process.arch
-  assert.equal(grok.apiUserAgent, `grok-shell/1.0.45 (${os}; ${arch})`)
+  assert.match(grok.scopes, /\bgrok-cli:access\b/)
+  assert.equal(grok.kind, 'device')
   let probes = 0
   const api = await upstream((req, res) => {
     if (req.url === '/token') return res.end(JSON.stringify({ access_token: 'grok-token', refresh_token: 'refresh', expires_in: 3600 }))
@@ -97,7 +100,11 @@ test('Grok OAuth uses the CLI proxy and probes its /v1/models endpoint', async t
     assert.equal(req.url, '/v1/models')
     assert.equal(req.headers.authorization, 'Bearer grok-token')
     assert.equal(req.headers['x-xai-token-auth'], 'xai-grok-cli')
-    assert.equal(req.headers['user-agent'], grok.apiUserAgent)
+    assert.equal(req.headers['user-agent'], 'xai-grok-workspace/1.0.46')
+    assert.equal(req.headers['x-grok-client-version'], '1.0.46')
+    assert.equal(req.headers['x-grok-client-identifier'], 'grok-shell')
+    assert.equal(req.headers['x-authenticateresponse'], 'authenticate-response')
+    assert.match(req.headers['x-grok-conv-id'], /^[0-9a-f-]{36}$/)
     probes++
     res.end(JSON.stringify({ data: [{ id: 'grok-test' }] }))
   })
@@ -107,25 +114,29 @@ test('Grok OAuth uses the CLI proxy and probes its /v1/models endpoint', async t
   t.after(() => { delete process.env.PRISM_SUBS_FILE; server.close() })
   const sub = { ...grok, redirectPort: 0, tokenURL: api + '/token', apiBase: api + '/v1' }
   const started = await startBrowserLogin(sub)
+  assert.equal(new URL(started.url).searchParams.get('scope'), grok.scopes)
   const state = new URL(started.url).searchParams.get('state')
   const done = await submitLoginCode(sub, `code#${state}`)
+  assert.equal(loadSubs(file).grok.scopes, grok.scopes)
   assert.equal(done.ok, true)
   assert.equal(probes, 1)
   assert.deepEqual(loadSubs(file).grok.models, ['grok-test'])
   assert.match(loadSubs(file).grok.sessionId, /^[0-9a-f-]{36}$/)
 })
 
-test('server: Grok OAuth sends CLI headers and an unchanged chat body to /v1/chat/completions', async t => {
+test('server: Grok OAuth uses /responses, translates SSE and retries 426 with a fresh CLI version', async t => {
   const { spawn } = await import('node:child_process')
   const requests = []
   const api = await upstream((req, res) => {
-    assert.equal(req.url, '/v1/chat/completions')
+    if (req.url === '/npm') return res.end(JSON.stringify({ version: requests.length ? '1.0.47' : '1.0.46' }))
+    assert.equal(req.url, '/v1/responses')
     assert.equal(req.headers.authorization, 'Bearer grok-token')
     assert.equal(req.headers['x-xai-token-auth'], 'xai-grok-cli')
     assert.equal(req.headers.accept, 'text/event-stream')
-    assert.match(req.headers['user-agent'], /^grok-shell\/1\.0\.45 \(/)
+    assert.equal(req.headers['user-agent'], `xai-grok-workspace/${requests.length ? '1.0.47' : '1.0.46'}`)
+    assert.equal(req.headers['x-authenticateresponse'], 'authenticate-response')
     assert.equal(req.headers['x-grok-client-identifier'], 'grok-shell')
-    assert.equal(req.headers['x-grok-client-version'], '1.0.45')
+    assert.equal(req.headers['x-grok-client-version'], requests.length ? '1.0.47' : '1.0.46')
     assert.equal(req.headers['x-grok-model-override'], 'grok-test')
     assert.match(req.headers['x-grok-session-id'], /^[0-9a-f-]{36}$/)
     assert.match(req.headers['x-grok-conv-id'], /^[0-9a-f-]{36}$/)
@@ -135,9 +146,10 @@ test('server: Grok OAuth sends CLI headers and an unchanged chat body to /v1/cha
     let raw = ''
     req.on('data', chunk => { raw += chunk })
     req.on('end', () => {
-      assert.deepEqual(JSON.parse(raw), { model: 'grok-test', messages: [{ role: 'user', content: 'hi' }], stream: true })
+      assert.deepEqual(JSON.parse(raw), { model: 'grok-test', input: [{ role: 'user', content: [{ type: 'input_text', text: 'hi' }] }], stream: true, store: false })
+      if (requests.length === 1) { res.writeHead(426); return res.end('upgrade') }
       res.writeHead(200, { 'content-type': 'text/event-stream' })
-      res.end('data: {"choices":[{"delta":{"content":"hello"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
+      res.end('data: {"type":"response.output_text.delta","delta":"hello"}\n\ndata: {"type":"response.completed"}\n\n')
     })
   })
   const apiServer = servers.at(-1)
@@ -147,12 +159,13 @@ test('server: Grok OAuth sends CLI headers and an unchanged chat body to /v1/cha
   writeFileSync(join(dir, 'providers.json'), JSON.stringify({ providers: [] }))
   const subsFile = join(dir, 'subscriptions.json')
   // Existing signed-in accounts without a session id must be migrated once.
-  writeFileSync(subsFile, JSON.stringify({ grok: { accessToken: 'grok-token', models: ['grok-test'], apiBase: api + '/v1' } }))
+  writeFileSync(subsFile, JSON.stringify({ grok: { accessToken: 'grok-token', scopes: 'grok-cli:access', models: ['grok-test'], apiBase: api + '/v1' } }))
+  writeFileSync(join(dir, 'fake-npm.mjs'), `const original = globalThis.fetch; globalThis.fetch = (url, options) => original(String(url).startsWith('https://registry.npmjs.org/') ? ${JSON.stringify(api + '/npm')} : url, options)` )
   const probe = http.createServer().listen(0, '127.0.0.1')
   await new Promise(resolve => probe.once('listening', resolve))
   const port = probe.address().port
   await new Promise(resolve => probe.close(resolve))
-  const child = spawn(process.execPath, ['server.mjs'], { cwd: dir, env: { ...process.env, PORT: String(port), STATS_FILE: '', PRISM_SUBS_FILE: subsFile } })
+  const child = spawn(process.execPath, ['--import', './fake-npm.mjs', 'server.mjs'], { cwd: dir, env: { ...process.env, PORT: String(port), STATS_FILE: '', PRISM_SUBS_FILE: subsFile } })
   t.after(() => child.kill())
   const base = `http://127.0.0.1:${port}`
   for (let i = 0; i < 50; i++) {
@@ -167,11 +180,12 @@ test('server: Grok OAuth sends CLI headers and an unchanged chat body to /v1/cha
     assert.equal(res.status, 200)
     assert.match(await res.text(), /hello/)
   }
-  assert.equal(requests.length, 2)
+  assert.equal(requests.length, 3)
   assert.equal(requests[0]['x-grok-session-id'], JSON.parse(readFileSync(subsFile, 'utf8')).grok.sessionId)
   assert.equal(requests[0]['x-grok-session-id'], requests[1]['x-grok-session-id'])
   assert.equal(requests[0]['x-grok-conv-id'], requests[1]['x-grok-conv-id'])
-  assert.notEqual(requests[0]['x-grok-req-id'], requests[1]['x-grok-req-id'])
+  assert.equal(requests[0]['x-grok-req-id'], requests[1]['x-grok-req-id'], '426 retries preserve request identity')
+  assert.notEqual(requests[0]['x-grok-req-id'], requests[2]['x-grok-req-id'])
 })
 
 test('the subscription catalog is sane', () => {
@@ -326,6 +340,63 @@ test('server: /logins lists, signs out, and polls idle', async () => {
   assert.equal(out.status, 200)
   const after = await (await fetch(base + '/logins')).json()
   assert.equal(after.subscriptions[0].signedIn, false)
+})
+
+test('old Grok accounts require consent again and are excluded from routing', async t => {
+  const grok = SUBSCRIPTIONS.find(s => s.id === 'grok')
+  process.env.PRISM_SUBS_FILE = write({ grok: { accessToken: 'old', models: ['grok-4.7'] } })
+  t.after(() => { delete process.env.PRISM_SUBS_FILE; signOut(grok) })
+  const error = 'sign in to grok again to give Prism access to your Grok plan (/login grok)'
+  assert.equal(loginStatus(grok).signedIn, false)
+  assert.equal(loginError('grok'), error)
+  assert.deepEqual(subscriptionProviders(), [])
+  await assert.rejects(() => subToken(grok), { message: error })
+})
+
+test('Grok device login discovers endpoints, sends scopes, persists OAuth refresh and falls back to all chat models', async t => {
+  const grok = SUBSCRIPTIONS.find(s => s.id === 'grok')
+  const expected = ['grok-4.7', 'grok-4.7-build-fast', 'grok-4.6', 'grok-build-0.1', 'grok-4.5', 'grok-4.3', 'grok-4.20-0309-reasoning', 'grok-4.20-0309-non-reasoning', 'grok-4.20-multi-agent-0309', 'grok-3-mini', 'grok-3-mini-fast', 'grok-composer-2.5-fast']
+  assert.deepEqual(grok.models, expected)
+  let modelStatus = 403, refreshes = 0, base
+  base = await upstream((req, res) => {
+    if (req.url === '/discovery') return res.end(JSON.stringify({ device_authorization_endpoint: base + '/device', token_endpoint: base + '/token' }))
+    if (req.url === '/models') { res.writeHead(modelStatus); return res.end(JSON.stringify({ data: [] })) }
+    let raw = ''
+    req.on('data', c => { raw += c })
+    req.on('end', () => {
+      assert.equal(req.headers['content-type'], 'application/x-www-form-urlencoded')
+      const params = new URLSearchParams(raw)
+      assert.equal(params.get('client_id'), grok.clientID)
+      if (req.url === '/device') {
+        assert.equal(params.get('scope'), grok.scopes)
+        return res.end(JSON.stringify({ device_code: 'dev', user_code: 'ABCD', verification_uri: 'https://auth.test/device', verification_uri_complete: 'https://auth.test/device?code=ABCD', expires_in: 9999 }))
+      }
+      assert.equal(req.url, '/token')
+      if (params.get('grant_type') === 'refresh_token') { refreshes++; assert.equal(params.get('refresh_token'), 'refresh') }
+      else { assert.equal(params.get('device_code'), 'dev'); assert.equal(params.get('grant_type'), 'urn:ietf:params:oauth:grant-type:device_code') }
+      res.end(JSON.stringify({ access_token: 'new', refresh_token: 'refresh', expires_in: refreshes ? 3600 : 1 }))
+    })
+  })
+  t.after(() => { signOut(grok); delete process.env.PRISM_SUBS_FILE })
+  for (modelStatus of [403, 200]) {
+    process.env.PRISM_SUBS_FILE = write('{}')
+    const sub = { ...grok, discoveryURL: base + '/discovery', deviceURL: base + '/wrong-device', tokenURL: base + '/wrong-token', apiBase: base }
+    const started = await startLogin(sub)
+    assert.equal(started.userCode, 'ABCD')
+    assert.equal(started.verificationURI, 'https://auth.test/device?code=ABCD')
+    assert.equal(started.expires, 1800)
+    assert.equal(loginStatus(sub).pending, true)
+    assert.equal((await pollLogin(sub)).status, 'ok')
+    assert.deepEqual(loadSubs().grok.models, expected)
+    assert.equal(loadSubs().grok.scopes, grok.scopes)
+    assert.equal(loadSubs().grok.refreshToken, 'refresh')
+    assert.equal(loadSubs().grok.tokenURL, base + '/token')
+    assert.equal(loginStatus(sub).signedIn, true)
+    assert.deepEqual(subscriptionProviders()[0].models.map(m => m.name), expected)
+    assert.equal((await subToken(sub)).token, 'new')
+    signOut(sub)
+  }
+  assert.ok(refreshes >= 1)
 })
 
 test('cleanup', () => {

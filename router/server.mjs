@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { randomUUID, createHash, timingSafeEqual } from 'node:crypto'
 import { customProviders, eligible, PRESETS, maskKey, syncKeys, setKeyVar, keysPath, customFilePath, upsertPresetEntry, probeModels } from './custom.mjs'
 import { SUBSCRIPTIONS, subscriptionProviders, startLogin, pollLogin, signOut, loadSubs, subToken, startBrowserLogin, submitLoginCode, handleOAuthCallback, pendingLoginURL, loginStatus, localOnly, visibleModels } from './subs.mjs'
-import { wireFor, grokRequestHeaders } from './wire.mjs'
+import { wireFor, grokRequestHeaders, grokFetch } from './wire.mjs'
 
 const config = JSON.parse(readFileSync(new URL('./providers.json', import.meta.url), 'utf8'))
 const port = Number(process.env.PORT) || 4848
@@ -232,10 +232,11 @@ const complete = async (req, res) => {
             'user-agent': 'free-ai-router',
             authorization: `Bearer ${key}`,
             ...(sub.apiHeaders ?? {}),
+            ...(sub.id === 'grok' && grokRequestHeaders({ ...rest, model: attempt.route.model }, stored.sessionId)),
             ...(stored.accountId && { 'chatgpt-account-id': stored.accountId }),
             ...(stored.apiKey && { 'x-goog-api-key': stored.apiKey }),
           }
-          if (sub.wire === 'codex') url = `${attempt.route.baseURL}/responses${sub.modelsQuery ? `?${new URLSearchParams(sub.modelsQuery)}` : ''}`
+          if (sub.wire === 'codex' || sub.wire === 'grok') url = `${attempt.route.baseURL}/responses${sub.modelsQuery ? `?${new URLSearchParams(sub.modelsQuery)}` : ''}`
           else if (sub.wire === 'anthropic') {
             url = `${attempt.route.baseURL}/messages`
             // Claude Code sends a stable device identity on every request; without
@@ -261,7 +262,7 @@ const complete = async (req, res) => {
           }
         }
       }
-      return fetch(url, {
+      return (attempt.route.sub === 'grok' ? grokFetch : fetch)(url, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
@@ -551,7 +552,9 @@ const loginsRoute = async (req, res) => {
     if (started.error) return send(res, 502, { error: { message: started.error, type: 'login_failed' } })
     return send(res, 200, started)
   }
-  const started = await startLogin(sub)
+  let started = await startLogin(sub)
+  // Prefer no-paste device login; retain PKCE browser/paste if unavailable.
+  if (started.error && sub.id === 'grok') started = await startBrowserLogin(sub)
   if (started.error) return send(res, 502, { error: { message: started.error, type: 'login_failed' } })
   return send(res, 200, started)
 }

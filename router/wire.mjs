@@ -49,16 +49,36 @@ export const toCodex = body => {
   return out
 }
 
+// Grok speaks Responses too, but does not need Codex's encrypted reasoning.
+// adapted from router-for-me/CLIProxyAPI (MIT)
+export const toGrok = body => {
+  const out = toCodex(body)
+  delete out.include
+  delete out.reasoning
+  if (body.reasoning_effort) out.reasoning = { effort: body.reasoning_effort }
+  if (body.max_completion_tokens ?? body.max_tokens) out.max_output_tokens = body.max_completion_tokens ?? body.max_tokens
+  for (const key of ['temperature', 'top_p', 'parallel_tool_calls']) {
+    if (body[key] !== undefined) out[key] = body[key]
+  }
+  if (body.tool_choice !== undefined) out.tool_choice = body.tool_choice?.type === 'function'
+    ? { type: 'function', name: body.tool_choice.function?.name } : body.tool_choice
+  return out
+}
+
+// Codex and xAI use response.output_text.delta, response.output_item.done,
+// response.completed and (for truncated xAI turns) response.incomplete.
+// adapted from router-for-me/CLIProxyAPI (MIT)
 // Codex SSE events become chat.completion.chunk SSE lines.
 export class CodexStream {
   constructor() {
     this.buffer = ''
+    this.decoder = new TextDecoder()
     this.calls = 0
     this.done = false
   }
 
   write(chunk) {
-    this.buffer += typeof chunk === 'string' ? chunk : decode.decode(chunk)
+    this.buffer += typeof chunk === 'string' ? chunk : this.decoder.decode(chunk, { stream: true })
     const out = []
     let index
     while ((index = this.buffer.indexOf('\n')) >= 0) {
@@ -77,12 +97,13 @@ export class CodexStream {
       if (event.type === 'response.output_text.delta' && event.delta) push({ content: event.delta })
       else if (event.type === 'response.output_item.done' && event.item?.type === 'function_call') {
         push({ tool_calls: [{ index: this.calls++, id: event.item.call_id, type: 'function', function: { name: event.item.name, arguments: event.item.arguments ?? '' } }] })
-      } else if (event.type === 'response.completed' || event.type === 'response.failed' || event.type === 'error') {
-        const failed = event.type !== 'response.completed'
+      } else if (['response.completed', 'response.incomplete', 'response.failed', 'error'].includes(event.type) && !this.done) {
+        const failed = event.type === 'response.failed' || event.type === 'error'
+        if (failed) out.push(`data: ${JSON.stringify({ error: event.response?.error ?? event.error ?? { message: event.message ?? 'Responses request failed' } })}\n\n`)
         const usage = event.response?.usage
           ? { prompt_tokens: event.response.usage.input_tokens ?? 0, completion_tokens: event.response.usage.output_tokens ?? 0 }
           : undefined
-        out.push(`data: ${JSON.stringify({ id: 'chatcmpl-codex', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: failed ? 'stop' : this.calls ? 'tool_calls' : 'stop' }], ...(usage && { usage }) })}\n\n`)
+        out.push(`data: ${JSON.stringify({ id: 'chatcmpl-codex', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: event.type === 'response.incomplete' ? 'length' : failed ? 'stop' : this.calls ? 'tool_calls' : 'stop' }], ...(usage && { usage }) })}\n\n`)
         out.push('data: [DONE]\n\n')
         this.done = true
       }
@@ -336,8 +357,53 @@ export class AntigravityStream {
   }
 }
 
-// Grok OAuth stays on OpenAI chat completions. Header names/Accept adapted
-// from xAI grok-build's sampler client.rs (Apache-2.0).
+// Grok CLI chat-proxy identity, version negotiation and 426 retry.
+// adapted from router-for-me/CLIProxyAPI (MIT)
+export const GROK_FALLBACK_VERSION = '1.0.46'
+export const createGrokFetch = ({ fetcher = (...args) => fetch(...args), now = Date.now } = {}) => {
+  let version = GROK_FALLBACK_VERSION, checkedAt = -Infinity, checking
+  const resolveVersion = async force => {
+    if (checking) return checking
+    if (!force && now() - checkedAt < 3 * 60 * 60_000) return version
+    checkedAt = now()
+    checking = (async () => {
+      try {
+        const res = await fetcher('https://registry.npmjs.org/@xai-official/grok/latest', {
+          headers: { accept: 'application/json' }, signal: AbortSignal.timeout(10_000),
+        })
+        if (!res.ok) return version
+        const data = await res.json()
+        if (/^\d+\.\d+\.\d+$/.test(data.version)) {
+          const [major, minor, patch] = data.version.split('.').map(Number)
+          if (major > 1 || (major === 1 && (minor > 0 || patch >= 13))) version = data.version
+        }
+      } catch { /* Keep the fallback/cached version even when npm is offline. */ }
+      return version
+    })()
+    try { return await checking } finally { checking = null }
+  }
+  return async (url, options = {}) => {
+    const send = async force => {
+      const current = await resolveVersion(force)
+      const headers = new Headers(options.headers)
+      headers.set('x-xai-token-auth', 'xai-grok-cli')
+      headers.set('x-grok-client-identifier', 'grok-shell')
+      headers.set('x-authenticateresponse', 'authenticate-response')
+      headers.set('x-grok-client-version', current)
+      headers.set('user-agent', `xai-grok-workspace/${current}`)
+      return fetcher(url, { ...options, headers })
+    }
+    let response = await send(false)
+    if (response.status === 426) {
+      await response.body?.cancel()
+      response = await send(true)
+    }
+    return response
+  }
+}
+export const grokFetch = createGrokFetch()
+
+// Stable conversation identity is derived locally; no chat content is persisted.
 export const grokRequestHeaders = (body, sessionId) => {
   // Prism has no conversation handle: derive one from the account and first
   // user turn so follow-up turns share it without persisting chat content.
@@ -357,4 +423,4 @@ export const grokRequestHeaders = (body, sessionId) => {
 
 const max = (a, b) => (a > b ? a : b)
 
-export const wireFor = name => ({ codex: { to: toCodex, stream: CodexStream }, anthropic: { to: toAnthropic, stream: AnthropicStream }, gemini: { to: toGemini, stream: GeminiStream }, antigravity: { to: toAntigravity, stream: AntigravityStream } }[name] ?? null)
+export const wireFor = name => ({ codex: { to: toCodex, stream: CodexStream }, grok: { to: toGrok, stream: CodexStream }, anthropic: { to: toAnthropic, stream: AnthropicStream }, gemini: { to: toGemini, stream: GeminiStream }, antigravity: { to: toAntigravity, stream: AntigravityStream } }[name] ?? null)

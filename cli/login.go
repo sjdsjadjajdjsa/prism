@@ -7,6 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -30,12 +33,13 @@ type loginsMsg struct {
 }
 
 type loginCodeMsg struct {
-	id      string
-	code    string
-	url     string
-	expires int
-	browser bool
-	err     error
+	id       string
+	code     string
+	url      string
+	expires  int
+	interval int
+	browser  bool
+	err      error
 }
 
 type loginDoneMsg struct {
@@ -144,6 +148,62 @@ func pasteLoginCode(api, id, code string) tea.Cmd {
 
 const loginPastePrompt = "paste the code or link from the sign-in page here · enter to finish · esc to cancel"
 
+// loginInputHint replaces the chat input placeholder while a browser sign-in
+// waits for its pasted code.
+const loginInputHint = "paste the sign-in code here"
+
+// loginLines is what the terminal shows after a sign-in starts: the link
+// (always on screen, since prism can't know the browser opened) and either the
+// device code to type there or the paste instruction.
+func loginLines(msg loginCodeMsg) []string {
+	if msg.browser {
+		return []string{"1. open this link and sign in (prism tries your browser and copies the link to your clipboard):", msg.url,
+			"2. " + loginPastePrompt}
+	}
+	return []string{"1. open this page (prism also tries to open your browser):", msg.url,
+		"2. enter this code there:", msg.code,
+		"prism keeps checking; the models appear in /models when you are done"}
+}
+
+// openBrowser starts the system browser on link without waiting for it. It
+// is best effort: the link stays on screen either way.
+var openBrowser = func(link string) error {
+	if os.Getenv("PRISM_NO_BROWSER") != "" {
+		return errors.New("browser disabled")
+	}
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", link)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", link)
+	default:
+		if os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
+			return errors.New("no display")
+		}
+		cmd = exec.Command("xdg-open", link)
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go cmd.Wait()
+	return nil
+}
+
+// loginStarted is the side work after a sign-in starts: try the browser and
+// put the device code (or the link) on the clipboard through OSC 52.
+func loginStarted(msg loginCodeMsg) tea.Cmd {
+	clip := msg.url
+	if !msg.browser {
+		clip = msg.code
+	}
+	link := msg.url
+	return tea.Batch(tea.SetClipboard(clip), func() tea.Msg {
+		_ = openBrowser(link)
+		return nil
+	})
+}
+
 // pollLogin loops until the sign-in finishes: the router's token poll for
 // device-code accounts, or the signed-in flag for browser accounts. It runs in
 // a tea.Cmd goroutine.
@@ -238,25 +298,43 @@ func (m *model) loginCommand(fields []string) tea.Cmd {
 		}
 		return signOut(api, fields[2])
 	}
-	if len(fields) > 2 {
+	// /login <id> browser asks for the browser + paste sign-in even when the
+	// account defaults to a device code.
+	body := map[string]any{"id": id}
+	if len(fields) == 3 && fields[2] == "browser" {
+		body["browser"] = true
+	} else if len(fields) > 2 {
 		m.loginFinished = ""
 
 		return pasteLoginCode(api, id, strings.Join(fields[2:], " "))
 	}
 	return func() tea.Msg {
+		// Browser sign-ins answer {url}; device codes {userCode, verificationURI}.
 		var out struct {
 			UserCode        string `json:"userCode"`
 			VerificationURI string `json:"verificationURI"`
+			URL             string `json:"url"`
 			Expires         int    `json:"expires"`
+			Interval        int    `json:"interval"`
 			Error           *struct {
 				Message string `json:"message"`
 			} `json:"error"`
 		}
-		if err := loginRound(api, map[string]any{"id": id}, &out); err != nil {
+		if err := loginRound(api, body, &out); err != nil {
 			return loginCodeMsg{id: id, err: err}
 		}
 		if out.Error != nil {
 			return loginCodeMsg{id: id, err: errors.New(out.Error.Message)}
+		}
+		link := out.VerificationURI
+		if out.UserCode == "" && out.URL != "" {
+			link = out.URL
+		}
+		if link == "" {
+			link = out.URL
+		}
+		if link == "" {
+			return loginCodeMsg{id: id, err: errors.New("the router sent no sign-in link for " + id + "; try /login " + id + " again")}
 		}
 		if out.Expires <= 0 {
 			out.Expires = 900
@@ -264,7 +342,7 @@ func (m *model) loginCommand(fields []string) tea.Cmd {
 				out.Expires = 600
 			}
 		}
-		return loginCodeMsg{id: id, code: out.UserCode, url: out.VerificationURI, expires: out.Expires, browser: out.UserCode == ""}
+		return loginCodeMsg{id: id, code: out.UserCode, url: link, expires: out.Expires, interval: out.Interval, browser: out.UserCode == ""}
 	}
 }
 

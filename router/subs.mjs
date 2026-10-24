@@ -4,6 +4,7 @@
 import { readFileSync, writeFileSync, statSync, chmodSync } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import http from 'node:http'
+import { grokFetch, grokRequestHeaders } from './wire.mjs'
 
 const here = new URL('.', import.meta.url)
 
@@ -92,7 +93,8 @@ export const SUBSCRIPTIONS = [
   {
     id: 'grok',
     name: 'Grok (xAI)',
-    kind: 'browser',
+    kind: 'device',
+    discoveryURL: 'https://auth.x.ai/.well-known/openid-configuration',
     authorizeURL: 'https://auth.x.ai/oauth2/authorize',
     tokenURL: 'https://auth.x.ai/oauth2/token',
     deviceURL: 'https://auth.x.ai/oauth2/device/code',
@@ -100,13 +102,11 @@ export const SUBSCRIPTIONS = [
     redirectPort: 56121,
     redirectPath: '/callback',
     redirectHost: '127.0.0.1',
-    scopes: 'openid profile email offline_access api:access',
-    // Adapted from xAI's grok-build (Apache-2.0): endpoints, OAuth auth,
-    // and sampler User-Agent (xai-grok-version 1.0.45).
+    // adapted from router-for-me/CLIProxyAPI (MIT): scope, CLI proxy and chat models.
+    scopes: 'openid profile email offline_access grok-cli:access api:access',
     apiBase: 'https://cli-chat-proxy.grok.com/v1',
-    apiHeaders: { 'X-XAI-Token-Auth': 'xai-grok-cli', 'x-grok-client-identifier': 'grok-shell', 'x-grok-client-version': '1.0.45' },
-    apiUserAgent: `grok-shell/1.0.45 (${({ darwin: 'macos', win32: 'windows' })[process.platform] ?? process.platform}; ${({ x64: 'x86_64', arm64: 'aarch64', ia32: 'x86' })[process.arch] ?? process.arch})`,
-    models: ['grok-4.7'],
+    wire: 'grok',
+    models: ['grok-4.7', 'grok-4.7-build-fast', 'grok-4.6', 'grok-build-0.1', 'grok-4.5', 'grok-4.3', 'grok-4.20-0309-reasoning', 'grok-4.20-0309-non-reasoning', 'grok-4.20-multi-agent-0309', 'grok-3-mini', 'grok-3-mini-fast', 'grok-composer-2.5-fast'],
   },
   {
     id: 'antigravity',
@@ -187,7 +187,7 @@ const refreshOAuth = async sub => {
   if (!stored?.refreshToken) throw new Error(`${sub.id} sign-in expired; run /login ${sub.id} again`)
   const body = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: stored.refreshToken, client_id: sub.clientID })
   if (sub.clientSecret) body.set('client_secret', sub.clientSecret)
-  const res = await fetch(sub.tokenURL, {
+  const res = await fetch(stored.tokenURL ?? sub.tokenURL, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
     body,
@@ -211,13 +211,14 @@ const refreshOAuth = async sub => {
 export const subToken = async sub => {
   const stored = loadSubs()[sub.id]
   if (!stored?.accessToken) throw new Error(`not signed in to ${sub.id}`)
+  if (needsGrokConsent(sub.id)) throw new Error(GROK_CONSENT_ERROR)
   // Older signed-in Grok accounts predate the persisted CLI session identity.
   if (sub.id === 'grok' && !stored.sessionId) {
     stored.sessionId = randomUUID()
     const file = subsPath()
     saveSubs(file, { ...loadSubs(file), [sub.id]: stored })
   }
-  if (sub.kind === 'browser') {
+  if (sub.kind === 'browser' || sub.id === 'grok') {
     if (!stored.expiresAt || stored.expiresAt > Date.now() + 120_000) return { token: stored.accessToken }
     const fresh = await refreshOAuth(sub)
     return { token: fresh.accessToken }
@@ -261,16 +262,26 @@ const cancelLogin = id => {
 // loginErrors remembers the last sign-in failure per account, so /login can
 // say what went wrong instead of failing silently.
 const loginErrors = new Map()
-export const loginError = id => loginErrors.get(id) ?? loadSubs()[id]?.loginError ?? null
+const GROK_CONSENT_ERROR = 'sign in to grok again to give Prism access to your Grok plan (/login grok)'
+const needsGrokConsent = id => {
+  const account = loadSubs()[id]
+  const scopes = account?.scopes
+  return id === 'grok' && Boolean(account?.accessToken) && !(Array.isArray(scopes) ? scopes : String(scopes ?? '').split(/\s+/)).includes('grok-cli:access')
+}
+export const loginError = id => needsGrokConsent(id) ? GROK_CONSENT_ERROR : loginErrors.get(id) ?? loadSubs()[id]?.loginError ?? null
 export const loginStatus = sub => {
   for (const entry of browserPending.values()) {
     if (Date.now() >= entry.until) expireBrowserLogin(entry)
   }
-  const pending = [...browserPending.values()].some(entry => entry.sub.id === sub.id)
+  if (pending.has(sub.id) && Date.now() >= pending.get(sub.id).until) {
+    pending.delete(sub.id)
+    loginErrors.set(sub.id, 'the code expired; run /login again')
+  }
+  const waiting = pending.has(sub.id) || [...browserPending.values()].some(entry => entry.sub.id === sub.id)
   return {
     id: sub.id, name: sub.name,
-    signedIn: !pending && !finishingAccounts.has(sub.id) && Boolean(loadSubs()[sub.id]?.accessToken),
-    pending,
+    signedIn: !waiting && !finishingAccounts.has(sub.id) && !needsGrokConsent(sub.id) && Boolean(loadSubs()[sub.id]?.accessToken),
+    pending: waiting,
     finishing: finishingAccounts.has(sub.id),
     models: visibleModels(sub.id, loadSubs()[sub.id]?.models).length,
     error: loginError(sub.id),
@@ -484,6 +495,8 @@ const finishBrowserLogin = async (code, state, retry = false) => {
     loginErrors.delete(sub.id)
     const account = {
       accessToken: data.access_token,
+      scopes: data.scope ?? sub.scopes,
+      tokenURL: sub.tokenURL,
       refreshToken: data.refresh_token,
       expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
       accountId: accountIdOf(data.id_token),
@@ -602,7 +615,7 @@ const HIDDEN = {
   claude: [/-20\d{6}$/, /^claude-[0-3]-/, /^claude-(opus|sonnet|haiku)-4-[0-6]$/, /^claude-haiku-4/],
   antigravity: [/^gpt-oss/, /^tab_/, /^chat_\d+/, /lite/, /^gemini-[0-2]\./, /^gemini-3-/, /^gemini-3\.[0-5]-/, /-tiered$/, /-extra-low$/, /-agent$/, /-thinking$/],
   copilot: [/^gpt-3/, /^gpt-4(?!\.1)/, /^o1/, /^text-/, /^copilot-/],
-  grok: [/^grok-[0-2]/, /^grok-3/, /mini-fast/],
+  grok: [/^grok-[0-2]/, /video/i],
 }
 
 // visibleModels keeps the models worth showing for an account.
@@ -615,7 +628,7 @@ export const visibleModels = (id, list) => {
 // subscriptionProviders turns signed-in accounts into router providers. Their
 // routes are paid-marked: they answer when picked by name, never for auto.
 export const subscriptionProviders = () =>
-  SUBSCRIPTIONS.filter(sub => visibleModels(sub.id, loadSubs()[sub.id]?.models).length).map(sub => ({
+  SUBSCRIPTIONS.filter(sub => loadSubs()[sub.id]?.accessToken && !needsGrokConsent(sub.id) && visibleModels(sub.id, loadSubs()[sub.id]?.models).length).map(sub => ({
     name: sub.id,
     baseURL: loadSubs()[sub.id].apiBase ?? sub.apiBase,
     models: visibleModels(sub.id, loadSubs()[sub.id].models).map(name => ({ name, family: name.split('/').pop().split(/[-_.]/)[0], roles: [], vision: false })),
@@ -629,12 +642,26 @@ const pending = new Map()
 export const startLogin = async sub => {
   const generation = cancelLogin(sub.id)
   loginErrors.delete(sub.id)
+  // OIDC discovery and form-encoded device grants:
+  // adapted from router-for-me/CLIProxyAPI (MIT)
+  let deviceURL = sub.deviceURL, tokenURL = sub.tokenURL
+  if (sub.id === 'grok' && sub.discoveryURL) {
+    try {
+      const discovery = await fetch(sub.discoveryURL, { signal: AbortSignal.timeout(10_000) })
+      if (discovery.ok) {
+        const data = await discovery.json()
+        deviceURL = data.device_authorization_endpoint ?? deviceURL
+        tokenURL = data.token_endpoint ?? tokenURL
+      }
+    } catch { /* Configured endpoints remain a fallback if discovery is down. */ }
+  }
+  const params = { client_id: sub.clientID, ...(sub.scopes && { scope: sub.scopes }) }
   let res
   try {
-    res = await fetch(sub.deviceURL, {
+    res = await fetch(deviceURL, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json', 'user-agent': 'prism-router' },
-      body: JSON.stringify({ client_id: sub.clientID }),
+      headers: { 'content-type': sub.id === 'grok' ? 'application/x-www-form-urlencoded' : 'application/json', accept: 'application/json', 'user-agent': 'prism-router' },
+      body: sub.id === 'grok' ? new URLSearchParams(params) : JSON.stringify(params),
       signal: AbortSignal.timeout(10_000),
     })
   } catch {
@@ -648,9 +675,11 @@ export const startLogin = async sub => {
     return { error: `${sub.name} answered something Prism could not read` }
   }
   if (data.error) return { error: data.error_description ?? data.error }
+  if (sub.id === 'grok' && (!data.device_code || !data.user_code || !(data.verification_uri_complete ?? data.verification_uri))) return { error: `${sub.name} returned an incomplete device code` }
   if (loginGenerations.get(sub.id) !== generation) return { error: 'the sign-in was cancelled' }
-  pending.set(sub.id, { generation, deviceCode: data.device_code, interval: data.interval ?? 5, until: Date.now() + (data.expires_in ?? 900) * 1000, timer: null })
-  return { userCode: data.user_code, verificationURI: data.verification_uri, expires: data.expires_in ?? 900 }
+  const expires = sub.id === 'grok' ? Math.min(data.expires_in ?? 1800, 1800) : data.expires_in ?? 900
+  pending.set(sub.id, { generation, tokenURL, deviceCode: data.device_code, interval: data.interval ?? 5, until: Date.now() + expires * 1000, timer: null })
+  return { userCode: data.user_code, verificationURI: data.verification_uri_complete ?? data.verification_uri, expires }
 }
 
 // pollLogin does one token poll. On success it stores the account, probes its
@@ -662,12 +691,13 @@ export const pollLogin = async sub => {
     pending.delete(sub.id)
     return { status: 'error', message: 'the code expired; run /login again' }
   }
+  const params = { client_id: sub.clientID, device_code: state.deviceCode, grant_type: 'urn:ietf:params:oauth:grant-type:device_code' }
   let res
   try {
-    res = await fetch(sub.tokenURL, {
+    res = await fetch(state.tokenURL ?? sub.tokenURL, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json', 'user-agent': 'prism-router' },
-      body: JSON.stringify({ client_id: sub.clientID, device_code: state.deviceCode, grant_type: 'urn:ietf:params:oauth:grant-type:device_code' }),
+      headers: { 'content-type': sub.id === 'grok' ? 'application/x-www-form-urlencoded' : 'application/json', accept: 'application/json', 'user-agent': 'prism-router' },
+      body: sub.id === 'grok' ? new URLSearchParams(params) : JSON.stringify(params),
       signal: AbortSignal.timeout(10_000),
     })
   } catch {
@@ -692,7 +722,10 @@ export const pollLogin = async sub => {
   pending.delete(sub.id)
   const file = subsPath()
   const subs = { ...loadSubs(file) }
-  subs[sub.id] = { accessToken: data.access_token, models: [] }
+  subs[sub.id] = {
+    accessToken: data.access_token, scopes: data.scope ?? sub.scopes, models: [],
+    ...(sub.id === 'grok' && { refreshToken: data.refresh_token, expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000, tokenURL: state.tokenURL, sessionId: randomUUID() }),
+  }
   saveSubs(file, subs)
   const models = await probeSubModels(sub)
   if (loginGenerations.get(sub.id) !== state.generation) return { status: 'error', message: 'the sign-in was cancelled' }
@@ -705,7 +738,7 @@ export const pollLogin = async sub => {
     : models.error
   if (note && !visible.length) loginErrors.set(sub.id, note)
   else loginErrors.delete(sub.id)
-  const fresh = { ...loadSubs(file), [sub.id]: { ...subs[sub.id], models: list, ...(note && !visible.length && { loginError: note }) } }
+  const fresh = { ...loadSubs(file), [sub.id]: { ...loadSubs(file)[sub.id], models: list, ...(note && !visible.length && { loginError: note }) } }
   saveSubs(file, fresh)
   return { status: 'ok', models: visibleModels(sub.id, list), note }
 }
@@ -731,12 +764,13 @@ const probeSubModels = async sub => {
       const chat = ids.filter(id => !/embed|whisper|tts|transcri|rerank|moderat|dall-e|image|voice|guard/i.test(id))
       return chat.length ? { models: [...new Set(chat)].slice(0, 300) } : { error: 'the service listed no chat models' }
     }
-    const res = await fetch(`${sub.apiBase}/models${sub.modelsQuery ? `?${new URLSearchParams(sub.modelsQuery)}` : ''}`, {
+    const res = await (sub.id === 'grok' ? grokFetch : fetch)(`${sub.apiBase}/models${sub.modelsQuery ? `?${new URLSearchParams(sub.modelsQuery)}` : ''}`, {
       headers: {
         authorization: `Bearer ${token}`,
         accept: 'application/json',
         'user-agent': sub.apiUserAgent ?? 'prism-router',
         ...(sub.apiHeaders ?? {}),
+        ...(sub.id === 'grok' && { ...grokRequestHeaders({}, stored.sessionId), accept: 'application/json' }),
         ...(stored.accountId && { 'chatgpt-account-id': stored.accountId }),
         ...(stored.apiKey && { 'x-goog-api-key': stored.apiKey }),
         ...(sub.id === 'copilot' && { 'copilot-integration-id': 'prism' }),
@@ -755,7 +789,7 @@ const probeSubModels = async sub => {
         if (id.trim()) ids.push(id.trim())
       }
     }
-    const chat = ids.filter(id => !/embed|whisper|tts|transcri|rerank|moderat|dall-e|image|voice|guard/i.test(id))
+    const chat = ids.filter(id => !/embed|whisper|tts|transcri|rerank|moderat|dall-e|image|video|voice|guard/i.test(id))
     return chat.length ? { models: [...new Set(chat)].slice(0, 300) } : { error: 'the service listed no chat models' }
   } catch (error) {
     return { error: error.message }

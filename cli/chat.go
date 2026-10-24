@@ -13,6 +13,7 @@ type seg struct {
 	bold  bool
 	grad  bool
 	phase float64
+	url   string // drawn as an OSC 8 hyperlink
 }
 
 type line struct {
@@ -265,6 +266,26 @@ func (m model) transcript(t theme, width int) []line {
 					}
 				}
 			}
+		case "login":
+			// A sign-in in progress: e.arg is the link, e.tool the device code.
+			gap()
+			out = append(out, line{indent: 2, segs: []seg{{text: e.text, fg: t.fg, bold: true}}})
+			for _, l := range e.lines {
+				switch {
+				case l == "":
+					out = append(out, line{})
+				case l == e.arg:
+					for _, row := range wrap(l, width-10) {
+						out = append(out, line{indent: 6, segs: []seg{{text: row, fg: t.at(0.6), url: e.arg}}})
+					}
+				case e.tool != "" && l == e.tool:
+					out = append(out, line{indent: 6, segs: []seg{{text: l, fg: t.at(0.3), bold: true}, {text: "   copied to your clipboard if your terminal allows it", fg: t.muted}}})
+				default:
+					for _, row := range wrap(l, width-8) {
+						out = append(out, line{indent: 4, segs: []seg{{text: row, fg: t.fg}}})
+					}
+				}
+			}
 		case "cmd":
 			gap()
 			if e.view != nil {
@@ -470,6 +491,11 @@ func drawChat(cv *canvas, t theme, m model) {
 				lx = cv.grad(lx, y, s.text, t, s.phase, 10, s.bold)
 				continue
 			}
+			if s.url != "" {
+				cv.link(lx, y, s.text, s.url, s.fg, s.bold)
+				lx += len([]rune(s.text))
+				continue
+			}
 			lx = cv.text(lx, y, s.text, s.fg, s.bold)
 		}
 	}
@@ -531,11 +557,14 @@ func drawInput(cv *canvas, t theme, m model, x, y, w, h int, n, enter float64) {
 		return
 	}
 	if len(m.input) == 0 {
-		hint := "ask anything…"
+		hint, col := "ask anything…", mix(t.bg, t.muted, enter)
 		if m.busy {
 			hint = "working…  esc to stop"
 		}
-		cv.text(tx, y+1, hint, mix(t.bg, t.muted, enter), false)
+		if m.loginWaiting != "" {
+			hint, col = loginInputHint+"  ·  esc to cancel", t.at(0.3)
+		}
+		cv.text(tx, y+1, hint, col, false)
 		return
 	}
 	rows, hidden := lastRows(m.inputRows(w - 6))

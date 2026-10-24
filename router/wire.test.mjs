@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { toCodex, CodexStream, toAnthropic, AnthropicStream, toGemini, GeminiStream, toAntigravity, AntigravityStream, wireFor } from './wire.mjs'
+import { toCodex, CodexStream, toGrok, createGrokFetch, toAnthropic, AnthropicStream, toGemini, GeminiStream, toAntigravity, AntigravityStream, wireFor } from './wire.mjs'
 
 const chat = {
   model: 'm',
@@ -38,6 +38,62 @@ test('codex stream becomes chat chunks', () => {
   assert.equal(JSON.parse(lines[2].slice(6)).choices[0].finish_reason, 'tool_calls')
   assert.ok(out.includes('data: [DONE]'))
   assert.equal(s.done, true)
+})
+
+test('Grok reuses Responses input and tool calls without Codex-only fields', () => {
+  const out = toGrok({ ...chat, temperature: 0.4, tool_choice: { type: 'function', function: { name: 'read' } } })
+  assert.deepEqual(out.input, toCodex(chat).input)
+  assert.deepEqual(out.tools, toCodex(chat).tools)
+  assert.equal(out.instructions, 'be nice')
+  assert.equal(out.max_output_tokens, 1000)
+  assert.equal(out.temperature, 0.4)
+  assert.deepEqual(out.tool_choice, { type: 'function', name: 'read' })
+  assert.equal(out.reasoning, undefined)
+  assert.equal(out.include, undefined)
+  const s = new (wireFor('grok').stream)()
+  const outStream = s.write('data: {"type":"response.output_text.delta","delta":"hi"}\n\ndata: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"c1","name":"read","arguments":"{}"}}\n\ndata: {"type":"response.incomplete","response":{"usage":{"input_tokens":3,"output_tokens":4}}}\n\n')
+  const chunks = outStream.split('\n\n').filter(l => l && l !== 'data: [DONE]').map(l => JSON.parse(l.slice(6)))
+  assert.equal(chunks[0].choices[0].delta.content, 'hi')
+  assert.deepEqual(chunks[1].choices[0].delta.tool_calls[0].function, { name: 'read', arguments: '{}' })
+  assert.equal(chunks[1].choices[0].delta.tool_calls[0].id, 'c1')
+  assert.equal(chunks[2].choices[0].finish_reason, 'length')
+  assert.deepEqual(chunks[2].usage, { prompt_tokens: 3, completion_tokens: 4 })
+  assert.equal(s.done, true)
+})
+
+test('Grok version lookup caches for 3h, coalesces lookups and refreshes once on 426', async () => {
+  let now = 0, lookups = 0, posts = 0
+  const versions = []
+  const grokFetch = createGrokFetch({ now: () => now, fetcher: async (url, options) => {
+    if (url === 'https://registry.npmjs.org/@xai-official/grok/latest') {
+      lookups++
+      return Response.json({ version: `1.0.${46 + lookups}` })
+    }
+    versions.push(new Headers(options.headers).get('x-grok-client-version'))
+    assert.equal(new Headers(options.headers).get('user-agent'), `xai-grok-workspace/${versions.at(-1)}`)
+    return new Response('', { status: ++posts === 3 ? 426 : 200 })
+  } })
+  await Promise.all([grokFetch('https://fake/responses', {}), grokFetch('https://fake/models', {})])
+  assert.equal(lookups, 1)
+  await grokFetch('https://fake/responses', {})
+  assert.equal(lookups, 2)
+  assert.deepEqual(versions, ['1.0.47', '1.0.47', '1.0.47', '1.0.48'])
+  now += 3 * 60 * 60_000
+  await grokFetch('https://fake/models', {})
+  assert.equal(lookups, 3)
+})
+
+test('Grok version resolution falls back and never retries a 426 more than once', async () => {
+  let lookups = 0, posts = 0
+  const grokFetch = createGrokFetch({ fetcher: async (url, options) => {
+    if (url.includes('registry.npmjs.org')) { lookups++; throw new Error('offline') }
+    assert.equal(new Headers(options.headers).get('x-grok-client-version'), '1.0.46')
+    posts++
+    return new Response('', { status: 426 })
+  } })
+  assert.equal((await grokFetch('https://fake/responses', {})).status, 426)
+  assert.equal(posts, 2)
+  assert.equal(lookups, 2)
 })
 
 test('chat becomes an Anthropic messages request', () => {
