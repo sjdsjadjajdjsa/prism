@@ -167,6 +167,29 @@ Skills are short playbooks Prism follows for common jobs. It picks the right one
 
 `/skills` lists them. Add your own as `.prism/skills/<name>.md` in a project or `~/.config/prism/skills/<name>.md`. See [cli/skills/README.md](cli/skills/README.md) for the format.
 
+## Crew mode (helper agents)
+
+**Subagents? Why didn't you say so?**
+
+There's no command for them, and you don't need one. Just tell Prism what you want done and that you'd like helpers:
+
+```
+use a few helpers: one builds the page, one writes the tests
+```
+```
+do these in parallel: fix the login bug and add a dark theme
+```
+
+Prism does the rest:
+
+- **Splits the work.** It hands out the job to 2 or 3 helpers and gives each one its own files. A helper can only change its own files, so two helpers never edit the same thing.
+- **Watches them for you.** A live panel shows what each helper is doing, step by step, in the terminal and in the browser.
+- **Keeps them going.** If a free model is busy, the helper waits for one to free up and carries on. Helpers spread across different models, so they don't all wait on the same one. A helper that runs too long is stopped instead of hanging forever.
+- **Checks the result.** If you ask for a review, a separate read-only helper looks over everything they changed. Any problems it finds go back for one round of fixes.
+- **Tests it at the end.** When the helpers finish, Prism runs your project's checks itself before telling you it's done.
+
+Press `esc` at any time to stop the whole crew.
+
 ## Tools and plugins (MCP)
 
 Prism can connect MCP servers to give the AI extra tools such as file access, web pages, library docs, git or GitHub. Add a `.prism/mcp.json` like this to connect the filesystem server:
