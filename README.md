@@ -1,11 +1,11 @@
 <p align="center"><img src="docs/splash.png" alt="Prism start screen" width="820"></p>
 
 <h3 align="center">Free AI that codes, beautifully.</h3>
-<p align="center">No subscription. No credit card. No account needed.</p>
+<p align="center">No subscription. No credit card. No account needed.<br>Already pay for ChatGPT, Claude, Grok, Gemini or Copilot? Sign in and use your plan too.</p>
 
 <p align="center"><img src="docs/prism-demo.gif" alt="Prism builds a todo app with free AI, then the app is used in Firefox" width="820"></p>
 
-Prism is a coding assistant for your terminal that runs entirely on **free AI**. It reads your code, edits files, runs commands and checks its own work. When it builds a web page, it opens it in a headless browser and clicks through it like a person (add, tick, filter, reload) before calling it done.
+Prism is a coding assistant for your terminal that runs on **free AI**, or on the AI plan you already pay for. It reads your code, edits files, runs commands and checks its own work. When it builds a web page, it opens it in a headless browser and clicks through it like a person (add, tick, filter, reload) before calling it done.
 
 It runs inside Docker, so it can only touch the one folder you give it.
 
@@ -40,6 +40,7 @@ The first start takes a few minutes while Docker builds Prism; later starts take
 | System | Status |
 | --- | --- |
 | Linux (Ubuntu and Ubuntu-based) | tested on Linux Mint 22, which is built on Ubuntu 24.04 |
+| Linux (Arch-based: CachyOS, Omarchy, Manjaro) | builds and runs on Omarchy; the installer shows `pacman` steps and sets up fish |
 | macOS | should work with Docker Desktop, not tested yet |
 | Windows | tested on Windows 11 inside WSL (Debian) with Docker Desktop |
 
@@ -68,7 +69,7 @@ A **router** is a small helper that picks a free AI for each step, and a **key**
 
 Prism works with **no keys at all**. Out of the box it uses free models from Kilo Gateway, BlockRun and LLM7; the router below hides most of the slowness.
 
-Want it faster and smarter? `prism setup` walks you through free keys, about a minute each. None of them ask for a card. Already pay for a model? `/key <name> <secret>` inside Prism adds it (22 presets, or any OpenAI-compatible service with `prism keys add`); it only answers when you pick it by name. Pay for ChatGPT, Claude, Grok, Google Antigravity or Copilot? `/login` lists them: pick one with the arrow keys or the mouse, press Enter, sign in in your browser, and your plan's models appear. These sign-ins use the same app IDs as each vendor's own tools, so a vendor can change or block them at any time, and using them may go against its terms. `/model` picks the model for the chat the same way; `auto` lets Prism choose again.
+Want it faster and smarter? `prism setup` walks you through free keys, about a minute each. None of them ask for a card.
 
 | Provider | What you get | Key |
 | --- | --- | --- |
@@ -82,6 +83,24 @@ Want it faster and smarter? `prism setup` walks you through free keys, about a m
 | OpenRouter | free MiniMax and others (50 requests a day) | free |
 | Z.ai | GLM-4.7 Flash | free |
 | Ollama | any model on your own computer | none |
+
+## Use the plan you already pay for
+
+Prism works with every major AI subscription. Type `/login`, pick your plan with the arrow keys or the mouse, press Enter and sign in in your browser. Your plan's real models appear in `/models`, and `/model` picks one for the chat (`/model auto` goes back to free models). They only answer when you pick them, so free `auto` never spends your plan.
+
+| Plan | Models you get | How you sign in |
+| --- | --- | --- |
+| ChatGPT (Plus, Pro) | your plan's GPT models | browser |
+| Claude (Pro, Max) | Claude Sonnet, Opus, Haiku | browser |
+| Grok (SuperGrok) | Grok | browser, or a device code |
+| Google Antigravity | Gemini, plus Claude on paid plans | browser with your Google account |
+| GitHub Copilot | the models your Copilot plan includes | device code |
+
+If the sign-in page shows a code instead of sending you back, paste the code (or the whole link) into Prism and press Enter. `/login` shows who you're signed in to; `/login rm <name>` signs out. Sign-ins are saved on your computer only (`subscriptions.json`, readable only by you) and renew themselves.
+
+Pay per use instead? `/key <name> <secret>` adds a key for 22 services (OpenAI, Anthropic, DeepSeek, xAI, Mistral, Gemini, OpenRouter and more), and `prism keys add` connects any OpenAI-compatible service. Like plans, they only answer when you pick them.
+
+> These sign-ins use the same app IDs as each company's own tools, so a company can change or block them at any time, and using them may go against its terms.
 
 ### How it stays fast
 
@@ -185,7 +204,7 @@ The same Prism, Shard and beam included, in your browser. It opens by itself; th
 
 <p align="center"><img src="docs/web.png" alt="Prism in the browser, firing the Last Prism beam" width="820"></p>
 
-Inside the terminal app, `/web` moves the current chat to your browser (same history and memory). Close the tab or press enter in the terminal to come back, and everything done in the browser is there. The browser version understands the same slash commands, with the same suggestion list.
+Inside the terminal app, `/web` moves the current chat to your browser (same history and memory). Close the tab or press enter in the terminal to come back, and everything done in the browser is there. The browser version understands the same slash commands, with the same suggestion list. Commands that need a choice (`/model`, `/login`, `/theme`, `/resume`, `/mcp add`, `/tabs`) open a list you can click or drive with the arrow keys, Enter and Esc, and it fits a phone screen too.
 
 ## Project tree
 
@@ -231,7 +250,13 @@ Prism can search the web and read pages when it needs facts it doesn't have, lik
 | `pgup` `pgdown`, mouse wheel | scroll (smooth, with a scrollbar) |
 | click a `▸ N steps` line | open folded steps from an earlier turn (`ctrl+o` opens all of them) |
 | `/` | list every command, `tab` completes |
-| `/models` `/new` `/resume` `/init` `/skills` `/mcp` `/memory` `/usage` `/beam` `/quiet` `/web` `/help` `/quit` | |
+| `/model` `/models` | pick the model for this chat · see every model |
+| `/login` `/key` | sign in to a plan you pay for · add a provider key |
+| `/new` `/clear` `/compact` `/undo` `/resume` | fresh chat · clear · shorten the chat · undo the last changes · reopen a chat |
+| `/skills` `/init` `/memory` `/mcp` | playbooks · write PRISM.md · what Prism remembers · connected tools |
+| `/files` `/open` `/tree` | browse and read project files |
+| `/tabs` `/rename` `/ask` | several chats at once |
+| `/web` `/usage` `/theme` `/beam` `/quiet` `/help` `/quit` | |
 
 ## Meet Shard
 
@@ -248,7 +273,7 @@ Shard is Prism's mascot. He reacts to what the AI is doing: thinking, working, d
 - Prism only sees the folder you start it in, and won't start in your home folder or `/`. The one exception is `prism fix`, which you start on purpose: it runs on your computer and asks before every change.
 - Commands run inside the Docker box, not on your computer. Files it creates belong to you.
 - Keys live in `keys.conf`, readable only by you and ignored by git.
-- The router only listens on `127.0.0.1`, so other devices on your network can't use it.
+- The router only listens on `127.0.0.1`, so other devices on your network can't use it, and it refuses requests from web pages. Changing keys or sign-ins needs a secret (`.router-token`) that the AI's own commands can't read.
 - **Free AI services may keep what you send them.** Don't paste passwords or private data.
 
 ## How it's built

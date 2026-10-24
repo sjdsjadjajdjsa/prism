@@ -54,7 +54,9 @@ Steps in `cli/agent.go`:
 - `complete` orders routes with `ordered` (rank + learned first-byte speed, skipping cooldowns), then `launch` starts one route and hedges another after `HEDGE_MS` (6 s) or `COLD_HEDGE_MS` (2 s), up to 3 live at once and at most `PRISM_PROVIDER_INFLIGHT` per provider. The first route to send a byte wins (`pump`); the rest are aborted.
 - Request fields: `prism_quick` merges the provider's `quick` params, `prism_avoid` moves routes to the back, `prism_exclude_families` drops families. `model` may be `auto`, `auto:code|fast|review` (role-ranked), `auto:vision`, or an exact route id. Requests with `x-prism-crew: 1` don't hedge.
 - Failures set cooldowns via `pauseFor` (429 → retry-after, 401/402/403 → 15 min, 404 → 1 h, 5xx/network → 30 s). Speed stats persist to `STATS_FILE` (`/data/speed.json` in Docker).
-- Endpoints: `POST /v1/chat/completions`, `GET /v1/models`, `GET /status` (JSON, or text with `?format=text`), `GET /health`.
+- Endpoints: `POST /v1/chat/completions`, `GET /v1/models`, `GET /status` (JSON, or text with `?format=text`), `GET /health`, `GET|POST /keys` (provider keys), `GET|POST /logins` (subscription sign-ins: start, poll, `{id, code}` for a pasted code, `signOut`), `GET /logins/pending`, and the OAuth callbacks.
+- Guard: `localOnly` (`router/subs.mjs`) refuses any Host other than loopback, `router` or `host.docker.internal` on the router's port, and any foreign Origin. Writes to `/keys` and `/logins` need `x-prism-token` when `PRISM_ROUTER_TOKEN` is set; the launcher creates `.router-token` once and passes it to both containers. The CLI moves the token out of its environment at start (`cli/routerauth.go`), so tool commands can't read it.
+- Subscriptions (`router/subs.mjs`): ChatGPT, Claude, Grok, Antigravity (browser sign-in, PKCE, local callback or pasted code) and Copilot (device code). After sign-in the router asks the service for the plan's models (`probeSubModels`, filtered by `visibleModels`), and `router/wire.mjs` translates chat requests to each vendor's format.
 - `router/check.mjs` sends a tiny request to every model in `providers.json` and prints a report.
 
 ## Speed and prompt caching
@@ -128,7 +130,9 @@ Providers that cache prompts reuse work only for a byte-identical prefix, so eac
 | `POST /api/chat` | Runs `Agent.Run` and streams events as SSE (`route`, `text`, `reasoning`, `tool_start`, `tool_done`, `usage`, `done`, `error`, crew events) |
 | `POST /api/stop` | Cancels the running chat |
 | `POST /api/new` | Starts a fresh session |
-| `POST /api/command` | Runs a slash command |
+| `POST /api/command` | Runs a slash command; choices come back as a `picker` for the web list |
+| `GET /api/commands` | The command list from `cli/commands.go`, so web and terminal match |
+| `POST /api/login` | Polls a sign-in, or finishes it with a pasted `{id, code}` |
 | `GET /api/ping` | Keep-alive; updates last-seen |
 
 `localOnly` rejects any Host other than loopback on the public port and any POST without a loopback Origin.

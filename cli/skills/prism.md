@@ -54,7 +54,7 @@ Paid or own models: `/key <name> <secret>` with a preset name: openai, anthropic
 
 ## Logins (plans you already pay for)
 
-Names: chatgpt, claude, grok, antigravity (Google: Gemini, plus Claude on paid plans), copilot (`/login` shows the current list, and which are signed in). `/login <name>` starts sign-in. Copilot gives a short code and a web address: open it and type the code. The others open a browser page: sign in there, then come back; Prism notices by itself. If the browser does not open, copy the link shown. Signed-in plan models show up in `/model` and, like paid keys, answer only when picked. `/login rm <name>` signs out. If sign-in fails, the message says why; try `/login <name>` again.
+Names: chatgpt, claude, grok, antigravity (Google: Gemini, plus Claude on paid plans), copilot (`/login` shows the current list, and which are signed in). `/login <name>` starts sign-in. Copilot gives a short code and a web address: open it and type the code. The others open a browser page: sign in there, then come back; Prism notices by itself. If the browser does not open, copy the link shown. If the sign-in page shows a code instead of sending you back (Grok does), paste the code or the whole link into Prism and press Enter, or type `/login <name> <code>`. Signed-in plan models show up in `/model` and, like paid keys, answer only when picked. `/login rm <name>` signs out. If sign-in fails, the message says why; try `/login <name>` again.
 
 ## The /model picker
 

@@ -53,7 +53,9 @@ curl -fsSL https://raw.githubusercontent.com/sjdsjadjajdjsa/prism/main/install.s
 
 Now jump to [Your first run](#your-first-run).
 
-> Other Linux (Fedora, Arch, …): install Docker (with the Compose plugin, so that `docker compose version` works), `git` and `curl` using the [official guide](https://docs.docker.com/engine/install/) and your system's package manager, then follow steps 2 to 5. On Debian 12, `docker-compose-v2` may not exist; use the official guide instead.
+> Arch-based Linux (CachyOS, Omarchy, Manjaro): run `sudo pacman -S --needed docker docker-compose docker-buildx git curl`, then `sudo systemctl enable --now docker` and `sudo usermod -aG docker $USER`, log out and back in, then follow steps 2 to 5. `prism install` also sets up the fish shell.
+
+> Other Linux (Fedora, …): install Docker (with the Compose plugin, so that `docker compose version` works), `git` and `curl` using the [official guide](https://docs.docker.com/engine/install/) and your system's package manager, then follow steps 2 to 5. On Debian 12, `docker-compose-v2` may not exist; use the official guide instead.
 
 ---
 

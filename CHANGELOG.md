@@ -3,6 +3,18 @@
 ## Unreleased
 
 New
+- Paste the sign-in code: when a sign-in page shows a code instead of sending you back (Grok does), paste the code or the whole link into Prism (terminal or browser), or type `/login grok <code>`. A wrong code lets you try again. Works for every browser sign-in.
+- The browser version now matches the terminal: `/model`, `/login`, `/theme`, `/resume`, `/mcp add` and `/tabs` open a list you can click or drive with the arrow keys, Enter and Esc; `/clear`, `/compact`, `/undo`, `/files`, `/open` and `/model <name>` work there; the command list comes from the terminal's own list. `/models` filters and fits a phone screen, and long links wrap.
+- `/skills` is a short grouped summary and `/skills <name>` shows one skill; `/key` lists only keys you set; `/login` rows line up.
+
+Fixed
+- Launcher: no more `loginwatch: unbound variable` after `prism install`, `status` and other short commands; a wrong folder name stops instead of building anyway; on machines where Docker's own network has no internet, the images build with the computer's network instead of failing with a misleading buildx message.
+- Install: Arch-based systems (CachyOS, Omarchy, Manjaro) get `pacman` steps, and `prism install` adds `~/.local/bin` for the fish shell.
+- Sign-ins: Copilot no longer shows an error after a sign-in that worked; browser sign-ins wait for the model list instead of saying "no models"; signing out during a sign-in really signs out; reloading the sign-in tab no longer cancels it; a sign-in left open over 10 minutes says it timed out; "1 model" instead of "1 models".
+
+Safety
+- The router refuses requests from web pages and unknown hosts, and changing keys or sign-ins needs a secret the AI's own commands can't read. Sign-in pages only answer this computer.
+
 - Antigravity sign-in: `/login antigravity` signs in with your Google account the way the Antigravity IDE does, sets up your Code Assist project and lists your plan's models (Gemini, plus Claude Sonnet and Opus on paid plans). It replaces the old Gemini CLI sign-in. Gemini tool calls keep their thought signatures, so multi-step coding turns work on every Antigravity model.
 - Only models worth picking are listed for subscriptions: internal helpers, autocomplete and preview slots, and retired generations are hidden; current lower tiers (older Opus, GPT-5.6) stay.
 - Pick-one commands (`/model`, `/login`, `/key`, `/resume`, `/tabs`, `/theme`, `/mcp add`) open a menu: arrow keys or mouse to move, Enter or click to choose, Esc or a click outside to close, typing filters. Typed forms still work.
