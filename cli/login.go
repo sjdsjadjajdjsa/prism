@@ -39,10 +39,12 @@ type loginCodeMsg struct {
 }
 
 type loginDoneMsg struct {
-	id     string
-	models int
-	note   string
-	err    error
+	id        string
+	models    int
+	note      string
+	err       error
+	pasted    bool
+	retryable bool // the router still has a pending sign-in after a paste error
 }
 
 func fetchLogins(api string) ([]loginRow, error) {
@@ -100,6 +102,48 @@ func loginRound(api string, body map[string]any, out any) error {
 	return nil
 }
 
+// submitLoginCode finishes a pending browser sign-in using a code or callback URL.
+func submitLoginCode(api, id, code string) (models int, note string, err error) {
+	var out struct {
+		OK     bool     `json:"ok"`
+		Models []string `json:"models"`
+		Note   string   `json:"note"`
+		Error  *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := loginRound(api, map[string]any{"id": id, "code": code}, &out); err != nil {
+		return 0, "", err
+	}
+	if out.Error != nil {
+		return 0, "", errors.New(out.Error.Message)
+	}
+	if !out.OK {
+		return 0, "", errors.New("that code did not work; copy it again")
+	}
+	return len(out.Models), out.Note, nil
+}
+
+func pasteLoginCode(api, id, code string) tea.Cmd {
+	return func() tea.Msg {
+		models, note, err := submitLoginCode(api, id, code)
+		retryable := false
+		if err != nil {
+			if rows, fetchErr := fetchLogins(api); fetchErr == nil {
+				for _, row := range rows {
+					if row.ID == id {
+						retryable = row.Pending || row.Finishing
+						break
+					}
+				}
+			}
+		}
+		return loginDoneMsg{id: id, models: models, note: note, err: err, pasted: true, retryable: retryable}
+	}
+}
+
+const loginPastePrompt = "paste the code or link from the sign-in page here · enter to finish · esc to cancel"
+
 // pollLogin loops until the sign-in finishes: the router's token poll for
 // device-code accounts, or the signed-in flag for browser accounts. It runs in
 // a tea.Cmd goroutine.
@@ -132,6 +176,7 @@ func pollLogin(api, id string, interval, expires int, browser bool) tea.Cmd {
 					if row.Error != "" {
 						return loginDoneMsg{id: id, err: errors.New(row.Error)}
 					}
+					return loginDoneMsg{id: id, err: errors.New("the sign-in was cancelled")}
 				}
 				continue
 			}
@@ -193,9 +238,10 @@ func (m *model) loginCommand(fields []string) tea.Cmd {
 		}
 		return signOut(api, fields[2])
 	}
-	if len(fields) != 2 {
-		m.entries = append(m.entries, &entry{kind: "note", text: "usage: /login <name> · /login lists them all"})
-		return nil
+	if len(fields) > 2 {
+		m.loginFinished = ""
+
+		return pasteLoginCode(api, id, strings.Join(fields[2:], " "))
 	}
 	return func() tea.Msg {
 		var out struct {
@@ -258,7 +304,7 @@ func loginItems(rows []loginRow) []menuItem {
 		it := menuItem{label: id, detail: name, dot: "◌", state: "not signed in"}
 		if row.SignedIn {
 			it.dot, it.dotTone, it.stateTone = "●", toneOK, toneOK
-			it.state = fmt.Sprintf("signed in · %d models", row.Models)
+			it.state = "signed in · " + countModels(row.Models)
 		}
 		if row.Finishing || row.Pending {
 			it.state = "signing in…"
@@ -284,7 +330,7 @@ func loginsView(rows []loginRow) cmdView {
 		it := cmdItem{name: row.ID, desc: "not signed in", dot: "◌"}
 		if row.SignedIn {
 			it.dot, it.dotOK = "●", true
-			it.desc = fmt.Sprintf("signed in · %d models", row.Models)
+			it.desc = "signed in · " + countModels(row.Models)
 		}
 		if row.Finishing || row.Pending {
 			it.desc = "signing in…"
@@ -295,4 +341,19 @@ func loginsView(rows []loginRow) cmdView {
 		v.blocks = append(v.blocks, block)
 	}
 	return v
+}
+
+// countModels says "1 model" or "N models".
+func countModels(n int) string {
+	if n == 1 {
+		return "1 model"
+	}
+	return fmt.Sprintf("%d models", n)
+}
+
+func countFree(n int) string {
+	if n == 1 {
+		return "1 free model ready"
+	}
+	return fmt.Sprintf("%d free models ready", n)
 }

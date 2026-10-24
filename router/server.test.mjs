@@ -84,6 +84,39 @@ test('bad JSON is a 400', async () => {
   assert.equal(res.status, 400)
 })
 
+test('POST /logins code requires admin auth and returns the paste contract', async () => {
+  let exchanges = 0
+  const token = await upstream((req, res) => {
+    exchanges++
+    if (exchanges === 1) {
+      res.writeHead(400)
+      return res.end(JSON.stringify({ error: 'invalid_grant' }))
+    }
+    res.end(JSON.stringify({ access_token: 'pasted-token' }))
+  })
+  const models = await upstream((req, res) => res.end(JSON.stringify({ data: [{ id: 'grok-test' }] })))
+  const { url } = await startRouter([], { PRISM_ROUTER_TOKEN: 'admin' }, source => source
+    .replace("tokenURL: 'https://auth.x.ai/oauth2/token'", `tokenURL: '${token}'`)
+    .replace("apiBase: 'https://api.x.ai/v1'", `apiBase: '${models}'`)
+    .replace('redirectPort: 56121', 'redirectPort: 0'))
+  const post = (body, auth = true) => fetch(url + '/logins', { method: 'POST', headers: { 'content-type': 'application/json', ...(auth && { 'x-prism-token': 'admin' }) }, body: JSON.stringify(body) })
+  assert.equal((await post({ id: 'grok', code: 'code' }, false)).status, 403)
+  const missing = await post({ id: 'grok', code: 'code' })
+  assert.equal(missing.status, 400)
+  assert.deepEqual(await missing.json(), { error: { message: 'no sign-in is waiting for grok; run /login grok first' } })
+  assert.equal((await post({ id: 'grok' })).status, 200)
+  const bad = await post({ id: 'grok', code: 42 })
+  assert.equal(bad.status, 400)
+  const refused = await post({ id: 'grok', code: 'bad-code' })
+  assert.equal(refused.status, 400)
+  assert.deepEqual(await refused.json(), { error: { message: 'that code did not work; copy it again' } })
+  const done = await post({ id: 'grok', code: 'code' })
+  assert.equal(done.status, 200)
+  assert.deepEqual(await done.json(), { ok: true, models: ['grok-test'], note: '' })
+  assert.equal((await post({ id: 'grok', code: 'code' })).status, 400)
+  assert.equal(exchanges, 2)
+})
+
 const echo = (delay = 0) => (req, res) => {
   let raw = ''
   req.on('data', chunk => (raw += chunk))

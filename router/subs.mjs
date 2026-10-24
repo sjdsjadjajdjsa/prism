@@ -373,7 +373,51 @@ const finishSafely = async (sub, url) => {
 // pendingLoginURL tells the launcher which page to open in the user's browser.
 export const pendingLoginURL = () => [...browserPending.values()][0]?.url ?? null
 
-const finishBrowserLogin = async (code, state) => {
+// Manual paste and loopback share the same PKCE exchange and re-entry guard.
+export const submitLoginCode = async (sub, input) => {
+  const invalid = 'that code did not work; copy it again'
+  const entry = [...browserPending.values()].find(entry => entry.sub.id === sub.id)
+  if (!entry) {
+    return { error: loginError(sub.id) === 'the sign-in timed out; run /login again'
+      ? loginError(sub.id)
+      : loadSubs()[sub.id]?.accessToken ? `already signed in to ${sub.id}`
+        : `no sign-in is waiting for ${sub.id}; run /login ${sub.id} first` }
+  }
+  if (Date.now() >= entry.until) {
+    expireBrowserLogin(entry)
+    return { error: loginError(sub.id) }
+  }
+  if (typeof input !== 'string') return { error: invalid }
+  const text = input.trim()
+  let code = text, state = null, url
+  try { url = new URL(text) } catch {}
+  if (url) {
+    if (url.searchParams.has('error') || url.searchParams.has('error_description')) {
+      return { error: url.searchParams.get('error_description') || url.searchParams.get('error') || invalid }
+    }
+    code = url.searchParams.get('code')
+    state = url.searchParams.get('state')
+  } else if (text.includes('#')) {
+    const split = text.indexOf('#')
+    code = text.slice(0, split)
+    state = text.slice(split + 1)
+  }
+  if (!code || (state !== null && state !== entry.state)) return { error: invalid }
+  try {
+    const result = await finishBrowserLogin(code, entry.state, true)
+    if (result.error && !/already finishing|timed out|cancelled|could not reach/.test(result.error)) {
+      loginErrors.set(sub.id, invalid)
+      return { error: invalid }
+    }
+    return { ...result, ...(result.ok && { note: result.note ?? '' }) }
+  } catch (error) {
+    const message = `sign-in could not be saved: ${error.message}`
+    loginErrors.set(sub.id, message)
+    return { error: message }
+  }
+}
+
+const finishBrowserLogin = async (code, state, retry = false) => {
   const entry = browserPending.get(state)
   if (entry && finishingAccounts.get(entry.sub.id) === entry) {
     return { error: 'the sign-in is already finishing' }
@@ -391,6 +435,7 @@ const finishBrowserLogin = async (code, state) => {
   const current = () => !entry.cancelled && Date.now() < entry.until && loginGenerations.get(sub.id) === entry.generation
   const cancelled = { error: 'the sign-in was cancelled' }
   finishingAccounts.set(sub.id, entry)
+  let completed = false
   try {
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
@@ -449,9 +494,10 @@ const finishBrowserLogin = async (code, state) => {
     const list = models.models?.length ? models.models : (sub.models ?? [])
     const fresh = { ...loadSubs(file), [sub.id]: { ...account, ...(projectId && { projectId }), models: list } }
     saveSubs(file, fresh)
+    completed = true
     return { ok: true, models: visibleModels(sub.id, list), note: models.error }
   } finally {
-    closeBrowserLogin(entry)
+    if (!retry || completed || !current()) closeBrowserLogin(entry)
     if (finishingAccounts.get(sub.id) === entry) finishingAccounts.delete(sub.id)
   }
 }

@@ -1,12 +1,17 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 func loginTestServer(t *testing.T, signedIn bool) *httptest.Server {
@@ -32,6 +37,176 @@ func loginTestServer(t *testing.T, signedIn bool) *httptest.Server {
 			w.WriteHeader(404)
 		}
 	}))
+}
+
+func TestLoginInputLifecycle(t *testing.T) {
+	testEnv(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			fmt.Fprint(w, `{"subscriptions":[{"id":"grok","pending":false}]}`)
+			return
+		}
+		fmt.Fprint(w, `{"error":{"message":"no sign-in is waiting for grok"}}`)
+	}))
+	defer srv.Close()
+	fresh := func() model {
+		a := newTestAgent(t, srv.URL+"/v1", t.TempDir())
+		return model{tab: newTab(a), chat: true, ticking: true, start: time.Now()}
+	}
+	update := func(m model, msg tea.Msg) (model, tea.Cmd) {
+		next, cmd := m.Update(msg)
+		return next.(model), cmd
+	}
+	t.Run("typed failure without poll", func(t *testing.T) {
+		m := fresh()
+		m.input = []rune("/login grok bad")
+		m, cmd := update(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+		m, _ = update(m, cmd())
+		if m.loginWaiting != "" {
+			t.Fatalf("typed failure captured chat: %q", m.loginWaiting)
+		}
+	})
+	t.Run("terminal paste failure", func(t *testing.T) {
+		m, _ := update(fresh(), loginCodeMsg{id: "grok", browser: true, expires: 600})
+		m, _ = update(m, pasteLoginCode(srv.URL+"/v1", "grok", "bad")())
+		if m.loginWaiting != "" {
+			t.Fatal("non-retryable paste failure captured chat")
+		}
+	})
+	t.Run("sign out", func(t *testing.T) {
+		m, _ := update(fresh(), loginCodeMsg{id: "grok", browser: true, expires: 600})
+		other, _ := update(m, loginOutMsg{id: "copilot"})
+		if other.loginWaiting != "grok" {
+			t.Fatal("unrelated sign-out stopped waiting")
+		}
+		m, _ = update(m, loginOutMsg{id: "grok"})
+		if m.loginWaiting != "" || m.loginFinished != "grok" {
+			t.Fatal("sign-out did not clear and finish the wait")
+		}
+		m, _ = update(m, loginDoneMsg{id: "grok", err: errors.New("late poll")})
+		if strings.Contains(m.entries[len(m.entries)-1].text, "late poll") {
+			t.Fatal("late poll displayed after sign-out")
+		}
+	})
+	for _, command := range []string{"/new", "/clear"} {
+		t.Run(command, func(t *testing.T) {
+			m, _ := update(fresh(), loginCodeMsg{id: "grok", browser: true, expires: 600})
+			m.input = []rune(command)
+			m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyEnter})
+			if m.loginWaiting != "" {
+				t.Fatal("reset chat still captures codes")
+			}
+		})
+	}
+	t.Run("tab switch", func(t *testing.T) {
+		m := fresh()
+		m.tabs = []*tab{m.tab, newTab(m.agent)}
+		m, _ = update(m, loginCodeMsg{id: "grok", browser: true, expires: 600})
+		m, _ = update(m, tea.KeyPressMsg{Code: '2', Mod: tea.ModAlt})
+		if m.loginWaiting != "" {
+			t.Fatal("other tab captures codes")
+		}
+	})
+	t.Run("escape preserves draft and cancels turn without hiding login success", func(t *testing.T) {
+		m, _ := update(fresh(), loginCodeMsg{id: "grok", browser: true, expires: 600})
+		cancelled := false
+		m.cancel = func() { cancelled = true }
+		m.input = []rune("draft")
+		m, _ = update(m, tea.KeyPressMsg{Code: tea.KeyEscape})
+		if !cancelled || string(m.input) != "draft" || m.loginWaiting != "" {
+			t.Fatal("escape swallowed turn cancellation or draft")
+		}
+		m, _ = update(m, loginDoneMsg{id: "grok", models: 2})
+		if !strings.Contains(strings.Join(m.entries[len(m.entries)-1].lines, "\n"), "signed in to grok") {
+			t.Fatal("escape hid eventual sign-in success")
+		}
+	})
+}
+
+func TestBrowserPollStopsAfterSignOut(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"subscriptions":[{"id":"grok","pending":false,"signedIn":false}]}`)
+	}))
+	defer srv.Close()
+	msg := pollLogin(srv.URL+"/v1", "grok", 3, 4, true)().(loginDoneMsg)
+	if msg.err == nil || msg.err.Error() != "the sign-in was cancelled" {
+		t.Fatalf("result: %+v", msg)
+	}
+}
+
+func TestSubmitLoginCodeAndTypedCommand(t *testing.T) {
+	testEnv(t)
+	for _, fail := range []bool{false, true} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				fmt.Fprint(w, `{"subscriptions":[{"id":"grok","pending":true}]}`)
+				return
+			}
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			if r.Method != "POST" || r.URL.Path != "/logins" || body["id"] != "grok" || body["code"] != "the-code" {
+				t.Errorf("request: %s %s %+v", r.Method, r.URL.Path, body)
+			}
+			if fail {
+				w.WriteHeader(400)
+				fmt.Fprint(w, `{"error":{"message":"that code did not work; copy it again"}}`)
+				return
+			}
+			fmt.Fprint(w, `{"ok":true,"models":["a","b"],"note":"ready"}`)
+		}))
+		models, note, err := submitLoginCode(srv.URL+"/v1", "grok", "the-code")
+		if fail {
+			if err == nil || err.Error() != "that code did not work; copy it again" {
+				t.Fatalf("error: %v", err)
+			}
+		} else if err != nil || models != 2 || note != "ready" {
+			t.Fatalf("result: %d %q %v", models, note, err)
+		}
+		a := newTestAgent(t, srv.URL+"/v1", t.TempDir())
+		m := model{tab: &tab{agent: a}, loginFinished: "grok"}
+		cmd := m.loginCommand([]string{"/login", "grok", "the-code"})
+		if m.loginFinished != "" {
+			t.Fatal("typed retry still marked finished")
+		}
+		if cmd == nil {
+			t.Fatal("typed code did not submit")
+		}
+		msg := cmd().(loginDoneMsg)
+		if (msg.err != nil) != fail || (!fail && msg.models != 2) {
+			t.Fatalf("typed code: %+v", msg)
+		}
+		// The main chat input becomes the paste input while a browser login waits.
+		m.chat = true
+		next, _ := m.update(loginCodeMsg{id: "grok", url: "https://auth.test", browser: true, expires: 600})
+		m = next.(model)
+		if m.loginWaiting != "grok" || !strings.Contains(strings.Join(m.entries[len(m.entries)-1].lines, "\n"), loginPastePrompt) {
+			t.Fatal("missing paste prompt")
+		}
+		m.input = []rune("the-code")
+		next, cmd = m.key(tea.KeyPressMsg{Code: tea.KeyEnter})
+		m = next.(model)
+		if len(m.input) != 0 || cmd == nil {
+			t.Fatal("main input did not submit the code")
+		}
+		next, _ = m.update(cmd())
+		m = next.(model)
+		if fail && m.loginWaiting != "grok" {
+			t.Fatal("failed paste stopped waiting")
+		}
+		if !fail && (m.loginWaiting != "" || !strings.Contains(strings.Join(m.entries[len(m.entries)-1].lines, "\n"), "signed in to grok · 2 models")) {
+			t.Fatal("paste completion missing")
+		}
+		if fail {
+			next, _ = m.key(tea.KeyPressMsg{Code: tea.KeyEscape})
+			m = next.(model)
+			if m.loginWaiting != "" {
+				t.Fatal("escape did not cancel the paste input")
+			}
+		}
+		srv.Close()
+	}
 }
 
 func TestFetchLoginsAndCommand(t *testing.T) {

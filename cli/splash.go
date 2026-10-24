@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"math"
 )
 
@@ -172,7 +171,7 @@ func drawSplash(cv *canvas, t theme, m model) {
 	status, dot := "looking for free models…", t.muted
 	switch {
 	case m.ready > 0:
-		status, dot = fmt.Sprintf("%d free models ready", m.ready), t.green
+		status, dot = countFree(m.ready), t.green
 	case m.ready == 0 || m.offline:
 		status, dot = "no free models ready · run: prism status", t.red
 	}

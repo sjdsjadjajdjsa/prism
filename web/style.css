@@ -107,8 +107,12 @@ textarea:focus-visible, select:focus-visible {
 .top-say { font-style: italic; }
 
 /* ---- transcript column ---- */
+/* overflow-wrap is inherited: a long word or URL anywhere in the chat (notes,
+   errors, info blocks, markdown links) breaks instead of widening the column;
+   code blocks, diffs and tables keep white-space:pre and scroll in their own box */
 .column {
-  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto; overscroll-behavior: contain;
+  overflow-wrap: anywhere;
   padding: 24px max(16px, calc((100% - var(--col)) / 2)) 40px;
   scrollbar-width: thin; scrollbar-color: var(--faint) transparent;
 }
@@ -215,7 +219,7 @@ textarea:focus-visible, select:focus-visible {
 .md pre .lang { display: block; color: var(--muted); font-size: 11px; margin-bottom: 6px; }
 .md strong { font-weight: 700; color: var(--fg); }
 .md em { font-style: italic; }
-.md a { color: var(--x4); }
+.md a { color: var(--x4); overflow-wrap: anywhere; word-break: break-word; }
 .md blockquote { margin: 0 0 1em; padding-left: 12px; border-left: 2px solid var(--muted); color: var(--muted); }
 .md hr { border: 0; border-top: 1px solid var(--faint); margin: 1em 0; }
 
@@ -225,12 +229,13 @@ textarea:focus-visible, select:focus-visible {
 .tok-c { color: var(--muted); font-style: italic; }
 .tok-f { color: var(--x4); }
 
-.note { color: var(--muted); font-style: italic; margin: 4px 0; }
+.note { color: var(--muted); font-style: italic; margin: 4px 0; overflow-wrap: anywhere; }
+.offscreen { position: fixed; left: -9999px; top: 0; width: 1px; height: 1px; opacity: 0; }
 .note .web-link { color: var(--x4); font-style: normal; }
 .note .web-copy { color: var(--muted); background: var(--panel); border: 1px solid var(--faint); border-radius: 3px; cursor: pointer; font-size: 12px; padding: 0 6px; }
 .note .web-copy:hover { color: var(--fg); }
 .note .web-copy:focus-visible { outline: 2px solid var(--x4); outline-offset: 2px; }
-.error { color: var(--red); margin: 8px 0; white-space: pre-wrap; }
+.error { color: var(--red); margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .error .detail { color: var(--muted); font-size: 13px; }
 
 .meta { color: var(--muted); margin: 8px 0 4px; }

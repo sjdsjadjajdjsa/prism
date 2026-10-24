@@ -77,6 +77,9 @@ type model struct {
 	active         time.Duration
 	menu           menuState  // the pick-one-thing overlay; see menu.go
 	fb             filesState // the /files browser and viewer overlay
+	loginTab       *tab       // only the tab that started the browser poll captures codes
+	loginWaiting   string     // browser sign-in using the main input for pasted codes
+	loginFinished  string     // suppress a late poll after paste completion or cancellation
 }
 
 // idleAfter is how long the screen keeps animating after the last key, event or resize.
@@ -103,6 +106,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	nm, ok := next.(model)
 	if _, isTick := msg.(tickMsg); !ok || isTick {
 		return next, cmd
+	}
+	if nm.loginTab != nil && nm.loginTab != nm.tab {
+		nm.loginWaiting, nm.loginTab = "", nil
 	}
 	nm.now = time.Since(nm.start)
 	nm.active = nm.now
@@ -157,6 +163,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case loginsMsg:
 		m.loginsLoaded(msg)
 	case loginOutMsg:
+		if msg.err == nil && m.loginWaiting == msg.id {
+			m.loginFinished, m.loginWaiting, m.loginTab = msg.id, "", nil
+		}
 		text := "signed out of " + msg.id
 		if msg.err != nil {
 			text = msg.err.Error()
@@ -168,9 +177,11 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.entries = append(m.entries, &entry{kind: "note", text: msg.err.Error()})
 			break
 		}
+		m.loginFinished, m.loginWaiting, m.loginTab = "", "", nil
 		lines := []string{"open  " + msg.url}
 		if msg.browser {
-			lines = []string{"opening your browser…", "if nothing opens: " + msg.url, "prism keeps checking; the models appear in /models when you are done"}
+			m.loginWaiting, m.loginTab = msg.id, m.tab
+			lines = []string{"opening your browser…", "if nothing opens: " + msg.url, loginPastePrompt}
 		} else {
 			lines = append(lines, "type "+msg.code, "prism keeps checking; the models appear in /models when you are done")
 		}
@@ -178,13 +189,25 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.scroll = 0
 		return m, pollLogin(m.agent.api, msg.id, 5, msg.expires, msg.browser)
 	case loginDoneMsg:
-		if msg.err != nil {
-			m.entries = append(m.entries, &entry{kind: "note", text: msg.id + ": " + msg.err.Error()})
+		if m.loginFinished == msg.id {
 			break
 		}
-		lines := []string{"signed in to " + msg.id}
+		if msg.err != nil {
+			m.entries = append(m.entries, &entry{kind: "note", text: msg.id + ": " + msg.err.Error()})
+			if msg.pasted && msg.retryable && m.loginWaiting == msg.id {
+				m.entries = append(m.entries, &entry{kind: "note", text: loginPastePrompt})
+			} else if m.loginWaiting == msg.id {
+				m.loginWaiting, m.loginTab = "", nil
+			}
+			break
+		}
+		m.loginFinished = msg.id
+		if m.loginWaiting == msg.id {
+			m.loginWaiting, m.loginTab = "", nil
+		}
+		lines := []string{"signed in to " + msg.id + " · " + countModels(msg.models)}
 		if msg.models > 0 {
-			lines = append(lines, fmt.Sprintf("%d models ready · pick one by name in /models", msg.models))
+			lines = append(lines, countModels(msg.models)+" ready · pick one by name in /models")
 		}
 		if msg.note != "" {
 			lines = append(lines, msg.note)
@@ -212,7 +235,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			lines := []string{"saved · " + msg.masked}
 			if msg.models > 0 {
-				lines = append(lines, fmt.Sprintf("%d models ready · pick one by name in /models", msg.models))
+				lines = append(lines, countModels(msg.models)+" ready · pick one by name in /models")
 			}
 			if msg.note != "" {
 				lines = append(lines, msg.note)
@@ -360,6 +383,7 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	switch k {
 	case "esc":
+		m.loginWaiting, m.loginTab = "", nil
 		if m.cancel != nil {
 			m.cancel()
 		}
@@ -367,6 +391,13 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.theme = (m.theme + 1) % len(themes)
 		saveTheme(themes[m.theme].name)
 	case "enter":
+		if text := strings.TrimSpace(string(m.input)); m.loginWaiting != "" && !strings.HasPrefix(text, "/") {
+			if text == "" {
+				return m, nil
+			}
+			m.input = nil
+			return m, pasteLoginCode(m.agent.api, m.loginWaiting, text)
+		}
 		return m, m.submit()
 	case "tab":
 		if found := matching(string(m.input)); len(found) > 0 {
@@ -409,6 +440,9 @@ func (m *model) submit() tea.Cmd {
 	}
 	m.input, m.scroll = nil, 0
 	if strings.HasPrefix(text, "/") {
+		if fields := strings.Fields(text); fields[0] == "/new" || fields[0] == "/clear" {
+			m.loginWaiting, m.loginTab = "", nil
+		}
 		return m.command(text)
 	}
 	m.entries = append(m.entries, &entry{kind: "user", text: text})

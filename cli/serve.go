@@ -662,12 +662,15 @@ func modelCount(raw json.RawMessage) int {
 // web started with /login <id>. Browser accounts are signed in once GET
 // /logins says so (and no longer finishing); device-code accounts poll the
 // router like cli/login.go pollLogin. status is pending, ok or error.
+// With {id, code} it finishes a waiting browser sign-in with what the user
+// pasted from the sign-in page (see loginCode).
 func (s *server) loginPoll(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ID      string `json:"id"`
 		Browser bool   `json:"browser"`
+		Code    string `json:"code"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<12)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<14)).Decode(&body); err != nil || strings.TrimSpace(body.ID) == "" {
 		http.Error(w, "send JSON like {\"id\": \"copilot\"}", http.StatusBadRequest)
 		return
 	}
@@ -675,10 +678,14 @@ func (s *server) loginPoll(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		a = s.agent
 	}
+	if code := strings.TrimSpace(body.Code); code != "" {
+		writeJSON(w, loginCode(a.api, body.ID, code))
+		return
+	}
 	reply := func(status string, models int, note, message string, interval int) {
 		out := map[string]any{"status": status, "models": models, "note": note, "message": message, "interval": interval}
 		if status == "ok" {
-			out["text"] = fmt.Sprintf("signed in · %d models", models)
+			out["text"] = "signed in · " + countModels(models)
 		}
 		writeJSON(w, out)
 	}
@@ -692,14 +699,14 @@ func (s *server) loginPoll(w http.ResponseWriter, r *http.Request) {
 			switch {
 			case row.ID != body.ID:
 				continue
-			case row.Finishing:
-				reply("pending", 0, "", "", 3)
+			case row.Finishing || row.Pending:
+				reply("pending", 0, "", row.Error, 3)
 			case row.SignedIn:
 				reply("ok", row.Models, row.Error, "", 0)
 			case row.Error != "":
 				reply("error", 0, "", row.Error, 0)
 			default:
-				reply("pending", 0, "", "", 3)
+				reply("error", 0, "", "the sign-in was cancelled", 0)
 			}
 			return
 		}
@@ -732,6 +739,37 @@ func (s *server) loginPoll(w http.ResponseWriter, r *http.Request) {
 	default:
 		reply("pending", 0, "", "", out.Interval)
 	}
+}
+
+// loginCode passes a pasted code (bare, code#state or the whole callback URL)
+// to the router's POST /logins {id, code}, for providers whose page shows a
+// code instead of redirecting back. It answers {ok, models, note, text} or
+// {ok:false, error}.
+func loginCode(api, id, code string) map[string]any {
+	var out struct {
+		OK     bool            `json:"ok"`
+		Models json.RawMessage `json:"models"`
+		Note   string          `json:"note"`
+		Error  *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	fail := func(msg string) map[string]any { return map[string]any{"ok": false, "error": msg} }
+	if err := loginRound(api, map[string]any{"id": id, "code": code}, &out); err != nil {
+		return fail(err.Error())
+	}
+	if out.Error != nil {
+		msg := out.Error.Message
+		if msg == "" {
+			msg = "that code did not work; copy it again"
+		}
+		return fail(msg)
+	}
+	if !out.OK {
+		return fail("the router did not finish the sign-in; run /login " + id + " again")
+	}
+	n := modelCount(out.Models)
+	return map[string]any{"ok": true, "models": n, "note": out.Note, "text": "signed in · " + countModels(n)}
 }
 
 // compact is /compact [focus] for the web. It runs outside s.mu (the summary
@@ -874,7 +912,7 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 		}
 		lines := []string{"saved · " + msg.masked}
 		if msg.models > 0 {
-			lines = append(lines, fmt.Sprintf("%d models ready · pick one with /model", msg.models))
+			lines = append(lines, countModels(msg.models)+" ready · pick one with /model")
 		}
 		if msg.note != "" {
 			lines = append(lines, msg.note)
@@ -1067,8 +1105,17 @@ func (s *server) login(w http.ResponseWriter, a *Agent, fields []string) {
 		writeJSON(w, map[string]any{"kind": "note", "text": "signed out of " + fields[2]})
 		return
 	}
-	if len(fields) != 2 {
-		fail("usage: /login <name> · /login lists them all")
+	if len(fields) > 2 {
+		out := loginCode(a.api, fields[1], strings.Join(fields[2:], " "))
+		if out["ok"] != true {
+			fail(fmt.Sprint(out["error"]))
+			return
+		}
+		text := fmt.Sprint(out["text"])
+		if note, _ := out["note"].(string); note != "" {
+			text += " · " + note
+		}
+		writeJSON(w, map[string]any{"kind": "note", "text": text})
 		return
 	}
 	id := fields[1]

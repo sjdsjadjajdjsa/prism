@@ -89,13 +89,15 @@
 }
 .pick-input::placeholder { color: var(--muted); }
 /* 12 rows on a laptop; a phone with the keyboard up keeps the picker on screen */
-.pick-list { max-height: min(calc(12 * 1.5em + 24 * 3px), 38dvh); overflow-y: auto; overscroll-behavior: contain; }
+.pick-list { max-height: min(calc(12 * 1.5em + 24 * 3px), 38dvh); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
 .pick-list[hidden] { display: none; }
 .pick-row { display: flex; align-items: baseline; cursor: pointer; color: var(--fg); }
 .pick-row.sel { background: color-mix(in srgb, var(--panel) 86%, var(--s3)); }
 .pick-row.sel .pick-label { color: var(--s3); font-weight: 700; }
 .pick-dot { flex: none; width: 2ch; }
-.pick-label, .pick-detail { flex: none; overflow: hidden; text-overflow: ellipsis; }
+/* the widths picker() sets are the wanted size; a narrow screen shrinks them with an ellipsis */
+.pick-label, .pick-detail { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pick-label { flex-shrink: 0.4; }
 .pick-detail { color: var(--muted); }
 .pick-state { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .pick-row.sub .pick-dot { margin-left: 2ch; }
@@ -115,8 +117,9 @@
 /* command output blocks: info lines keep their columns, views and tables are real grids */
 .info, .cmdview { margin: 6px 0 10px; }
 .info-title, .cv-title { color: var(--fg); font-weight: 700; margin-bottom: 4px; }
-.info-lines { margin: 0; font: inherit; white-space: pre-wrap; color: var(--fg); }
-.info-lines a, .cv-grid a { color: var(--x4); }
+.info { min-width: 0; }
+.info-lines { margin: 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--fg); }
+.info-lines a, .cv-grid a { color: var(--x4); overflow-wrap: anywhere; word-break: break-word; }
 .info-lines .muted-line { color: var(--muted); }
 .cv-block { margin-top: 10px; padding-left: 2ch; }
 .cv-head { color: var(--s3); font-weight: 700; margin-bottom: 2px; }
@@ -144,3 +147,29 @@
 .login-state.ok { color: var(--green); }
 .login-state.err { color: var(--red); }
 .login-code { color: var(--s2); font-weight: 700; letter-spacing: .08em; }
+.login-link { white-space: nowrap; }
+.login-link a { color: var(--x4); }
+.web-copy { color: var(--muted); background: var(--panel); border: 1px solid var(--faint); border-radius: 3px; cursor: pointer; font-size: 12px; padding: 0 6px; }
+.web-copy:hover { color: var(--fg); }
+.web-copy:focus-visible { outline: 2px solid var(--x4); outline-offset: 2px; }
+/* the paste box under a browser sign-in link: the picker's filter line look */
+.login-paste { margin-top: 8px; max-width: 64ch; background: var(--panel); border: 1px solid var(--faint); border-radius: 4px; padding: 3px 0; }
+.login-paste-head { padding: 3px 12px; display: flex; flex-wrap: wrap; column-gap: 2ch; align-items: baseline; }
+.login-paste-label { color: var(--fg); }
+.login-paste-hint { color: var(--muted); }
+.login-paste-row { display: flex; align-items: baseline; gap: 1ch; padding: 3px 12px; background: var(--faint); min-width: 0; }
+.login-paste-row:focus-within { box-shadow: inset 2px 0 0 var(--s3); }
+.login-paste-input {
+  flex: 1; min-width: 0; border: 0; outline: 0; padding: 0; margin: 0;
+  background: transparent; color: var(--fg); font: inherit; caret-color: var(--fg);
+}
+.login-paste-input::placeholder { color: var(--muted); }
+.login-paste-input:disabled { opacity: .6; }
+.login-paste-go {
+  flex: none; background: var(--panel); color: var(--s3); border: 1px solid var(--faint); border-radius: 3px;
+  font: inherit; font-weight: 700; padding: 0 8px; cursor: pointer;
+}
+.login-paste-go:hover { color: var(--fg); }
+.login-paste-go:focus-visible { outline: 2px solid var(--x4); outline-offset: 2px; }
+.login-paste-go:disabled { opacity: .6; cursor: default; }
+@media (max-width: 640px) { .login-paste-input { font-size: 16px; } }

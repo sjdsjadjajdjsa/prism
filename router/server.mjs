@@ -2,7 +2,7 @@ import http from 'node:http'
 import { readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { randomUUID, createHash, timingSafeEqual } from 'node:crypto'
 import { customProviders, eligible, PRESETS, maskKey, syncKeys, setKeyVar, keysPath, customFilePath, upsertPresetEntry, probeModels } from './custom.mjs'
-import { SUBSCRIPTIONS, subscriptionProviders, startLogin, pollLogin, signOut, loadSubs, subToken, startBrowserLogin, handleOAuthCallback, pendingLoginURL, loginStatus, localOnly, visibleModels } from './subs.mjs'
+import { SUBSCRIPTIONS, subscriptionProviders, startLogin, pollLogin, signOut, loadSubs, subToken, startBrowserLogin, submitLoginCode, handleOAuthCallback, pendingLoginURL, loginStatus, localOnly, visibleModels } from './subs.mjs'
 import { wireFor } from './wire.mjs'
 
 const config = JSON.parse(readFileSync(new URL('./providers.json', import.meta.url), 'utf8'))
@@ -533,6 +533,11 @@ const loginsRoute = async (req, res) => {
     return send(res, 200, { subscriptions: SUBSCRIPTIONS.map(loginStatus) })
   }
   if (!sub) return send(res, 404, { error: { message: `no subscription called "${body?.id}"`, type: 'not_found' } })
+  if (req.method === 'POST' && Object.hasOwn(body, 'code')) {
+    const result = await submitLoginCode(sub, body.code)
+    if (result.error) return send(res, 400, { error: { message: result.error } })
+    return send(res, 200, result)
+  }
   if (body?.signOut === true) {
     signOut(sub)
     return send(res, 200, { ok: true, signedOut: true })

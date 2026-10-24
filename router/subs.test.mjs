@@ -1,10 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
+import { createHash } from 'node:crypto'
 import { mkdtempSync, writeFileSync, readFileSync, copyFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadSubs, startLogin, pollLogin, signOut, subscriptionProviders, subToken, startBrowserLogin, loginError, loginStatus, handleOAuthCallback, SUBSCRIPTIONS } from './subs.mjs'
+import { loadSubs, startLogin, pollLogin, signOut, subscriptionProviders, subToken, startBrowserLogin, loginError, loginStatus, handleOAuthCallback, submitLoginCode, SUBSCRIPTIONS } from './subs.mjs'
 
 const servers = []
 const upstream = handler =>
@@ -18,6 +19,70 @@ const write = value => {
   writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value))
   return file
 }
+
+test('pasted browser codes race callbacks and validate optional state', async t => {
+  const file = write('{}')
+  process.env.PRISM_SUBS_FILE = file
+  t.after(() => { delete process.env.PRISM_SUBS_FILE })
+  let exchanges = 0
+  let expectedState
+  let authorize
+  const token = await upstream((req, res) => {
+    let raw = ''
+    req.on('data', chunk => { raw += chunk })
+    req.on('end', () => {
+      const body = new URLSearchParams(raw)
+      exchanges++
+      assert.equal(body.get('code'), 'the-code')
+      assert.equal(body.get('state'), expectedState)
+      assert.equal(body.get('redirect_uri'), authorize.searchParams.get('redirect_uri'))
+      assert.equal(createHash('sha256').update(body.get('code_verifier')).digest('base64url'), authorize.searchParams.get('code_challenge'))
+      res.end(JSON.stringify({ access_token: 'paste-token' }))
+    })
+  })
+  const models = await upstream((req, res) => res.end(JSON.stringify({ data: [{ id: 'grok-test' }] })))
+  const sub = { id: 'grok', name: 'Grok', kind: 'browser', authorizeURL: 'https://auth.test', tokenURL: token, clientID: 'cid', redirectPath: '/callback', stateInExchange: true, apiBase: models }
+  const start = async () => {
+    authorize = new URL((await startBrowserLogin(sub)).url)
+    expectedState = authorize.searchParams.get('state')
+  }
+  assert.equal((await submitLoginCode(sub, 'code')).error, 'no sign-in is waiting for grok; run /login grok first')
+  for (const input of [() => '  the-code  ', () => `http://localhost/callback?code=the-code&state=${expectedState}`, () => `the-code#${expectedState}`, () => 'http://localhost/callback?code=the-code']) {
+    await start()
+    assert.equal((await submitLoginCode(sub, `http://localhost/callback?code=the-code&state=wrong`)).error, 'that code did not work; copy it again')
+    assert.equal((await submitLoginCode(sub, 'http://localhost/callback?error=access_denied&error_description=try+again')).error, 'try again')
+    assert.equal((await submitLoginCode(sub, '')).error, 'that code did not work; copy it again')
+    const result = await submitLoginCode(sub, input())
+    assert.equal(result.ok, true)
+    assert.deepEqual(result.models, ['grok-test'])
+  }
+  await start()
+  const now = Date.now
+  Date.now = () => now() + 601_000
+  try {
+    assert.equal((await submitLoginCode(sub, 'the-code')).error, 'the sign-in timed out; run /login again')
+  } finally { Date.now = now }
+  await start()
+  const callback = `/callback?code=the-code&state=${expectedState}`
+  assert.equal(await handleOAuthCallback({ url: callback }, { writeHead() {}, end() {} }, '/callback'), true)
+  const before = readFileSync(file, 'utf8')
+  const count = exchanges
+  assert.match((await submitLoginCode(sub, 'the-code')).error, /already signed in/)
+  assert.equal(exchanges, count)
+  assert.equal(readFileSync(file, 'utf8'), before)
+  signOut(sub)
+})
+
+test('a pasted code that cannot reach the vendor says so and keeps waiting', async t => {
+  process.env.PRISM_SUBS_FILE = write('{}')
+  t.after(() => { delete process.env.PRISM_SUBS_FILE })
+  const sub = { id: 'grok', name: 'Grok', kind: 'browser', authorizeURL: 'https://auth.test', tokenURL: 'http://127.0.0.1:9/token', clientID: 'cid', redirectPath: '/callback', apiBase: 'http://127.0.0.1:9' }
+  await startBrowserLogin(sub)
+  const result = await submitLoginCode(sub, 'the-code')
+  assert.match(result.error, /^could not reach Grok/)
+  assert.equal(loginStatus(sub).pending, true)
+  signOut(sub)
+})
 
 test('the subscription catalog is sane', () => {
   assert.ok(SUBSCRIPTIONS.length >= 1)

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -664,6 +665,157 @@ func TestLoginOnWeb(t *testing.T) {
 	}
 	if res = post("/api/login", `{"id":"copilot"}`); res["status"] != "ok" || res["text"] != "signed in · 2 models" {
 		t.Fatalf("device poll: %v", res)
+	}
+}
+
+// a pasted code from the sign-in page goes to the router as POST /logins
+// {id, code}; both reply shapes come back to the web as {ok, models, note}
+// or {ok:false, error}
+func TestBrowserLoginUI(t *testing.T) {
+	// Run the actual browser sign-in controller against a small DOM/timer fake.
+	const script = `
+const fs = require('node:fs'), vm = require('node:vm'), assert = require('node:assert/strict');
+const mode = process.argv[1], nodes = [], sleeps = [];
+let calls = 0;
+function el(tag, cls, text) {
+  const n = {tag, className: cls, textContent: text, removed: false, value: 'code', handlers: {},
+    classList: {add() {}}, setAttribute() {}, append() {}, appendChild() {},
+    addEventListener(k, f) {this.handlers[k] = f;}, querySelector() {return {focus() {}};},
+    remove() {this.removed = true;}, focus() {}, select() {}};
+  nodes.push(n); return n;
+}
+const c = vm.createContext({el, loginPolls: 0, tabQuery: () => '',
+  addInfo: () => el('section'), signInLink: () => el('a'), document: {createTextNode: x => x},
+  window: {open() {}}, matchMedia: () => ({matches: true}), scrollDown() {},
+  refreshInfo() {}, $: () => ({focus() {}}),
+  sleep: () => new Promise(resolve => sleeps.push(resolve)),
+  api: async () => {calls++; return {status: 'pending', message: 'bad code; retry'};}});
+const source = fs.readFileSync('../web/app.js', 'utf8');
+vm.runInContext(source.slice(source.indexOf('let loginSeq = 0;'), source.indexOf('async function refreshInfo()')), c);
+(async () => {
+  const running = c.startLogin({id: 'grok', browser: true, url: 'https://auth.test', expires: 60});
+  const form = nodes.find(n => n.tag === 'form'), status = nodes.find(n => n.className === 'login-state');
+  if (mode === 'pending-error') {
+    sleeps.shift()(); await new Promise(setImmediate);
+    assert.equal(status.textContent, 'bad code; retry');
+    assert.equal(form.removed, false);
+  }
+  c.loginPolls++;
+  if (mode === 'stale-submit') {
+    await form.handlers.submit({preventDefault() {}});
+    assert.equal(calls, 0, 'superseded paste form sent a code');
+  }
+  sleeps.shift()(); await running;
+  assert.equal(form.removed, true, 'superseded paste form remained live');
+})().catch(e => {console.error(e); process.exitCode = 1;});`
+	for _, mode := range []string{"pending-error", "stale-form", "stale-submit"} {
+		t.Run(mode, func(t *testing.T) {
+			out, err := exec.Command("node", "-e", script, mode).CombinedOutput()
+			if err != nil {
+				t.Fatalf("browser controller: %v\n%s", err, out)
+			}
+		})
+	}
+}
+
+func TestWebLoginRetryAndTypedCode(t *testing.T) {
+	testEnv(t)
+	pending := true
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			json.NewEncoder(w).Encode(map[string]any{"subscriptions": []map[string]any{{"id": "grok", "pending": pending, "signedIn": !pending, "models": 2, "error": "that code did not work; copy it again"}}})
+			return
+		}
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		if body["code"] == "good#state" {
+			pending = false
+			fmt.Fprint(w, `{"ok":true,"models":["a","b"]}`)
+		} else {
+			fmt.Fprint(w, `{"error":{"message":"that code did not work; copy it again"}}`)
+		}
+	}))
+	defer router.Close()
+	s := newServer(newAgent(router.URL, t.TempDir(), "prism"), t.TempDir(), "prism")
+	h, host := s.handler("4849"), "127.0.0.1:4849"
+	post := func(path, body string) map[string]any {
+		return decode(t, do(t, h, http.MethodPost, path, host, "http://"+host, body))
+	}
+	t.Run("retryable poll", func(t *testing.T) {
+		res := post("/api/login", `{"id":"grok","browser":true}`)
+		if res["status"] != "pending" || res["message"] != "that code did not work; copy it again" {
+			t.Fatalf("retryable poll: %v", res)
+		}
+	})
+	t.Run("typed code", func(t *testing.T) {
+		res := post("/api/command", `{"text":"/login grok good#state"}`)
+		if res["kind"] != "note" || res["text"] != "signed in · 2 models" {
+			t.Fatalf("typed code: %v", res)
+		}
+	})
+	t.Run("signed out poll", func(t *testing.T) {
+		router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"subscriptions":[{"id":"grok"}]}`) }))
+		defer router.Close()
+		s.agent.api = router.URL
+		res := post("/api/login", `{"id":"grok","browser":true}`)
+		if res["status"] != "error" || res["message"] != "the sign-in was cancelled" {
+			t.Fatalf("signed out poll: %v", res)
+		}
+	})
+}
+
+func TestLoginCodeOnWeb(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	var got []map[string]any
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		got = append(got, body)
+		if r.Method != http.MethodPost || r.URL.Path != "/logins" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		switch body["code"] {
+		case "good#st":
+			w.Write([]byte(`{"ok":true,"models":["grok-4.7","grok-code"],"note":"2 free"}`))
+		case "https://127.0.0.1:56121/callback?code=old&state=zz":
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":{"message":"that code did not work; copy it again"}}`))
+		default:
+			w.WriteHeader(http.StatusConflict)
+			w.Write([]byte(`{"error":{"message":"no sign-in is waiting for grok; run /login grok first"}}`))
+		}
+	}))
+	t.Cleanup(router.Close)
+	web := t.TempDir()
+	os.WriteFile(filepath.Join(web, "index.html"), []byte("x"), 0o644)
+	s := newServer(newAgent(router.URL, t.TempDir(), "prism"), web, "prism")
+	h, host := s.handler("4849"), "127.0.0.1:4849"
+	post := func(body string) map[string]any {
+		return decode(t, do(t, h, http.MethodPost, "/api/login", host, "http://"+host, body))
+	}
+	res := post(`{"id":"grok","code":"  good#st \n"}`)
+	if res["ok"] != true || res["models"] != float64(2) || res["note"] != "2 free" || res["text"] != "signed in · 2 models" {
+		t.Fatalf("good code: %v", res)
+	}
+	if len(got) != 1 || got[0]["id"] != "grok" || got[0]["code"] != "good#st" || got[0]["poll"] != nil {
+		t.Fatalf("router got %v", got)
+	}
+	res = post(`{"id":"grok","code":"https://127.0.0.1:56121/callback?code=old&state=zz"}`)
+	if res["ok"] != false || res["error"] != "that code did not work; copy it again" {
+		t.Fatalf("bad code: %v", res)
+	}
+	if res = post(`{"id":"grok","code":"x"}`); res["ok"] != false || !strings.Contains(fmt.Sprint(res["error"]), "run /login grok first") {
+		t.Fatalf("nothing waiting: %v", res)
+	}
+	// an empty code is a plain poll, not a code round
+	got = nil
+	post(`{"id":"grok","code":"  "}`)
+	if len(got) != 1 || got[0]["code"] != nil || got[0]["poll"] != true {
+		t.Fatalf("blank code should poll: %v", got)
 	}
 }
 

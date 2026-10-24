@@ -502,7 +502,7 @@ function renderStatus() {
   }
   const m = $('models');
   if (state.modelsReady == null) m.textContent = '';
-  else m.textContent = state.modelsReady > 0 ? `${state.modelsReady} free models ready` : 'no free models ready';
+  else m.textContent = state.modelsReady > 0 ? `${state.modelsReady} free model${state.modelsReady === 1 ? '' : 's'} ready` : 'no free models ready';
   m.style.color = state.modelsReady === 0 ? 'var(--red)' : '';
 }
 
@@ -1051,44 +1051,152 @@ function openServerPicker(data, p) {
 
 // ---------- /login (browser or device-code sign-in, polled like cli/login.go pollLogin) ----------
 let loginPolls = 0;
+
+// copyText puts text on the clipboard; a page without clipboard access
+// (plain http on a LAN address) falls back to a hidden textarea + execCommand
+async function copyText(text) {
+  try { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return true; } } catch (_) {}
+  const t = el('textarea', 'offscreen');
+  t.value = text; t.setAttribute('readonly', ''); t.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(t); t.select();
+  let ok = false;
+  try { ok = document.execCommand?.('copy') || false; } catch (_) {}
+  t.remove();
+  return ok;
+}
+
+// a sign-in link is hundreds of characters: show a short link and a copy
+// button instead, the full address in the tooltip
+function signInLink(url) {
+  const wrap = el('span', 'login-link');
+  const a = el('a', '', 'open sign-in page');
+  a.href = url; a.target = '_blank'; a.rel = 'noopener'; a.title = url;
+  const copy = el('button', 'web-copy login-copy', 'copy link');
+  copy.type = 'button';
+  copy.setAttribute('aria-label', 'Copy the sign-in link');
+  copy.title = url;
+  copy.addEventListener('click', async () => {
+    const ok = await copyText(url);
+    copy.textContent = ok ? 'copied' : 'copy failed';
+    copy.setAttribute('aria-label', ok ? 'Sign-in link copied' : 'Could not copy the sign-in link');
+  });
+  wrap.append(a, ' ', copy);
+  return wrap;
+}
+
+let loginSeq = 0;
 async function startLogin(data) {
   const box = addInfo(data.title || ('sign in to ' + data.id), []);
+  box.classList.add('login');
   const pre = el('pre', 'info-lines');
   if (data.browser) {
     pre.appendChild(document.createTextNode('opening your browser…\nif nothing opens: '));
-    linkify(pre, data.url);
+    pre.appendChild(signInLink(data.url));
     const w = window.open(data.url, '_blank', 'noopener');
     void w;
   } else {
-    pre.appendChild(document.createTextNode('open  ')); linkify(pre, data.url);
+    pre.appendChild(document.createTextNode('open  '));
+    if (String(data.url || '').length > 60) pre.appendChild(signInLink(data.url)); else linkify(pre, data.url);
     pre.appendChild(document.createTextNode('\ntype  ')); pre.appendChild(el('span', 'login-code', data.code || ''));
   }
   pre.appendChild(document.createTextNode('\nprism keeps checking; the models appear in /models when you are done'));
   box.appendChild(pre);
   const status = el('div', 'login-state', 'waiting for the sign-in…');
   status.setAttribute('role', 'status');
-  box.appendChild(status);
+  status.id = 'login-state-' + (++loginSeq);
   const me = ++loginPolls;
   const tq = tabQuery(); // the tab that started the sign-in, even after a tab switch
+  let done = false; // signed in by a pasted code, cancelled with esc, or over
+  const end = (cls, text) => {
+    done = true;
+    if (form) form.remove();
+    status.className = 'login-state' + (cls ? ' ' + cls : '');
+    status.textContent = text;
+  };
+  // some providers (Grok) show a code on their page instead of coming back
+  // here: the user pastes it (or the whole link) and the router finishes
+  let form = null;
+  if (data.browser) {
+    form = el('form', 'login-paste');
+    form.setAttribute('aria-label', 'finish the ' + data.id + ' sign-in');
+    const fid = 'login-paste-' + loginSeq;
+    const label = el('label', 'login-paste-label', 'paste the code or link from the sign-in page');
+    label.htmlFor = fid;
+    const row = el('div', 'login-paste-row');
+    const caret = el('span', 'pick-caret', '›');
+    caret.setAttribute('aria-hidden', 'true');
+    const box2 = el('input', 'login-paste-input');
+    box2.id = fid; box2.type = 'text'; box2.autocomplete = 'off'; box2.spellcheck = false;
+    box2.setAttribute('autocapitalize', 'off'); box2.setAttribute('autocorrect', 'off');
+    box2.placeholder = 'code or link';
+    box2.setAttribute('aria-describedby', status.id);
+    const go = el('button', 'login-paste-go', 'finish');
+    go.type = 'submit';
+    row.append(caret, box2, go);
+    const head = el('div', 'login-paste-head');
+    head.append(label, el('span', 'login-paste-hint', 'enter finish · esc cancel'));
+    form.append(head, row);
+    let sending = false;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const code = box2.value.trim();
+      if (done || sending || me !== loginPolls) { if (me !== loginPolls) form.remove(); return; }
+      if (!code) { status.className = 'login-state err'; status.textContent = 'paste the code from the sign-in page first'; box2.focus(); return; }
+      sending = true; box2.disabled = true; go.disabled = true;
+      status.className = 'login-state'; status.textContent = 'checking the code…';
+      let r = null;
+      try { r = await api('/api/login' + tq, { id: data.id, code }); }
+      catch (err) { r = { ok: false, error: String(err.message || err) }; }
+      sending = false; box2.disabled = false; go.disabled = false;
+      if (done || me !== loginPolls) { if (me !== loginPolls) form.remove(); return; }
+      if (r && r.ok) {
+        end('ok', (r.text || ('signed in · ' + (r.models || 0) + ' models')) + (r.note ? ' · ' + r.note : ''));
+        refreshInfo();
+        $('input').focus();
+        return;
+      }
+      status.className = 'login-state err';
+      status.textContent = (r && r.error) || 'that code did not work; copy it again';
+      box2.focus(); box2.select();
+    });
+    box2.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault(); e.stopPropagation();
+      end('', 'stopped waiting · run /login ' + data.id + ' to sign in again');
+      $('input').focus();
+    });
+    box.appendChild(form);
+  }
+  box.appendChild(status);
+  scrollDown();
+  if (form && !matchMedia('(pointer: coarse)').matches) form.querySelector('input').focus({ preventScroll: true });
   const deadline = Date.now() + (data.expires || 900) * 1000;
   let wait = data.browser ? 3 : Math.max(3, data.interval || 5);
-  while (Date.now() < deadline && me === loginPolls) {
+  while (Date.now() < deadline && me === loginPolls && !done) {
     await sleep(wait * 1000);
-    if (me !== loginPolls) return;
+    if (me !== loginPolls || done) { form?.remove(); return; }
     let r;
     try { r = await api('/api/login' + tq, { id: data.id, browser: !!data.browser }); }
-    catch (e) { status.textContent = 'still checking… (' + String(e.message || e) + ')'; continue; }
-    if (!r) continue;
+    catch (e) {
+      if (me !== loginPolls || done) { form?.remove(); return; }
+      status.textContent = 'still checking… (' + String(e.message || e) + ')'; continue;
+    }
+    if (me !== loginPolls) { form?.remove(); return; }
+    if (!r || done) continue;
+    if (r.status === 'pending' && r.message) {
+      status.className = 'login-state err';
+      status.textContent = r.message;
+    }
     if (r.status === 'ok') {
-      status.className = 'login-state ok';
-      status.textContent = (r.text || 'signed in') + (r.note ? ' · ' + r.note : '');
+      end('ok', (r.text || 'signed in') + (r.note ? ' · ' + r.note : ''));
       refreshInfo();
       return;
     }
-    if (r.status === 'error') { status.className = 'login-state err'; status.textContent = data.id + ': ' + (r.message || 'sign-in failed'); return; }
+    if (r.status === 'error') { end('err', data.id + ': ' + (r.message || 'sign-in failed')); return; }
     if (!data.browser && r.interval) wait = Math.max(3, r.interval);
   }
-  if (me === loginPolls) { status.className = 'login-state err'; status.textContent = 'the sign-in timed out; run /login ' + data.id + ' again'; }
+  if (me !== loginPolls) form?.remove();
+  else if (!done) end('err', 'the sign-in timed out; run /login ' + data.id + ' again');
 }
 
 async function refreshInfo() {
