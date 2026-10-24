@@ -23,7 +23,7 @@ docker run --rm -v $(pwd)/cli:/src -w /src golang:1.27 go test ./...
 Run router tests with Docker:
 
 ```bash
-docker run --rm -v $(pwd)/router:/r -w /r node:24-alpine node --test server.test.mjs
+docker run --rm -v $(pwd)/router:/r -w /r node:24-alpine node --test
 ```
 
 ## Benchmarks

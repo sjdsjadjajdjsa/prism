@@ -25,12 +25,14 @@ jobs:
           go build ./...
           go test -count=1 ./...
       - name: Web
-        run: node --check web/app.js
+        run: for f in web/*.js; do node --check "$f"; done
       - name: Router
         run: |
           node --check router/server.mjs
           node --check router/custom.mjs
           node --check router/check.mjs
+          node --check router/subs.mjs
+          node --check router/wire.mjs
           (cd router && node --test)
           node -e "JSON.parse(require('fs').readFileSync('router/providers.json','utf8'))"
       - name: Scripts

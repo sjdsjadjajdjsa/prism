@@ -170,6 +170,8 @@ Skills are markdown files with front matter (`name`, `description`) followed by 
 | `cli/shard_test.go` | Shard drawing |
 | `router/server.test.mjs` | Router race, roles, vision, pins, avoid/exclude, hedging, limits |
 | `router/custom.test.mjs` | Custom provider validation and loading |
+| `router/subs.test.mjs` | Subscription sign-in flows, model lists, tokens |
+| `router/wire.test.mjs` | Request and reply translation for subscription wires |
 
 Run the Go tests:
 
@@ -183,4 +185,4 @@ With race detector:
 cd cli && go test -race ./...
 ```
 
-Router tests: `node --test router/`. You can also check a live router with `prism status`.
+Router tests: `cd router && node --test`. You can also check a live router with `prism status`.
