@@ -1,8 +1,7 @@
 /* prism slash commands for the web.
-   The command list comes from GET /api/commands (cli/commands.go `commands` is the source of truth);
-   FALLBACK is used only offline / in ?demo mode. picker() is the one "choose something" overlay every
-   command uses, mirroring the terminal menu (cli/menu.go drawMenu): title + hint, a filter line, rows of
-   dot · label · detail · state, a "N more" line. runServer talks to cli/serve.go command(). */
+   The command list comes from GET /api/commands; FALLBACK is used only offline or in ?demo mode.
+   picker() is the one "choose something" overlay every command uses: title and hint, a filter
+   line, rows of dot · label · detail · state, and a "N more" line. */
 (function () {
   var FALLBACK = [
     { name: "/models", help: "every model in the order prism tries them · /models <text> narrows", web: true },
@@ -41,15 +40,15 @@
     return loaded;
   }
 
-  // PICKERS open a picker when run bare (cli/commands.go pickerCommands): taking one from the
-  // suggestion list runs it, tab too, so the picker opens with no second enter.
+  // PICKERS open a picker when run bare. Taking one from the suggestion list runs it, tab too,
+  // so the picker opens without a second enter.
   var PICKERS = { "/model": 1, "/login": 1, "/key": 1, "/resume": 1, "/theme": 1, "/tabs": 1 };
-  // the other names commands answer to (cli/commands.go commandAliases): enter runs them as typed
+  // other names commands answer to; enter runs them as typed
   var ALIASES = ["/exit", "/status", "/continue", "/keys", "/logins", "/themes", "/forget"];
 
-  // rank mirrors rankCommand in cli/commands.go: [tier, score] or null. Tier 0 is the exact name,
-  // 1 a prefix (shorter first; a bare "/" keeps the list order), 2 a close match: the query inside
-  // the name ("odel"), then its letters in order ("mdl"). A lower score sorts first.
+  // Keep in sync with rankCommand in cli/commands.go. Returns [tier, score] or null. Tier 0 is
+  // the exact name, 1 a prefix (shorter first; a bare "/" keeps the list order), 2 a close match:
+  // the query inside the name ("odel"), then its letters in order ("mdl"). Lower scores sort first.
   function rank(name, q) {
     var n = name.replace(/^\//, "").toLowerCase();
     if (q === "") return [1, 0];
@@ -66,8 +65,8 @@
     return [2, 1000 + (last - first + 1 - q.length) * 10 + first * 5 + n.length];
   }
 
-  // match is the suggestion list for what is typed so far (cli/commands.go suggestIn): rows of
-  // {name, help, saved, close}, exact match first, then prefixes, then close matches.
+  // match is the suggestion list for what is typed so far: rows of {name, help, saved, close},
+  // exact match first, then prefixes, then close matches.
   function match(text) {
     if (text.charAt(0) !== "/" || text.indexOf(" ") !== -1 || text.indexOf("\n") !== -1) return [];
     var q = text.slice(1).toLowerCase(), ranked = [];
@@ -86,13 +85,13 @@
     return false;
   }
 
-  // splitHelp mirrors cli/commands.go splitHelp: "pick the model · /model <name>" → ["pick the model", "/model <name>"]
+  // Keep in sync with splitHelp in cli/commands.go. "pick the model · /model <name>" becomes ["pick the model", "/model <name>"].
   function splitHelp(help) {
     var k = help.indexOf(" · ");
     return k < 0 ? [help, ""] : [help.slice(0, k), help.slice(k + 3)];
   }
 
-  // hintFor mirrors cli/chat.go suggestHint: the usage hints, or what taking the command does
+  // hintFor is the usage hint, or what taking the command does.
   function hintFor(c) {
     var usage = splitHelp(c.help)[1];
     if (usage) return usage;
@@ -122,12 +121,11 @@
     input.dispatchEvent(new Event("input"));
   }
 
-  // ---------- suggestion box (mirrors drawSuggestions in cli/chat.go) ----------
-  // Typing "/" opens it above the input: the matching commands, a highlight on the best match that
-  // ↑↓ move (wrapping) and the pointer follows, a "close matches" divider, and a hint line with the
-  // highlighted command's usage. tab or enter takes the highlighted command, a click runs it, esc
-  // closes the list and keeps what is typed; any edit reopens it with the highlight on the best match.
-  var MAX_SUGGEST = 10; // list lines before it scrolls (cli/chat.go suggestMaxRows)
+  // Suggestion box. Typing "/" opens it above the input with the matching commands and a
+  // highlight on the best match. ↑↓ move it (wrapping) and the pointer follows. tab or enter
+  // takes the highlighted command, a click runs it, esc closes the list and keeps what is typed;
+  // any edit reopens it.
+  var MAX_SUGGEST = 10; // list lines before it scrolls
   function attach(opts) {
     var input = opts.input;
     var box = opts.suggestBox;
@@ -215,8 +213,8 @@
       select(Math.min(sel, found.length - 1), true);
     }
 
-    // fit caps the list so the box stays between the page header and the input (it sits above the
-    // input, so it never covers it) and scrolls when longer than that.
+    // fit caps the list so the box stays between the page header and the input, and scrolls
+    // when it is longer than that.
     function fit() {
       var rowH = rows[0].offsetHeight || 21;
       var head = document.querySelector("header.top");
@@ -286,7 +284,7 @@
     input.addEventListener("blur", function () { setTimeout(function () { if (document.activeElement !== input) hide(); }, 120); });
     input.addEventListener("focus", refresh);
     window.addEventListener("resize", function () { if (!box.hidden && rows.length) { fit(); select(sel, true); } });
-    // capture: the list answers its keys before the chat input's own handler (web/app.js) sees them
+    // capture: the list handles its keys before the chat input's own handler sees them
     input.addEventListener("keydown", function (ev) {
       if (ev.isComposing) return;
       var text = valueOf(input);
@@ -303,8 +301,8 @@
       if (shown && ev.key === "Escape") { done(); closed = true; paint(); return; }
       if (ev.key === "Enter" && plain && text.charAt(0) === "/") {
         done();
-        // a whole command name typed with the highlight untouched (an alias like /exit has no row
-        // of its own) runs as typed, like a line with words after the command
+        // A whole command name typed with the highlight untouched runs as typed (an alias like
+        // /exit has no row of its own).
         if (shown && !(sel === 0 && isName(text) && found[0].name !== text)) { take(sel, true); return; }
         found = []; sel = 0; paint();
         run(text);
@@ -322,7 +320,7 @@
     return res.json();
   }
 
-  // ---------- picker ----------
+  // Picker
   var MAX_ROWS = 12;
   var current = null;
   var seq = 0;
@@ -349,10 +347,10 @@
   /* picker(opts) opens the overlay above the input box.
      opts: title, hint, items [{label, detail, state, dot, dotTone, stateTone, sub, match, dim, toggle}],
            sel, filterable (default true), noun, empty, loading, error,
-           onPick(item) — enter or a click; the picker closes first unless it returns true,
-           onToggle(item) — space on a row marked toggle (the picker stays open),
-           onHover(item) — the highlight landed on a row (theme preview),
-           onClose() — esc, a click outside, or another picker replacing this one; not called after a pick.
+           onPick(item): enter or a click; the picker closes first unless it returns true,
+           onToggle(item): space on a row marked toggle (the picker stays open),
+           onHover(item): the highlight landed on a row (theme preview),
+           onClose(): esc, a click outside, or another picker replacing this one; not called after a pick.
      Returns { update(opts), close(), el }. Focus goes back to opts.returnFocus (the chat input) on close. */
   function picker(opts) {
     if (current) current.cancel();
@@ -364,6 +362,7 @@
 
     var root = el("div", "pick");
     root.setAttribute("role", "dialog");
+    root.setAttribute("aria-label", o.title || "choose");
     var head = el("div", "pick-head");
     var titleEl = el("span", "pick-title");
     var hintEl = el("span", "pick-hint");
@@ -376,6 +375,7 @@
     box.autocomplete = "off";
     box.spellcheck = false;
     box.placeholder = "type to filter";
+    box.setAttribute("aria-label", "Filter " + (o.title || "the list"));
     box.setAttribute("role", "combobox");
     box.setAttribute("aria-expanded", "true");
     box.setAttribute("aria-controls", id + "-list");
@@ -414,7 +414,7 @@
       vis.forEach(function (it) {
         if (!it.sub) { nameW = Math.max(nameW, String(it.label || "").length); detW = Math.max(detW, String(it.detail || "").length); }
       });
-      // like drawMenu: the label column first, the detail gets what is left beside the state
+      // the label column first; the detail gets what is left beside the state
       var cols = Math.floor((root.clientWidth - 24) / chWidth()) || 80;
       var stateW = vis.reduce(function (n, it) { return Math.max(n, String(it.state || "").length); }, 0);
       // a phone (~40 columns) keeps most of the row for the name: the state
@@ -508,8 +508,8 @@
     }
 
     function outside(ev) { if (!root.contains(ev.target)) cancel(); }
-    // the chat box got the keys (tab, a typed letter): the picker is done, like a click outside,
-    // so Enter there can never send a chat line under an open picker
+    // The chat box got the keys (tab, a typed letter), so the picker is done, like a click
+    // outside. That way Enter there can never send a chat line under an open picker.
     function backFocus() { if (!closed) cancel(); }
     function refocus() { if (!closed && document.activeElement !== box) box.focus({ preventScroll: true }); }
     // a click on the title, hint, "N more" line or the list scrollbar must not take the keys away

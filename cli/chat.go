@@ -254,7 +254,6 @@ func (m model) transcript(t theme, width int) []line {
 		case "info":
 			gap()
 			if e.view != nil {
-				// Richer structured rendering when a view is attached.
 				out = append(out, cmdLines(t, *e.view, width)...)
 			} else {
 				out = append(out, line{indent: 2, segs: []seg{{text: e.text, fg: t.fg, bold: true}}})
@@ -302,7 +301,7 @@ func (m model) transcript(t theme, width int) []line {
 				{text: "◆ ", grad: true, phase: 0.1},
 				{text: modelName(e.arg), fg: t.muted},
 				{text: "  ·  " + e.text + "  ·  ", fg: mix(t.bg, t.muted, 0.6)},
-				{text: "free", fg: t.green},
+				{text: answeredBy(e.source, ""), fg: sourceColor(t, answeredBy(e.source, ""))},
 			}})
 		}
 	}
@@ -604,7 +603,7 @@ func drawStatus(cv *canvas, t theme, m model, x, y, w int, enter float64) {
 		queued = fmt.Sprintf(" · queued %.0fs", m.waited.Seconds())
 		left = append(left, seg{text: queued, fg: mix(t.bg, t.muted, enter*0.8)})
 	}
-	// A chat pinned to one model says so; auto chats keep today's look.
+	// A chat pinned to one model says so.
 	pinned := ""
 	if m.agent != nil && m.agent.model != "" {
 		pinned = " · model: " + modelName(m.agent.model)
@@ -615,8 +614,13 @@ func drawStatus(cv *canvas, t theme, m model, x, y, w int, enter float64) {
 	}
 	left = append(left,
 		seg{text: "  ·  ", fg: mix(t.bg, t.faint, 1.5*enter)},
-		seg{text: "free", fg: mix(t.bg, t.green, enter)},
 	)
+	pinnedModel := ""
+	if m.agent != nil {
+		pinnedModel = m.agent.model
+	}
+	cost := answeredBy(m.source, pinnedModel)
+	left = append(left, seg{text: cost, fg: mix(t.bg, sourceColor(t, cost), enter)})
 
 	used := float64(m.tokens) / float64(max(1, m.window))
 	meterW := 12
@@ -645,7 +649,7 @@ func drawStatus(cv *canvas, t theme, m model, x, y, w int, enter float64) {
 	// Lay out from both ends. When the row runs out of room, drop pieces in
 	// this order: the queued note, the context meter, the pinned model, then
 	// the keys hint.
-	// Segments that stay never touch — at least two columns stay between them.
+	// Segments that stay keep at least two columns between them.
 	for {
 		lw := widthOf(left) - len([]rune(left[1].text)) + nameWidth()
 		rw := 0
@@ -738,12 +742,18 @@ func modelLines(t theme, e *entry, width int) []line {
 	if e.arg != "" {
 		note = fmt.Sprintf(" · matching %q", e.arg)
 	}
-	out := []line{{indent: 2, segs: []seg{{text: "free models", fg: t.fg, bold: true}, {text: note, fg: t.muted}}}}
-	nameW := 10
+	out := []line{{indent: 2, segs: []seg{{text: "models", fg: t.fg, bold: true}, {text: note, fg: t.muted}}}}
+	nameW, provW := 10, 10
 	for _, r := range e.rows {
 		nameW = max(nameW, len([]rune(modelName(r.Route))))
+		provW = max(provW, len([]rune(provider(r.Route))))
 	}
+	group := -1
 	for _, r := range e.rows {
+		if g := groupOf(r); g != group {
+			group = g
+			out = append(out, line{}, line{indent: 2, segs: []seg{{text: routeGroups[g].title, fg: sourceColor(t, answeredBy(r.Source, "")), bold: true}}})
+		}
 		dot, state, col := "● ", "ready", t.green
 		if !r.Ready {
 			dot, state, col = "◌ ", fmt.Sprintf("back in %ds", r.RetryIn), t.muted
@@ -751,22 +761,33 @@ func modelLines(t theme, e *entry, width int) []line {
 		out = append(out, line{indent: 2, segs: []seg{
 			{text: dot, fg: col},
 			{text: pad(clip(modelName(r.Route), width-30), nameW+2), fg: t.fg},
-			{text: pad(provider(r.Route), 12), fg: t.muted},
+			{text: pad(provider(r.Route), provW+2), fg: t.muted},
 			{text: state, fg: col},
 		}})
 	}
 	if e.more > 0 {
-		out = append(out, line{indent: 2, segs: []seg{{text: fmt.Sprintf("… %d more · /models <text> narrows the list", e.more), fg: t.muted}}})
+		out = append(out, line{}, line{indent: 2, segs: []seg{{text: fmt.Sprintf("… %d more · /models <text> narrows the list", e.more), fg: t.muted}}})
 	}
-	out = append(out, line{}, line{indent: 2, segs: []seg{{text: "to add more models: ", fg: t.muted}, {text: "prism setup", fg: t.at(0.6)}}})
+	out = append(out, line{}, line{indent: 2, segs: []seg{{text: "add models: ", fg: t.muted}, {text: "prism setup", fg: t.at(0.6)}, {text: " · ", fg: t.muted}, {text: "/login", fg: t.at(0.6)}, {text: " · ", fg: t.muted}, {text: "/key", fg: t.at(0.6)}}})
 	return out
 }
 
+// sourceColor is the colour of an answeredBy label: green for free, the accent for
+// a plan, muted for your own keys.
+func sourceColor(t theme, label string) rgb {
+	switch label {
+	case "plan":
+		return t.at(0.6)
+	case "yours":
+		return t.muted
+	}
+	return t.green
+}
+
 // The suggestion list is what typing "/" opens above the input box: the
-// matching commands (commands.go suggestions), a highlight that ↑↓ move and
-// the pointer follows, and a hint line with the highlighted command's usage.
-// tab or enter takes the highlighted command, esc closes the list and keeps
-// what is typed. web/commands.js attach is the same list for the browser.
+// matching commands, a highlight moved by the arrow keys and the pointer, and
+// a hint line with the highlighted command's usage. tab or enter takes the
+// highlighted command; esc closes the list and keeps what is typed.
 
 // suggestState is the list's highlight. It belongs to the input it was made
 // for: any edit puts the highlight back on the best match and reopens a list
@@ -791,7 +812,6 @@ type suggestLayout struct {
 	lines int   // shown plus the hint line under them
 }
 
-// suggest is the highlight for the input as it is now.
 func (m model) suggest() suggestState {
 	if in := string(m.input); m.sug.input != in {
 		return suggestState{input: in}
@@ -841,7 +861,6 @@ func layoutSuggest(rows []suggestion, s suggestState, y, top int) suggestLayout 
 	return l
 }
 
-// pos is the list line the highlighted row is on.
 func (l suggestLayout) pos() int {
 	for p, it := range l.items {
 		if it == l.sel {
@@ -901,8 +920,8 @@ func (m *model) suggestKey(k string) (cmd tea.Cmd, ok bool) {
 	case "tab":
 		return m.suggestTake(l, false), true
 	case "enter":
-		// a whole command name typed with the highlight untouched (an alias
-		// like /exit has no row of its own) runs as typed
+		// A whole command name typed with the highlight untouched runs as typed
+		// (an alias like /exit has no row of its own).
 		if text := string(m.input); l.sel == 0 && isCommandName(text) && l.rows[0].name != text {
 			return nil, false
 		}
@@ -955,7 +974,7 @@ func (m model) suggestMouse(msg tea.Msg) (model, tea.Cmd, bool) {
 	case tea.MouseWheelMsg:
 		s.off = clamp(l.off+wheelDelta(msg), 0, max(0, len(l.items)-l.shown))
 		if p := l.pos(); p < s.off || p >= s.off+l.shown {
-			// keep the highlight on screen: the nearest row in the new window
+			// Keep the highlight on screen: the nearest row in the new window.
 			for _, it := range l.items[s.off : s.off+l.shown] {
 				if it >= 0 {
 					s.sel = it

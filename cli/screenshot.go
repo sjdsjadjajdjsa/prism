@@ -28,21 +28,21 @@ import (
 const (
 	screenshotVisionSide  = 1280    // longest side sent to the vision model
 	screenshotVisionBytes = 1500000 // largest JPEG sent to the vision model
-	noVisionText          = "no image-capable free model was available, I could not look at it"
+	noVisionText          = "no model that can see images was available, so I could not look at it. Pin a plan model with /model (ChatGPT, Claude, Grok or Gemini), or add a free Gemini key with prism setup"
 )
 
 var errScreenshotPublic = errors.New("public URL screenshot requires approval")
 
-// screenshotEnv is everything the screenshot tool needs from the running agent.
 type screenshotEnv struct {
 	dir, api string
+	model    string // the chat's pinned model, tried first for screenshots
 	system   bool
 	approve  func(ctx context.Context, tool, arg string) bool
 }
 
 // screenshot is called by the agent loop so approvals and system mode are the real ones.
 func (a *Agent) screenshot(ctx context.Context, raw string) toolResult {
-	return screenshotTool(ctx, screenshotEnv{dir: a.dir, api: a.api, system: a.system, approve: a.approve}, raw)
+	return screenshotTool(ctx, screenshotEnv{dir: a.dir, api: a.api, model: a.model, system: a.system, approve: a.approve}, raw)
 }
 
 // screenshotFallbackEnv is used when runTool is called without an agent: no system mode and
@@ -59,7 +59,6 @@ func (e screenshotEnv) ask(ctx context.Context, text string) bool {
 	return e.approve != nil && e.approve(ctx, "screenshot", text)
 }
 
-// inScreenshotContainer reports whether we are running inside a container.
 var inScreenshotContainer = func() bool {
 	if _, err := os.Stat("/.dockerenv"); err == nil {
 		return true
@@ -180,7 +179,7 @@ func screenshotTool(ctx context.Context, env screenshotEnv, raw string) toolResu
 	}
 	visionCtx, cancelVision := context.WithTimeout(parent, 90*time.Second)
 	defer cancelVision()
-	description, err := screenshotVision(visionCtx, env.api, question, data)
+	description, err := screenshotVision(visionCtx, env.api, env.model, question, data)
 	if err != nil {
 		var ve *visionError
 		if errors.As(err, &ve) && ve.unavailable {
@@ -191,7 +190,6 @@ func screenshotTool(ctx context.Context, env screenshotEnv, raw string) toolResu
 	return toolResult{ok: true, summary: rel, output: saved + "Vision model's description:\n" + description}
 }
 
-// hostOf is the host:port of a URL.
 func hostOf(target string) string {
 	if u, err := url.Parse(target); err == nil {
 		return u.Host
@@ -631,8 +629,7 @@ func screenshotWindows(ctx context.Context, output string) error {
 	return nil
 }
 
-// screenshotVisionImage decodes the PNG and returns a JPEG whose longest side is at most
-// 1280 px and whose size is at most about 1.5 MB.
+// screenshotVisionImage decodes the PNG and returns a JPEG within the screenshotVision limits.
 func screenshotVisionImage(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -707,7 +704,7 @@ type visionError struct {
 
 func (e *visionError) Error() string { return e.msg }
 
-func screenshotVision(ctx context.Context, api, question string, data []byte) (string, error) {
+func screenshotVision(ctx context.Context, api, model, question string, data []byte) (string, error) {
 	if api == "" {
 		return "", errors.New("router URL is not configured")
 	}
@@ -717,6 +714,9 @@ func screenshotVision(ctx context.Context, api, question string, data []byte) (s
 			map[string]any{"type": "text", "text": question},
 			map[string]any{"type": "image_url", "image_url": map[string]any{"url": "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(data)}},
 		}}},
+	}
+	if model != "" && !strings.HasPrefix(model, "auto") {
+		body["prism_prefer"] = model
 	}
 	raw, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(api, "/")+"/chat/completions", bytes.NewReader(raw))
@@ -792,7 +792,7 @@ var screenshotBrowserDir = func() string {
 	return ""
 }
 
-// screenshotFetch downloads url to dest. It is a variable so tests can fake the network.
+// screenshotFetch is a variable so tests can fake the network.
 var screenshotFetch = realScreenshotFetch
 
 func realScreenshotFetch(ctx context.Context, url, dest string) error {
@@ -898,7 +898,6 @@ func installScreenshotBrowser(ctx context.Context, build screenshotBrowserBuild,
 		}
 		return err
 	}
-	// Older versions are not needed any more.
 	if entries, err := os.ReadDir(root); err == nil {
 		for _, entry := range entries {
 			if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") && filepath.Join(root, entry.Name()) != home {

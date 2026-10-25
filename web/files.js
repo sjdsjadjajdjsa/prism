@@ -39,6 +39,7 @@
     panel.hidden = false
     toggle.setAttribute('aria-expanded', 'true')
     document.body.classList.add('files-open')
+    document.getElementById('files-close').focus({ preventScroll: true })
     try {
       await load()
       const data = await (await fetch('/api/tree', { cache: 'no-store' })).json()
@@ -183,13 +184,15 @@
     if (fv.pane && !fv.pane.hidden && !closeFile()) return
     open = false
     poll++
+    const inside = panel.contains(document.activeElement)
     panel.hidden = true
+    if (inside) toggle.focus({ preventScroll: true })
     toggle.setAttribute('aria-expanded', 'false')
     document.body.classList.remove('files-open')
   }
 
   toggle.addEventListener('click', () => (open ? hide() : show()))
-  // /files and /open <path> from the chat input (web/app.js runCommand)
+  // /files and /open <path> from the chat input
   window.PrismFiles = {
     show: () => { if (!open) show(); else if (fv.pane && !fv.pane.hidden) closeFile() },
     hide,

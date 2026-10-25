@@ -6,49 +6,38 @@ import (
 	"unicode/utf8"
 )
 
-// cmdBlock is a titled group of items used by /skills, /models, /memory, etc.
-// It renders as:
-//
-//	Title                          ← bold, accent colour
-//	  Name   What it does…         ← name bold, description wrapped with hanging indent
-//	  …
-//	  (muted secondary info)       ← optional per-item secondary line
-//
-// A zero-value cmdBlock with no items is silently skipped.
+// cmdBlock is a titled group of items, used by /skills, /models, /memory and
+// others. A block with no items is skipped.
 type cmdBlock struct {
-	title   string // group heading; empty = no heading
+	title   string // empty means no heading
 	items   []cmdItem
 	nameMax int // widest name column (0 = 20)
 }
 
 type cmdItem struct {
-	name   string // short label shown bold/accent
-	desc   string // plain-English one-liner, wrapped to terminal width
+	name   string
+	desc   string // wrapped to terminal width
 	sub    string // muted secondary info (source, provider, status…)
-	dot    string // optional status glyph: "●", "◌", "✕"
-	dotOK  bool   // true → green dot, false → muted/red
-	dotErr bool   // true → red dot
+	dot    string // optional status glyph
+	dotOK  bool   // green dot, else muted or red
+	dotErr bool   // red dot
 }
 
-// cmdView is the full structured output for a command.
 type cmdView struct {
-	title  string     // top-level title (bold)
-	blocks []cmdBlock // grouped content
-	footer string     // one next-action hint at the bottom
+	title  string
+	blocks []cmdBlock
+	footer string // one next-action hint at the bottom
 }
 
-// cmdLines converts a cmdView into []line for the transcript renderer.
-// width is the available column width (already accounting for outer indent).
+// cmdLines renders a cmdView. width already leaves out the outer indent.
 func cmdLines(t theme, v cmdView, width int) []line {
 	var out []line
 
-	// Title line
 	out = append(out, line{indent: 2, segs: []seg{
 		{text: v.title, fg: t.fg, bold: true},
 	}})
 
 	for _, blk := range v.blocks {
-		// blank line before each block
 		out = append(out, line{})
 
 		if blk.title != "" {
@@ -57,7 +46,7 @@ func cmdLines(t theme, v cmdView, width int) []line {
 			}})
 		}
 
-		// measure name column width (max 20, min 8)
+		// Name column width: at least 8, at most nameMax.
 		nameW := 8
 		for _, it := range blk.items {
 			if n := utf8.RuneCountInString(it.name); n > nameW {
@@ -73,7 +62,6 @@ func cmdLines(t theme, v cmdView, width int) []line {
 		}
 
 		for _, it := range blk.items {
-			// dot glyph
 			dotSeg := seg{text: "  "}
 			if it.dot != "" {
 				col := t.muted
@@ -85,11 +73,9 @@ func cmdLines(t theme, v cmdView, width int) []line {
 				dotSeg = seg{text: it.dot + " ", fg: col}
 			}
 
-			// name segment (bold, accent); names past the column cap are
-			// clipped so they never push the description out of line
+			// Long names are clipped so they never push the description out of line.
 			nameSeg := seg{text: padRune(clip(it.name, nameW), nameW+2), fg: t.at(0.5), bold: true}
 
-			// description: wrap to remaining width with hanging indent
 			descWidth := width - 4 - 2 - nameW - 2 // indent(4) + dot(2) + name + gap
 			if descWidth < 20 {
 				descWidth = 20
@@ -114,7 +100,6 @@ func cmdLines(t theme, v cmdView, width int) []line {
 				out = append(out, line{indent: 4, segs: []seg{dotSeg, nameSeg}})
 			}
 
-			// secondary info (muted, indented under name)
 			if it.sub != "" {
 				subLines := wrapWords(it.sub, width-hangIndent)
 				for _, sl := range subLines {
@@ -126,7 +111,6 @@ func cmdLines(t theme, v cmdView, width int) []line {
 		}
 	}
 
-	// footer — wrap to available width
 	if v.footer != "" {
 		out = append(out, line{})
 		for _, fl := range wrapWords(v.footer, width-4) {
@@ -137,7 +121,6 @@ func cmdLines(t theme, v cmdView, width int) []line {
 	return out
 }
 
-// padRune pads s to n runes with spaces.
 func padRune(s string, n int) string {
 	r := utf8.RuneCountInString(s)
 	if r >= n {
@@ -146,8 +129,7 @@ func padRune(s string, n int) string {
 	return s + strings.Repeat(" ", n-r)
 }
 
-// wrapWords wraps text to width, returning one string per line.
-// It respects existing newlines and never splits a word unless it exceeds width.
+// wrapWords keeps existing newlines and only splits a word longer than width.
 func wrapWords(s string, width int) []string {
 	if width < 8 {
 		width = 8
@@ -166,7 +148,6 @@ func wrapWords(s string, width int) []string {
 		var cur []rune
 		for _, word := range words {
 			r := []rune(word)
-			// hard-break words longer than width
 			for len(r) > width {
 				if len(cur) > 0 {
 					out, cur = append(out, string(cur)), nil
@@ -188,11 +169,8 @@ func wrapWords(s string, width int) []string {
 	return out
 }
 
-// ── helpers used by commands.go ──────────────────────────────────────────────
-
-// skillsView builds the /skills summary: one line per group (from
-// groupSkills) with its count and the first few names; /skills <name> shows
-// one skill in full.
+// skillsView builds the /skills summary: one line per group with
+// its count and the first few names. /skills <name> shows one skill in full.
 func skillsView(skills []skill) cmdView {
 	blk := cmdBlock{nameMax: 26}
 	for _, g := range groupSkills(skills) {
@@ -320,7 +298,6 @@ func sourceLabel(src string) string {
 	return src
 }
 
-// resumeView builds a cmdView for /resume output.
 func resumeView(others []session) cmdView {
 	blk := cmdBlock{}
 	for k, s := range others {
@@ -337,7 +314,6 @@ func resumeView(others []session) cmdView {
 	}
 }
 
-// usageView builds a cmdView for /usage output.
 func usageView(u usageDay, agentReqs int, agentSent, agentCached int) cmdView {
 	blk := cmdBlock{
 		items: []cmdItem{
@@ -346,13 +322,21 @@ func usageView(u usageDay, agentReqs int, agentSent, agentCached int) cmdView {
 		},
 	}
 	return cmdView{
-		title:  "free AI usage",
+		title:  "AI usage",
 		blocks: []cmdBlock{blk},
-		footer: "all free · limits reset daily · add more keys for more room: prism setup",
+		footer: usageFooter(u),
 	}
 }
 
-// memoryView builds a cmdView for /memory output.
+// usageFooter says how many of today's requests were free; the free limits
+// reset daily, your plans and keys follow their own limits.
+func usageFooter(u usageDay) string {
+	if u.Yours == 0 {
+		return "all free · limits reset daily · add more keys for more room: prism setup"
+	}
+	return fmt.Sprintf("%d free · %d on your plans or keys · free limits reset daily", u.Requests-u.Yours, u.Yours)
+}
+
 func memoryView(title string, lines []string, projectFile string) cmdView {
 	blk := cmdBlock{}
 	for _, l := range lines {
@@ -381,7 +365,6 @@ func memoryView(title string, lines []string, projectFile string) cmdView {
 	}
 }
 
-// mcpView builds a cmdView for /mcp output.
 func mcpView(list []mcpStatus) cmdView {
 	if len(list) == 0 {
 		return cmdView{
@@ -435,17 +418,16 @@ var helpGroups = []struct {
 	{"tabs", []string{"/tabs", "/rename", "/ask"}},
 }
 
-// The one keys line at the bottom of /help.
+// The keys line at the bottom of /help.
 const (
 	helpKeysTUI = "keys: enter send · esc stop · tab completes · ctrl+o open all steps · ctrl+y theme · ctrl+t new tab · ctrl+w close tab · ctrl+pgup/pgdown switch · alt+1..9 jump"
 	helpKeysWeb = "keys: enter send · shift+enter new line · tab completes · ↑↓ pick · esc stop or close"
 )
 
-// helpView builds /help for the terminal.
 func helpView() cmdView { return helpViewFor(false) }
 
-// helpViewFor builds /help, grouped with one short phrase per command. For the
-// browser (web) it lists only the commands the web can run.
+// helpViewFor builds /help, grouped, one short phrase per command. With web
+// set it lists only the commands the browser can run.
 func helpViewFor(web bool) cmdView {
 	byName := map[string]command{}
 	for _, c := range commands {
@@ -470,7 +452,7 @@ func helpViewFor(web bool) cmdView {
 		}
 		add(blk)
 	}
-	// a command added to the list but missing from the groups above still shows
+	// A command missing from the groups above still shows.
 	more := cmdBlock{title: "more"}
 	for _, c := range commands {
 		if !listed[c.name] && (!web || c.web) {
@@ -485,8 +467,7 @@ func helpViewFor(web bool) cmdView {
 	return cmdView{title: "commands", blocks: blocks, footer: footer}
 }
 
-// wire is the JSON form of a cmdView for the web (kind "view"), rendered as a
-// grid by web/app.js addView.
+// wire is the JSON form of a cmdView for the web (kind "view").
 func (v cmdView) wire() map[string]any {
 	blocks := []map[string]any{}
 	for _, b := range v.blocks {

@@ -7,12 +7,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// The menu is the one overlay every "pick one thing from a list" command uses
-// (/model, /login, /key, /resume, /theme, /tabs, /mcp add). It sits just above
-// the input box, answers to the keyboard and the mouse, and runs the picked
-// row's action. The rows and their actions are built by each command.
+// The menu is the overlay every "pick one from a list" command uses (/model,
+// /login, /key, /resume, /theme, /tabs, /mcp add). Each command builds its own
+// rows and actions.
 
-// tone colours a row's dot or state text.
 type tone int
 
 const (
@@ -37,8 +35,6 @@ func (t theme) tone(k tone) rgb {
 	return t.muted
 }
 
-// menuItem is one row: a status dot, a label, a muted detail column, a
-// coloured state, and what happens when it is highlighted or picked.
 type menuItem struct {
 	label, detail, state string
 	dot                  string
@@ -69,7 +65,6 @@ type menuState struct {
 
 const menuMaxRows = 12
 
-// visible is every item whose label/detail (or match) contains the filter.
 func (p menuState) visible() []menuItem {
 	if len(p.filter) == 0 {
 		return p.items
@@ -154,8 +149,6 @@ func (m *model) openMenu(p menuState) {
 	m.menuSelect(p.sel)
 }
 
-// fillMenu puts fetched rows into the open menu of this kind; a reply for a
-// menu that closed meanwhile is dropped.
 func (m *model) fillMenu(kind string, items []menuItem, err error) {
 	if !m.menu.open || m.menu.kind != kind {
 		return
@@ -165,8 +158,6 @@ func (m *model) fillMenu(kind string, items []menuItem, err error) {
 	m.menuSelect(m.menu.sel)
 }
 
-// menuSelect highlights visible row i, scrolls it into view and lets the row
-// preview itself.
 func (m *model) menuSelect(i int) {
 	vis := m.menu.visible()
 	if len(vis) == 0 {
@@ -181,7 +172,6 @@ func (m *model) menuSelect(i int) {
 	}
 }
 
-// closeMenu is esc or a click outside: nothing picked.
 func (m *model) closeMenu() {
 	done := m.menu.onClose
 	m.menu = menuState{}
@@ -190,7 +180,6 @@ func (m *model) closeMenu() {
 	}
 }
 
-// menuRun closes the menu and runs the highlighted row.
 func (m *model) menuRun() tea.Cmd {
 	vis := m.menu.visible()
 	if len(vis) == 0 {
@@ -315,7 +304,6 @@ type pickLine struct {
 	segs []seg
 }
 
-// drawMenu draws the open menu just above the input box at y, never above top.
 func drawMenu(cv *canvas, t theme, m model, x, y, w, top int) {
 	p := m.menu
 	accent := t.at(0.5)

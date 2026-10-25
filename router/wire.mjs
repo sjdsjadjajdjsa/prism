@@ -6,15 +6,22 @@ import { randomUUID, createHash } from 'node:crypto'
 
 const decode = new TextDecoder()
 
-const text = value => String(value ?? '')
+const text = value => (Array.isArray(value) ? value.filter(part => part?.type === 'text').map(part => part.text).join('\n') : String(value ?? ''))
+
+// Screenshots arrive as OpenAI image_url parts holding a data: URL. Each wire
+// wants the raw base64 and its media type in its own shape.
+const images = value =>
+  (Array.isArray(value) ? value : [])
+    .filter(part => part?.type === 'image_url')
+    .map(part => /^data:([^;]+);base64,(.*)$/s.exec(part.image_url?.url ?? ''))
+    .filter(Boolean)
+    .map(([url, type, data]) => ({ url, type, data }))
 
 // Gemini signs its tool calls; the signature has to come back with the call or
 // the next turn is refused. Prism carries it inside the tool call id as
 // "<id>~<signature>", and every other wire sends just the id part.
 const callId = id => text(id).split('~')[0]
 const callSignature = id => text(id).split('~').slice(1).join('~')
-
-// --- ChatGPT (Codex / Responses API) ----------------------------------------------
 
 export const toCodex = body => {
   let instructions
@@ -25,7 +32,7 @@ export const toCodex = body => {
       continue
     }
     if (m.role === 'user') {
-      input.push({ role: 'user', content: [{ type: 'input_text', text: text(m.content) }] })
+      input.push({ role: 'user', content: [{ type: 'input_text', text: text(m.content) }, ...images(m.content).map(image => ({ type: 'input_image', image_url: image.url }))] })
     } else if (m.role === 'assistant') {
       if (text(m.content)) input.push({ role: 'assistant', content: [{ type: 'output_text', text: text(m.content) }] })
       for (const call of m.tool_calls ?? []) input.push({ type: 'function_call', call_id: callId(call.id), name: call.function?.name, arguments: text(call.function?.arguments) })
@@ -49,8 +56,8 @@ export const toCodex = body => {
   return out
 }
 
-// Grok speaks Responses too, but does not need Codex's encrypted reasoning.
-// adapted from router-for-me/CLIProxyAPI (MIT)
+// Grok speaks Responses too, but without Codex's encrypted reasoning.
+// Adapted from router-for-me/CLIProxyAPI (MIT).
 export const toGrok = body => {
   const out = toCodex(body)
   delete out.include
@@ -65,10 +72,9 @@ export const toGrok = body => {
   return out
 }
 
-// Codex and xAI use response.output_text.delta, response.output_item.done,
-// response.completed and (for truncated xAI turns) response.incomplete.
-// adapted from router-for-me/CLIProxyAPI (MIT)
-// Codex SSE events become chat.completion.chunk SSE lines.
+// Turns Codex and xAI events (response.output_text.delta, response.output_item.done,
+// response.completed, and response.incomplete for truncated xAI turns) into
+// chat.completion.chunk lines. Adapted from router-for-me/CLIProxyAPI (MIT).
 export class CodexStream {
   constructor() {
     this.buffer = ''
@@ -112,8 +118,6 @@ export class CodexStream {
   }
 }
 
-// --- Claude (Anthropic Messages API) ----------------------------------------------
-
 export const toAnthropic = body => {
   const system = []
   const messages = []
@@ -123,7 +127,8 @@ export const toAnthropic = body => {
       continue
     }
     if (m.role === 'user') {
-      messages.push({ role: 'user', content: text(m.content) })
+      const pictures = images(m.content)
+      messages.push({ role: 'user', content: pictures.length ? [...pictures.map(image => ({ type: 'image', source: { type: 'base64', media_type: image.type, data: image.data } })), { type: 'text', text: text(m.content) }] : text(m.content) })
     } else if (m.role === 'assistant') {
       const content = []
       if (text(m.content)) content.push({ type: 'text', text: text(m.content) })
@@ -189,8 +194,6 @@ export class AnthropicStream {
   }
 }
 
-// --- Gemini (Code Assist API) ----------------------------------------------------
-
 export const toGemini = body => {
   const contents = []
   let system
@@ -201,7 +204,7 @@ export const toGemini = body => {
       continue
     }
     if (m.role === 'user') {
-      contents.push({ role: 'user', parts: [{ text: text(m.content) }] })
+      contents.push({ role: 'user', parts: [{ text: text(m.content) }, ...images(m.content).map(image => ({ inlineData: { mimeType: image.type, data: image.data } }))] })
     } else if (m.role === 'assistant') {
       const parts = []
       if (text(m.content)) parts.push({ text: text(m.content) })
@@ -280,11 +283,9 @@ export class GeminiStream {
   }
 }
 
-// --- Antigravity (Google Code Assist, Gemini envelope) ---------------------------
-
-// Antigravity wraps the Gemini body in the project-scoped envelope its IDE sends
-// (request.go geminiToAntigravity): {model, project, requestType, requestId,
-// userAgent, request: <gemini body>}, with a stable session id on the request.
+// Antigravity wraps the Gemini body in the project-scoped envelope its IDE sends:
+// {model, project, requestType, requestId, userAgent, request: <gemini body>},
+// with a stable session id on the request.
 export const toAntigravity = (body, project) => {
   const request = toGemini(body)
   request.sessionId = stableSessionId(request)
@@ -298,8 +299,8 @@ export const toAntigravity = (body, project) => {
   }
 }
 
-// stableSessionId derives the conversation session from the first user turn, the
-// way the reference does: a hash of that text, as a negative decimal string.
+// Session id from the first user turn, as CLIProxyAPI does it: a hash of that
+// text as a negative decimal string.
 const stableSessionId = request => {
   for (const content of request.contents ?? []) {
     if (content.role !== 'user') continue
@@ -358,7 +359,7 @@ export class AntigravityStream {
 }
 
 // Grok CLI chat-proxy identity, version negotiation and 426 retry.
-// adapted from router-for-me/CLIProxyAPI (MIT)
+// Adapted from router-for-me/CLIProxyAPI (MIT).
 export const GROK_FALLBACK_VERSION = '1.0.46'
 export const createGrokFetch = ({ fetcher = (...args) => fetch(...args), now = Date.now } = {}) => {
   let version = GROK_FALLBACK_VERSION, checkedAt = -Infinity, checking
@@ -403,7 +404,6 @@ export const createGrokFetch = ({ fetcher = (...args) => fetch(...args), now = D
 }
 export const grokFetch = createGrokFetch()
 
-// Stable conversation identity is derived locally; no chat content is persisted.
 export const grokRequestHeaders = (body, sessionId) => {
   // Prism has no conversation handle: derive one from the account and first
   // user turn so follow-up turns share it without persisting chat content.
@@ -416,7 +416,7 @@ export const grokRequestHeaders = (body, sessionId) => {
     'x-grok-conv-id': convId,
     'x-grok-req-id': randomUUID(),
     'x-grok-model-override': body.model,
-    // Prism has one root agent per conversation, rather than CLI subagents.
+    // Prism has one root agent per conversation, no CLI subagents.
     'x-grok-agent-id': convId,
   }
 }

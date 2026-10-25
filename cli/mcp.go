@@ -193,9 +193,8 @@ func listMCPTools(ctx context.Context, conn mcpConn, server string) ([]mcpTool, 
 	return tools, nil
 }
 
-// dedupWireNames resolves cross-server wire-name collisions in place.
-// It must be called under h.mu after all tools have been collected.
-// The suffix loop guarantees the renamed wire is itself not already taken.
+// dedupWireNames renames tools whose wire names clash across servers.
+// Call it under h.mu once all tools are collected.
 func dedupWireNames(servers []*mcpServer) {
 	used := map[string]bool{}
 	for _, s := range servers {
@@ -203,8 +202,7 @@ func dedupWireNames(servers []*mcpServer) {
 			used[t.wire] = true
 		}
 	}
-	// Second pass: for any wire that appears more than once, rename the
-	// later occurrences with _2, _3, … skipping any name already taken.
+	// Later duplicates get _2, _3 and so on, skipping names already taken.
 	count := map[string]int{}
 	for _, s := range servers {
 		for i := range s.tools {
@@ -243,7 +241,6 @@ func cutUTF8(s string, n int) string {
 	return s[:n]
 }
 
-// clipUTF8 is cutUTF8 with surrounding space trimmed and an ellipsis when cut.
 func clipUTF8(s string, n int) string {
 	s = strings.TrimSpace(s)
 	if len(s) <= n {

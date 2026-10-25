@@ -171,9 +171,9 @@ func drawSplash(cv *canvas, t theme, m model) {
 	status, dot := "looking for free models…", t.muted
 	switch {
 	case m.ready > 0:
-		status, dot = countFree(m.ready), t.green
+		status, dot = countModels(m.ready)+" ready", t.green
 	case m.ready == 0 || m.offline:
-		status, dot = "no free models ready · run: prism status", t.red
+		status, dot = "no models ready · run: prism status", t.red
 	}
 	statusY := cv.h - 2
 	if statusY >= 0 {

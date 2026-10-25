@@ -15,15 +15,13 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// viewLimit is the largest file the viewer (terminal or browser) shows or saves.
 const viewLimit = 1 << 20
 
 var errOutside = errors.New(outsideMsg)
 
-// projectPath resolves p inside dir and returns its absolute path and its
-// slash-separated path relative to the project. It rejects any ".." part and
-// anything that lands outside the project once symlinks are resolved. Unlike
-// the tools' outside(), it always applies, even with --any-path.
+// projectPath returns p's absolute path and its slash path relative to the
+// project. It rejects ".." and anything outside the project once symlinks are
+// resolved, even with --any-path.
 func projectPath(dir, p string) (abs, rel string, err error) {
 	p = strings.TrimSpace(p)
 	if p == "" {
@@ -51,7 +49,6 @@ type fileContent struct {
 	size int64
 }
 
-// readProjectFile reads p for viewing, applying the path guard and size limit.
 func readProjectFile(dir, p string) (fileContent, error) {
 	abs, rel, err := projectPath(dir, p)
 	if err != nil {
@@ -126,7 +123,6 @@ func viewLines(text string) []string {
 	return lines
 }
 
-// fileViewer is the read-only viewer: the file's lines and the first one shown.
 type fileViewer struct {
 	path  string
 	lines []string
@@ -145,7 +141,6 @@ func newViewer(fc fileContent) *fileViewer {
 	return v
 }
 
-// scroll moves the viewer by delta lines, keeping a full page in view.
 func (v *fileViewer) scroll(delta, page int) {
 	v.top = clamp(v.top+delta, 0, max(0, len(v.lines)-max(1, page)))
 }
@@ -168,7 +163,6 @@ type filesMsg struct {
 	err   error
 }
 
-// fileRow is one visible line of the browser.
 type fileRow struct {
 	path  string
 	dir   bool
@@ -231,7 +225,6 @@ func loadFiles(a *Agent) tea.Cmd {
 	}
 }
 
-// openFiles shows the browser and (re)loads the tree, keeping the filter.
 func (m *model) openFiles() tea.Cmd {
 	if !m.fb.open {
 		m.fb = filesState{open: true, expanded: map[string]bool{}}
@@ -241,7 +234,7 @@ func (m *model) openFiles() tea.Cmd {
 	return loadFiles(m.agent)
 }
 
-// filesLoaded fills the browser; a late reply after it closed is dropped.
+// A late reply after the browser closed is dropped.
 func (m *model) filesLoaded(msg filesMsg) {
 	if !m.fb.open {
 		return
@@ -268,18 +261,16 @@ func (m *model) openFile(p string) tea.Cmd {
 	return cmd
 }
 
-// viewerPage is about how many file lines the viewer shows at this height.
 func (m model) viewerPage() int {
 	return max(3, m.h-m.boxHeight()-8)
 }
 
-// browserShown is how many tree rows fit above the input box.
 func browserShown(n, avail int) int {
 	return min(n, max(1, min(16, avail-3)))
 }
 
-// filesLayout mirrors drawFiles: every line drawn, the header lines, the
-// rows shown (tree rows or file lines) and the first one shown.
+// filesLayout must match what drawFiles draws: every line, the header lines,
+// the rows shown and the first one shown.
 func (m model) filesLayout() (lines, head, shown, off int) {
 	_, y, _, top := m.overlayArea()
 	avail := y - top
@@ -441,7 +432,7 @@ func (m model) filesKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // drawFiles draws the browser or the viewer just above the input box at y,
-// in the picker's style, never above top.
+// never above top.
 func drawFiles(cv *canvas, t theme, m model, x, y, w, top int) {
 	f := m.fb
 	var all []pickLine

@@ -205,7 +205,6 @@ func (s browseStep) String() string {
 	return "?"
 }
 
-// page is a URL the browser may open, plus whatever serves it.
 type page struct {
 	url, root string
 	only      string
@@ -258,7 +257,6 @@ type cdp struct {
 	onEvent func(method string, params json.RawMessage)
 }
 
-// startCDP launches the browser with a DevTools pipe and attaches to a fresh page.
 func startCDP(ctx context.Context, binary string, args []string) (*cdp, func(), error) {
 	inR, inW, err := os.Pipe()
 	if err != nil {
@@ -354,7 +352,6 @@ func (c *cdp) call(method string, params any, result any) error {
 	}
 }
 
-// eval runs a JavaScript expression in the page and decodes its JSON-able value.
 func (c *cdp) eval(expression string, result any) error {
 	var out struct {
 		Result struct {

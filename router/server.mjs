@@ -160,13 +160,15 @@ const complete = async (req, res) => {
   // Your own paid models only answer when pinned by their full name (as listed in /v1/models).
   const matches = route => route.id === payload.model || (route.paid !== true && route.model === payload.model)
   const pinned = head !== 'auto' && routes().some(matches)
-  const queue = ordered(route => (pinned ? matches(route) : eligible(route)) && (!wantsVision || route.vision) && !excluded.has(route.family)).sort(
-    // prism_prefer is the route that served this conversation last: the provider still holds its
-    // prompt in cache, so it goes first (unless avoided); slow answers are still hedged as usual.
+  // A screenshot from a chat pinned to a plan or paid model may use that model: the user already chose to spend it.
+  const allowed = route => (pinned ? matches(route) : eligible(route) || (wantsVision && route.id === prefer))
+  const queue = ordered(route => allowed(route) && (!wantsVision || route.vision) && !excluded.has(route.family)).sort(
+    // prism_prefer is the route that served this conversation last. Its provider still has the
+    // prompt cached, so it goes first unless avoided. Slow answers are still hedged.
     (a, b) => avoided.has(a.id) - avoided.has(b.id) || (role ? b.roles.includes(role) - a.roles.includes(role) : 0) || (b.id === prefer) - (a.id === prefer),
   )
   if (!queue.length) {
-    if (wantsVision && !routes().some(route => route.vision && !excluded.has(route.family))) return send(res, 503, { error: { message: 'no free model that can see images is available right now', type: 'no_route_available', failures: [] } })
+    if (wantsVision) return send(res, 503, { error: { message: 'no model that can see images is ready: pin a plan model with /model, or add a free Gemini key with prism setup', type: 'no_route_available', failures: [] } })
     if (excluded.size && routes().length) return send(res, 503, { error: { message: 'Every matching free AI route is in an excluded family', type: 'no_route_available', failures: [] } })
     return send(res, 503, { error: { message: 'No free AI routes are configured', type: 'no_route_available', failures: [] } })
   }
@@ -248,7 +250,7 @@ const complete = async (req, res) => {
           }
           else if (sub.wire === 'antigravity') {
             // Antigravity sends the whole Gemini body to one endpoint, in its own
-            // envelope, with the IDE's user-agent (request.go buildRequest).
+            // envelope, with the IDE's user-agent.
             url = `${attempt.route.baseURL}/v1internal:streamGenerateContent?alt=sse`
             headers['user-agent'] = sub.apiUserAgent ?? 'free-ai-router'
           }
@@ -312,14 +314,15 @@ const complete = async (req, res) => {
     lastErrors.delete(attempt.route.id)
     console.log(`→ ${attempt.route.id} (started in ${seconds(wait)})`)
     res.writeHead(200, {
-      // A wired route's body is SSE by construction (the wire adapter emits it),
-      // whatever content-type the vendor's backend declared.
+      // A wired route always returns SSE because the adapter writes it,
+      // whatever content-type the backend sent.
       'content-type': attempt.wireStream ? 'text/event-stream' : upstream.headers.get('content-type') ?? 'application/json',
       'cache-control': 'no-cache',
       'x-free-route': attempt.route.id,
       'x-prism-family': attempt.route.family,
       'x-free-wait': String(wait),
       'x-prism-prefer': '1',
+      ...(attempt.route.source && { 'x-prism-source': attempt.route.source }),
     })
     res.write(attempt.wireStream ? attempt.wireStream.write(first) : first)
     try {
@@ -553,7 +556,7 @@ const loginsRoute = async (req, res) => {
     return send(res, 200, started)
   }
   let started = await startLogin(sub)
-  // Prefer no-paste device login; retain PKCE browser/paste if unavailable.
+  // Prefer device login (no paste needed). Fall back to PKCE browser/paste.
   if (started.error && sub.id === 'grok') started = await startBrowserLogin(sub)
   if (started.error) return send(res, 502, { error: { message: started.error, type: 'login_failed' } })
   return send(res, 200, started)

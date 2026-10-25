@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-// treeNode is one file or folder of the project map. Paths are project-relative with "/".
+// Paths are project-relative with "/".
 type treeNode struct {
 	Path       string   `json:"path"`
 	Dir        bool     `json:"dir"`
@@ -37,9 +37,9 @@ type treeNode struct {
 	rawImports []string
 }
 
-// projectTree is a live map of the project: files and folders (respecting .gitignore),
-// git status, top symbols, local imports and an importance rank. It is built once with
-// scan and then kept current by refresh (per changed path) or a watcher.
+// projectTree is a live map of the project: files (respecting .gitignore), git status,
+// top symbols, local imports and a rank. scan builds it once, then refresh or a watcher
+// keeps it current.
 type projectTree struct {
 	mu      sync.Mutex
 	root    string
@@ -72,7 +72,6 @@ func newProjectTree(root string) *projectTree {
 	return &projectTree{root: root, nodes: map[string]*treeNode{}, changed: make(chan struct{})}
 }
 
-// scan walks the whole project once.
 func (t *projectTree) scan() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -148,7 +147,6 @@ func (t *projectTree) readFile(rel string) *treeNode {
 	return n
 }
 
-// refresh updates the given project paths (files or folders) after they changed on disk.
 func (t *projectTree) refresh(paths []string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -427,14 +425,13 @@ func (t *projectTree) snapshot() map[string]any {
 		"stats": stats, "nodes": nodes, "truncated": t.truncated}
 }
 
-// startWatching begins keeping the tree current in the background (once per tree).
 func (t *projectTree) startWatching() {
 	t.watchOnce.Do(func() {
 		go t.watch(context.Background())
 	})
 }
 
-// poll checks for changes every 2 seconds (fallback when inotify is not available).
+// poll is the fallback when inotify isn't available.
 func (t *projectTree) poll(ctx context.Context) error {
 	for {
 		select {
@@ -448,7 +445,6 @@ func (t *projectTree) poll(ctx context.Context) error {
 	}
 }
 
-// changedPaths lists files that appeared, disappeared or changed since the last scan.
 func (t *projectTree) changedPaths() []string {
 	seen := map[string]bool{}
 	var changed []string
@@ -489,7 +485,6 @@ func (t *projectTree) changedPaths() []string {
 	return changed
 }
 
-// refreshLater updates one path in the background (after the agent wrote it).
 func (t *projectTree) refreshLater(p string) {
 	if p == "" {
 		return
@@ -509,7 +504,6 @@ func (t *projectTree) json() []byte {
 	return data
 }
 
-// wait blocks until the tree is newer than version, ctx ends, or timeout passes.
 func (t *projectTree) wait(ctx context.Context, version int, timeout time.Duration) bool {
 	t.mu.Lock()
 	if t.version > version {
@@ -526,8 +520,6 @@ func (t *projectTree) wait(ctx context.Context, version int, timeout time.Durati
 	}
 	return false
 }
-
-// ---- source parsing ----
 
 var langExts = map[string]string{".go": "go", ".py": "py", ".js": "js", ".mjs": "js", ".cjs": "js", ".jsx": "js", ".ts": "ts", ".tsx": "ts",
 	".html": "html", ".htm": "html", ".css": "css", ".md": "md", ".sh": "sh", ".bash": "sh", ".rs": "rs", ".java": "java", ".rb": "rb",
@@ -638,8 +630,6 @@ func parseSource(lang string, data []byte) (symbols, imports []string) {
 	return symbols, imports
 }
 
-// ---- .gitignore ----
-
 type ignoreRule struct {
 	base    string
 	re      *regexp.Regexp
@@ -748,8 +738,6 @@ func (s *ignoreSet) match(rel string, dir bool) bool {
 	}
 	return ignored
 }
-
-// ---- text views ----
 
 // promptMap is the project map in the system prompt: a folder tree that fits in budget
 // characters, with the most depended-on files starred and their top symbols listed.
@@ -933,7 +921,6 @@ func (t *projectTree) topIn(dir string, n int) []string {
 	return out
 }
 
-// tabCircled returns the circled digit for tab numbers 1–9 (e.g. ① for 1).
 func tabCircled(n int) string {
 	if n >= 1 && n <= 9 {
 		return string(rune('\u2460' + n - 1)) // ①…⑨
@@ -941,7 +928,6 @@ func tabCircled(n int) string {
 	return fmt.Sprintf("[%d]", n)
 }
 
-// treeCommand is /tree in the terminal and the browser: the live tree as text.
 func treeCommand(a *Agent, filter string) (string, []string) {
 	if a.mapReady != nil {
 		<-a.mapReady
@@ -964,8 +950,8 @@ func treeCommand(a *Agent, filter string) (string, []string) {
 	return "project files · " + head, append(lines, "", legend)
 }
 
-// asciiTree is the human view for /tree and `prism tree`: every file with git and agent marks.
-// filter keeps only paths containing it (case-insensitive) or files that changed ("changed").
+// asciiTree is the view for /tree and `prism tree`. filter keeps paths containing it
+// (any case), or only changed files when it is "changed".
 func (t *projectTree) asciiTree(filter string, agent map[string]string, maxLines int) []string {
 	t.mu.Lock()
 	defer t.mu.Unlock()

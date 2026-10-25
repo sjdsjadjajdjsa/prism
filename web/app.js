@@ -1,4 +1,4 @@
-// prism — browser front end. No deps, no build. Mirrors the terminal UI in cli/.
+// prism in the browser. No dependencies, no build step.
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -6,7 +6,7 @@ const DEMO = params.has('demo');
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const THEMES = ['prism', 'tokyo-night', 'catppuccin', 'rose-pine', 'matte-black', 'gruvbox', 'nord', 'everforest'];
 
-// ---------- theme ----------
+// Theme
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
@@ -42,7 +42,7 @@ function hash(x, y, s) {
 }
 
 const palette = { spec: [], bg: [0, 0, 0], fg: [255, 255, 255], muted: [100, 100, 100] };
-// hex-string mirror of the palette, the shape web/beam.js and web/shard.js expect
+// The palette as hex strings, the shape beam.js and shard.js expect.
 const themeCache = { name: 'prism', bg: '#0b0b10', fg: '#e8e6f0', muted: '#6e6a86', faint: '#1d1c29', spectrum: [] };
 function setTheme(name) {
   if (!THEMES.includes(name)) return false;
@@ -62,7 +62,7 @@ function setTheme(name) {
   return true;
 }
 
-// ---------- DOM helpers (never innerHTML with model text) ----------
+// DOM helpers. Never use innerHTML with model text.
 function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -74,13 +74,13 @@ function clear(node) { while (node.firstChild) node.removeChild(node.firstChild)
 const TOOL_COLOR = { read: '--x4', edit: '--s3', write: '--s3', bash: '--x6', search: '--s2', grep: '--s2', ls: '--s1', list: '--s1', browse: '--x4', screenshot: '--x5' };
 function toolColor(tool) { return `var(${TOOL_COLOR[tool] || '--x5'})`; }
 
-// ---------- transcript ----------
+// Transcript
 const transcript = $('transcript');
 const liveEl = $('live');
 const state = {
   busy: false, model: null, pinned: '', plan: false, planPick: null, tokens: 0, window: 0, modelsReady: null,
   crew: null, turn: null, steps: null, stepMap: new Map(), textBuf: '', textEl: null,
-  reasoning: '', phase: 'idle', phaseAt: 0, draft: null, abort: null, route: null, waitMs: 0,
+  reasoning: '', phase: 'idle', phaseAt: 0, draft: null, abort: null, route: null, source: '', pinSource: '', waitMs: 0,
 };
 
 function hideHello() { const h = $('hello'); if (h) h.remove(); }
@@ -182,8 +182,8 @@ function collapseOldTurns() {
   turns.forEach((t, i) => { if (i < turns.length - 1) t.querySelectorAll('.steps-group').forEach(collapseGroup); });
 }
 
-// markdown re-render is coalesced to one per animation frame while streaming;
-// textPending remembers the element + buffer so a later state.textEl = null can't drop the last render
+// While streaming, markdown is re-rendered at most once per animation frame.
+// textPending keeps the element and buffer so clearing state.textEl can't lose the last render.
 let textRaf = 0, textPending = null;
 function flushText() {
   if (textRaf) { cancelAnimationFrame(textRaf); textRaf = 0; }
@@ -196,7 +196,7 @@ function addText(text) {
   textPending = { el: state.textEl, buf: state.textBuf };
   if (!textRaf) textRaf = requestAnimationFrame(() => { textRaf = 0; flushText(); });
 }
-// dropText takes back the end of the answer: a reply dropped for repeating itself (cli/loopguard.go)
+// dropText takes back the end of the answer, e.g. a reply dropped for repeating itself.
 function dropText(text) {
   state.draft = null; state.reasoning = '';
   if (!state.textEl || !text || !state.textBuf.endsWith(text)) return;
@@ -218,7 +218,9 @@ function addError(headline, detail) {
   if (detail) e.appendChild(el('div', 'detail', detail));
   curTurn().appendChild(e); state.textEl = null;
 }
-function addMeta({ model, seconds }) {
+// Who answered ("free", "plan" or "yours") and its colour.
+const SOURCE_TONE = { free: 'tone-ok', plan: 'tone-plan', yours: 'tone-muted' };
+function addMeta({ model, seconds, source }) {
   const m = el('div', 'meta');
   const d = el('span', 'grad', '◆ ');
   m.appendChild(d);
@@ -226,11 +228,11 @@ function addMeta({ model, seconds }) {
   m.appendChild(el('span', 'dot', '  ·  '));
   m.appendChild(el('span', '', seconds != null ? `${Number(seconds).toFixed(1)}s` : ''));
   m.appendChild(el('span', 'dot', '  ·  '));
-  m.appendChild(el('span', 'free', 'free'));
+  m.appendChild(el('span', SOURCE_TONE[source] || 'tone-ok', source || 'free'));
   curTurn().appendChild(m); state.textEl = null;
 }
 
-// ---------- crew panel (mirrors crewLines in cli/crewui.go) ----------
+// Crew panel
 const CREW_MARK = { queued: '·', running: '⠋', done: '✓', failed: '✕', cancelled: '–' };
 const CREW_SPIN = [...'⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'];
 let crewTimer = 0, crewFrame = 0;
@@ -312,7 +314,7 @@ function crewMount(data) {
   if (data.review) { c.review = true; crewHead(c); }
   return c;
 }
-// the crew tool's own step row is replaced by the panel
+// The crew tool's own step row is replaced by the panel.
 function dropCrewStep() {
   const steps = [...document.querySelectorAll('.step.running')].filter((s) => s.querySelector('.tool')?.textContent === 'crew');
   const s = steps[steps.length - 1];
@@ -344,7 +346,7 @@ function crewDone(ev) {
   if (!c) return;
   crewSummary(c, ev.summary || '');
 }
-// esc, an error or a dropped connection: rows that never finished read cancelled
+// On esc, an error or a dropped connection, rows that never finished read cancelled.
 function crewSettle() {
   const c = state.crew;
   if (!c || c.done) return;
@@ -357,9 +359,9 @@ function crewFromHistory(data) {
   state.crew = null;
 }
 
-// the chat follows new content while the reader is at the end: during a reply every growth of the
-// transcript or the live line pins the view to the bottom. Scrolling up pauses that and shows
-// ↓ latest; scrolling back down, sending, a command or the button resumes it.
+// While the reader is at the end, new content keeps the view pinned to the bottom.
+// Scrolling up pauses that and shows ↓ latest. Scrolling back down, sending, a command
+// or the button resumes it.
 const column = document.querySelector('.column');
 const jumpBtn = $('jump');
 const follow = { on: true, top: 0, height: 0 };
@@ -369,8 +371,8 @@ function pin() {
   follow.top = column.scrollTop; follow.height = column.scrollHeight;
 }
 function scrollDown() { flushText(); follow.on = true; jumpBtn.hidden = true; pin(); }
-// moving up while the content did not shrink is the reader going back; a shrink pulls the view
-// up too, but lands it on the end, which turns following back on
+// Moving up while the content didn't shrink means the reader is going back. A shrink pulls
+// the view up too but lands it on the end, so following turns back on.
 column.addEventListener('scroll', () => {
   const top = column.scrollTop, height = column.scrollHeight;
   if (top < follow.top && height >= follow.height) follow.on = false;
@@ -384,7 +386,7 @@ new ResizeObserver(pin).observe(column);
 document.addEventListener('visibilitychange', pin);
 jumpBtn.addEventListener('click', () => { scrollDown(); if (!matchMedia('(pointer: coarse)').matches) input.focus({ preventScroll: true }); });
 
-// ---------- markdown (DOM-built, escaped by construction) ----------
+// Markdown, built with DOM calls so it is escaped by construction
 function renderMarkdown(root, src) {
   clear(root);
   const lines = src.split('\n');
@@ -478,7 +480,7 @@ function highlight(code, src, lang) {
   if (last < src.length) code.appendChild(document.createTextNode(src.slice(last)));
 }
 
-// ---------- live line + status ----------
+// Live line and status
 const SPIN = ['◐', '◓', '◑', '◒'];
 function setPhase(p) { state.phase = p; state.phaseAt = performance.now(); }
 function renderLive(now) {
@@ -522,9 +524,8 @@ function setBusy(b) {
   if (!b) { clear(liveEl); state.draft = null; state.reasoning = ''; flushText(); }
 }
 
-// the plan picker waits until the chat box is empty, so it never takes keys mid-sentence
-// (cli/main.go Update waits the same way); sending something else means keep planning
-// and only on the tab whose plan it is
+// The plan picker waits until the chat box is empty so it never takes keys mid-sentence.
+// Sending something else means keep planning, and only on the tab whose plan it is.
 function offerPlan() {
   const p = state.planPick;
   if (!p || p.tab !== tabState.active || state.busy || $('input').value.trim() || window.PrismCommands?.pickerOpen()) return;
@@ -534,10 +535,12 @@ function offerPlan() {
 
 function renderStatus() {
   $('route').textContent = state.pinned ? crewModelName(state.pinned) : (state.model || state.route || 'auto');
-  // a chat pinned with /model says so, like the terminal status bar (cli/chat.go drawStatus)
+  // A chat pinned with /model says so in the status bar.
   const pin = $('pinned');
   if (pin) { pin.hidden = !state.pinned; pin.textContent = state.pinned ? ' · pinned' : ''; pin.title = state.pinned || ''; }
   $('plan-badge').hidden = !state.plan;
+  const cost = state.source || state.pinSource || 'free';
+  $('cost').textContent = cost; $('cost').className = SOURCE_TONE[cost] || 'tone-ok';
   $('input').placeholder = state.plan ? 'plan mode · ask for a plan…' : 'ask anything…  / for commands';
   const pct = state.window ? Math.min(100, Math.round((state.tokens / state.window) * 100)) : 0;
   $('usage').textContent = pct + '%';
@@ -548,11 +551,11 @@ function renderStatus() {
   }
   const m = $('models');
   if (state.modelsReady == null) m.textContent = '';
-  else m.textContent = state.modelsReady > 0 ? `${state.modelsReady} free model${state.modelsReady === 1 ? '' : 's'} ready` : 'no free models ready';
+  else m.textContent = state.modelsReady > 0 ? `${state.modelsReady} model${state.modelsReady === 1 ? '' : 's'} ready` : 'no models ready';
   m.style.color = state.modelsReady === 0 ? 'var(--red)' : '';
 }
 
-// ---------- shard buddy ----------
+// Shard buddy
 const SHARD = ['......#......', '.....###.....', '....#####....', '...#######...', '..#########..', '.###########.', '#############'];
 const shardCv = $('shard');
 const SHARD_W = 170, SHARD_H = 140;
@@ -624,8 +627,8 @@ function drawShard(now) {
       shardCtx.fillRect(ox + x * px, oy + y * px, px, px);
     }
   }
-  // eyes only — exactly eyeGlyphs + drawShardSmall in cli/shard.go: dark pixels on row 4,
-  // columns 4 and 8 shifted by look; no mouth; closed (nothing drawn) while blinking or sleepy.
+  // Eyes only. Keep in sync with drawShardSmall in cli/shard.go: dark pixels on row 4,
+  // columns 4 and 8 shifted by look, no mouth, nothing drawn while blinking or sleepy.
   const drift = md === 'thinking' ? Math.round(Math.sin(n / 700)) : 0;
   const look = Math.max(-1, Math.min(1, drift + (n - buddy.lookAt < 700 ? -1 : 0))); // glance left at fresh text
   const eyesClosed = (md === 'sleepy' || blink) && md !== 'happy';
@@ -636,7 +639,7 @@ function drawShard(now) {
       shardCtx.fillRect(ox + ex * px, oy + 4 * px, px, eyeH);
     }
   }
-  // decorations — mirrors drawShardSmall in cli/shard.go
+  // decorations
   const cellX = (x) => ox + (x + 0.5) * px;
   const cellY = (y) => oy + (y + 0.5) * px * 2;
   const empty = (x, y) => !inShard(ox, oy, px, cellX(x), cellY(y));
@@ -691,7 +694,7 @@ function sparkle(count = 6, chars = '✦✧·+◇') {
   }
 }
 
-// ---------- last prism beam (web/beam.js) ----------
+// Last prism beam
 let beamStop = null;
 let beamEnabled = true; // /beam
 function playBeam() {
@@ -703,7 +706,7 @@ function playBeam() {
   wrap.hidden = false;
   const body = document.body;
   const cell = { w: 12, h: 20 };
-  // origin sits on Shard's left edge — PrismBeam fires leftward from there, like the terminal
+  // The origin sits on Shard's left edge; PrismBeam fires leftward from there.
   const r = shardCv.getBoundingClientRect();
   const originX = Math.max(1, Math.round((r.left + (SHARD_W - 130) / 2 - 22) / cell.w));
   const originY = Math.max(0, Math.round((r.top + SHARD_H - 70 - 6 + 50) / cell.h));
@@ -742,7 +745,7 @@ function playBeam() {
   timer = setTimeout(finish, 1900);
 }
 
-// ---------- splash ----------
+// Splash
 const LOGO = ['####..####..#####..####.#...#', '#...#.#...#...#...#.....##.##', '####..####....#....###..#.#.#', '#.....#..#....#.......#.#...#', '#.....#...#.#####.####..#...#'];
 let splashDone = false;
 function buildSplash() {
@@ -769,18 +772,17 @@ function buildSplash() {
     m.appendChild(s);
     return s;
   });
-  const hint = el('p', 'splash-hint', 'press any key');
+  const hint = el('p', 'splash-hint', matchMedia('(pointer: coarse)').matches ? 'tap to start' : 'press any key');
   $('splash-motto').after(hint);
   const beam = document.querySelector('.splash-beam');
   const rays = [...document.querySelectorAll('.splash-rays i')];
   const tag = document.querySelector('.splash-tag');
-  // twinkling squares
   const cv = $('splash-stars'), ctx = cv.getContext('2d');
   const t0 = performance.now();
   const draw = () => {
     if (splashDone) return;
     const n = performance.now() - t0;
-    // beam in, logo pixels, rays out, tag, motto — same timings as cli/splash.go
+    // beam in, logo pixels, rays out, tag, motto. Keep timings in sync with cli/splash.go.
     beam.style.width = (190 * ease((n - 250) / 700)) + 'px';
     const shimmer = ((n / 2200) % 1.4) * (cols + 16) - 8;
     for (const p of pixels) {
@@ -829,7 +831,7 @@ function buildSplash() {
   setTimeout(end, REDUCED ? 600 : 2900);
 }
 
-// ---------- API + stream ----------
+// API and stream
 async function api(path, body) {
   if (DEMO) return demoApi(path, body);
   const r = await fetch(path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : undefined);
@@ -871,7 +873,7 @@ function handleEvent(ev) {
   const type = ev.type || ev.event || ev.kind;
   switch (type) {
     case 'route':
-      state.route = ev.route; state.waitMs = ev.wait_ms || 0; renderStatus(); break;
+      state.route = ev.route; state.source = ev.source || ''; state.waitMs = ev.wait_ms || 0; renderStatus(); break;
     case 'thinking':
       setPhase('thinking'); setMood('thinking'); say('thinking', 2600); break;
     case 'reasoning':
@@ -898,7 +900,7 @@ function handleEvent(ev) {
     case 'done': {
       if (ev.model) state.model = ev.model;
       state.plan = !!ev.plan; state.planPick = ev.pick ? { tab: state.sendTab, data: ev.pick } : null;
-      addMeta({ model: ev.model, seconds: ev.seconds }); renderStatus();
+      addMeta({ model: ev.model, seconds: ev.seconds, source: ev.source }); renderStatus();
       if (ev.tests_passed) { say('tests', 3600); setMood('proud', 3000); sparkle(8); }
       else if (ev.tools > 0) { say('done', 3000); setMood('happy', 2400); sparkle(6); }
       else setMood('idle');
@@ -947,7 +949,7 @@ async function send(message) {
   }
 }
 
-// ---------- a question before a risky command (cli/approve.go; the terminal draws the same box) ----------
+// Asking before a risky command
 const ASK_DONE = { yes: 'allowed once', chat: 'allowed for this chat', no: 'you said no' };
 function addAsk(ev) {
   hideHello(); flushText(); state.textEl = null;
@@ -1020,7 +1022,7 @@ async function stop() {
   if (state.abort) state.abort.abort();
 }
 
-// offline / ?demo fallback for /help; the server answers /help with the grouped view (cli/cmdview.go helpViewFor)
+// Offline and ?demo fallback for /help. The server answers /help with a grouped view.
 function showHelp() {
   const list = (window.PrismCommands && window.PrismCommands.list) || [];
   addView({
@@ -1030,7 +1032,7 @@ function showHelp() {
   });
 }
 
-// ---------- command output (info lines, views, tables) ----------
+// Command output (info lines, views, tables)
 function commandTurn() { hideHello(); const t = newTurn(); state.textEl = null; return t; }
 
 // linkify appends text to parent, turning http(s) URLs into links that open in a new tab
@@ -1046,8 +1048,7 @@ function linkify(parent, text) {
   if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
 }
 
-// a server command that answered with lines (/usage, /memory, /key …): kept as
-// typed so columns stay aligned, like the terminal
+// Lines from a server command (/usage, /memory, /key …), kept as typed so columns line up.
 function addInfo(title, lines) {
   const box = el('div', 'info');
   if (title) box.appendChild(el('div', 'info-title', title));
@@ -1063,7 +1064,7 @@ function addInfo(title, lines) {
 }
 function addInfoBlock(text) { return addInfo('', String(text == null ? '' : text).split('\n')); }
 
-// a cmdView from the server (kind "view": /help, /skills): title, grouped grids, footer
+// A view from the server (kind "view": /help, /skills): title, grouped grids, footer.
 function addView(v) {
   const box = el('div', 'cmdview');
   box.appendChild(el('div', 'cv-title', v.title || ''));
@@ -1100,6 +1101,12 @@ function addTable(v) {
     const grid = el('div', 'tbl-grid');
     grid.style.gridTemplateColumns = '2ch minmax(0,max-content) ' + Array(Math.max(0, cols - 2)).fill('max-content').join(' ') + ' minmax(0,1fr)';
     for (const r of rows) {
+      if (r.head) {
+        const head = el('span', 'tbl-head ' + (SOURCE_TONE[r.tone] || 'tone-fg'), r.head);
+        head.style.gridColumn = '1 / -1';
+        grid.appendChild(head);
+        continue;
+      }
       grid.appendChild(el('span', 'tone-' + (r.tone || 'muted'), r.dot || ''));
       for (let i = 0; i < cols; i++) {
         const text = (r.cells || [])[i] || '';
@@ -1125,11 +1132,11 @@ function resetTranscript() {
   scrollDown();
 }
 
-// ---------- pickers (web/commands.js picker, the terminal's menu) ----------
+// Pickers
 const tabQuery = () => (tabState.active > 1 ? '?tab=' + tabState.active : '');
 const picker = (opts) => window.PrismCommands.picker(opts);
 
-// /theme with no name: moving the highlight previews, enter keeps, esc puts the old one back (cli/theme.go openThemeMenu)
+// /theme with no name: moving the highlight previews, enter keeps, esc puts the old one back.
 function openThemePicker() {
   const orig = themeCache.name;
   picker({
@@ -1142,7 +1149,7 @@ function openThemePicker() {
   });
 }
 
-// /tabs: the open chats (GET /api/tabs), enter switches this page to one (cli/tabs.go tabsCommand)
+// /tabs lists the open chats; enter switches this page to one.
 async function openTabsPicker() {
   const p = picker({ title: 'tabs', hint: 'enter switch · esc close', noun: 'tab', empty: 'no open chats', loading: true });
   let data = null;
@@ -1160,7 +1167,7 @@ async function openTabsPicker() {
   });
 }
 
-// a picker the server built (kind "pick"): the TUI's rows; picking runs the row's command
+// A picker the server built (kind "pick"); picking runs the row's command.
 function openServerPicker(data, p) {
   const opts = {
     title: data.title, hint: data.hint, noun: data.noun, empty: data.empty, filterable: data.filterable !== false,
@@ -1170,11 +1177,11 @@ function openServerPicker(data, p) {
   if (p && p.open) p.update(opts); else picker(opts);
 }
 
-// ---------- /login (browser or device-code sign-in, polled like cli/login.go pollLogin) ----------
+// /login: browser or device-code sign-in, polled until it finishes
 let loginPolls = 0;
 
-// copyText puts text on the clipboard; a page without clipboard access
-// (plain http on a LAN address) falls back to a hidden textarea + execCommand
+// Without clipboard access (plain http on a LAN address) copyText falls back to a
+// hidden textarea and execCommand.
 async function copyText(text) {
   try { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return true; } } catch (_) {}
   const t = el('textarea', 'offscreen');
@@ -1186,8 +1193,8 @@ async function copyText(text) {
   return ok;
 }
 
-// a sign-in link is hundreds of characters: show a short link and a copy
-// button instead, the full address in the tooltip
+// A sign-in link is hundreds of characters, so show a short link and a copy button,
+// with the full address in the tooltip.
 function signInLink(url) {
   const wrap = el('span', 'login-link');
   const a = el('a', '', 'open sign-in page');
@@ -1234,8 +1241,8 @@ async function startLogin(data) {
     status.className = 'login-state' + (cls ? ' ' + cls : '');
     status.textContent = text;
   };
-  // some providers (Grok) show a code on their page instead of coming back
-  // here: the user pastes it (or the whole link) and the router finishes
+  // Some providers (Grok) show a code on their page instead of coming back here.
+  // The user pastes it (or the whole link) and the router finishes.
   let form = null;
   if (data.browser) {
     form = el('form', 'login-paste');
@@ -1320,10 +1327,16 @@ async function startLogin(data) {
   else if (!done) end('err', 'the sign-in timed out; run /login ' + data.id + ' again');
 }
 
+// /beam and /quiet are saved on the server so a reload keeps them.
+function saveSetting(cmd, on) {
+  if (DEMO || !window.PrismCommands) return;
+  window.PrismCommands.runServer(cmd + (on ? ' on' : ' off'), tabQuery()).catch(() => {});
+}
+
 async function refreshInfo() {
   try {
     const info = await api('/api/info' + tabQuery());
-    if (info) { state.modelsReady = info.models_ready; state.pinned = info.model || ''; state.plan = !!info.plan; renderStatus(); }
+    if (info) { state.modelsReady = info.models_ready; state.pinned = info.model || ''; state.pinSource = info.source || ''; state.plan = !!info.plan; renderStatus(); }
   } catch { /* ignore */ }
 }
 
@@ -1333,7 +1346,7 @@ async function idle() { for (let i = 0; i < 50 && state.busy; i++) await sleep(1
 // commands that open a picker the server fills: show it at once with "loading…"
 const SERVER_PICKERS = { '/model': 'model', '/login': 'subscriptions', '/logins': 'subscriptions', '/resume': 'earlier chats', '/continue': 'earlier chats' };
 
-// /new /theme /beam /quiet /web /files /open /tabs answer here; everything else goes to cli/serve.go command().
+// /new /theme /beam /quiet /web /files /open /tabs are handled here; the rest go to the server.
 async function runCommand(line) {
   const text = String(line || '').trim();
   const fromTab = tabState.active;
@@ -1345,7 +1358,7 @@ async function runCommand(line) {
   switch (cmd) {
     case '/new':
       try { await api('/api/new' + tabQuery(), {}); } catch (e) { addError('could not start new session', String(e.message)); return; }
-      resetTranscript(); state.pinned = ''; state.plan = false; state.model = null; renderStatus();
+      resetTranscript(); state.pinned = ''; state.pinSource = ''; state.source = ''; state.plan = false; state.model = null; renderStatus();
       say('hello', 2400); setMood('happy', 1500);
       return;
     case '/theme': case '/themes':
@@ -1356,11 +1369,13 @@ async function runCommand(line) {
     case '/beam':
       beamEnabled = rest[0] ? rest[0] !== 'off' : !beamEnabled;
       addNote(`finish beam ${beamEnabled ? 'on' : 'off'}`);
+      saveSetting('/beam', beamEnabled);
       return;
     case '/quiet':
       quiet = rest[0] ? rest[0] !== 'off' : !quiet;
       if (quiet) hush();
       addNote(quiet ? 'shard is quiet' : 'shard can talk again');
+      saveSetting('/quiet', quiet);
       return;
     case '/files':
       if (window.PrismFiles) window.PrismFiles.show(); else addNote('the file viewer did not load');
@@ -1418,7 +1433,7 @@ async function runCommand(line) {
   let p = null;
   if (rest.length === 0 && SERVER_PICKERS[cmd]) p = picker({ title: SERVER_PICKERS[cmd], loading: true });
   else if (cmd === '/mcp' && rest.length === 1 && rest[0].toLowerCase() === 'add') p = picker({ title: 'add a tool server', loading: true });
-  // /compact is a model request: the page is busy like a chat (live line, esc stops it via /api/stop)
+  // /compact is a model request, so the page is busy like a chat (live line, esc stops it).
   const compacting = cmd === '/compact';
   if (compacting) {
     if (state.busy) { hideHello(); addNote('wait until prism finishes, then run /compact'); return; }
@@ -1451,7 +1466,7 @@ async function runCommand(line) {
       if (data.message) sendHere(data.message);
       return;
     case 'model':
-      state.pinned = data.model || '';
+      state.pinned = data.model || ''; state.pinSource = data.source || ''; state.source = '';
       renderStatus();
       hideHello(); addNote(data.text || ('model: ' + (data.model || 'auto')));
       scrollDown();
@@ -1459,7 +1474,7 @@ async function runCommand(line) {
     case 'login': startLogin(data); return;
     case 'clear':
       loginPolls++;
-      resetTranscript(); state.pinned = ''; state.plan = false; state.model = null; renderStatus();
+      resetTranscript(); state.pinned = ''; state.pinSource = ''; state.source = ''; state.plan = false; state.model = null; renderStatus();
       say('hello', 2400); setMood('happy', 1500);
       return;
     case 'reload':
@@ -1467,7 +1482,7 @@ async function runCommand(line) {
         const hist = await api('/api/history' + tabQuery());
         resetTranscript();
         if (hist) loadHistory(hist.entries);
-        state.pinned = data.model || ''; renderStatus();
+        state.pinned = data.model || ''; state.pinSource = data.source || ''; state.source = ''; renderStatus();
         addNote('chat reopened · keep going');
       } catch (e) { addError('could not reload', String((e && e.message) || e)); }
       return;
@@ -1480,7 +1495,7 @@ async function runCommand(line) {
   }
 }
 
-// ---------- history ----------
+// History
 function loadHistory(entries) {
   if (!entries || !entries.length) return;
   hideHello();
@@ -1499,7 +1514,7 @@ function loadHistory(entries) {
   scrollDown();
 }
 
-// ---------- demo mode (no server) ----------
+// Demo mode (no server)
 const sleep = (ms, signal) => new Promise((res, rej) => {
   const t = setTimeout(res, ms);
   signal && signal.addEventListener('abort', () => { clearTimeout(t); rej(Object.assign(new Error('aborted'), { name: 'AbortError' })); }, { once: true });
@@ -1586,7 +1601,7 @@ async function* demoStream(message, signal) {
   yield { type: 'done', seconds: 4.2, model: 'nemotron-3-ultra-550b-a55b', tools: 3, tests_passed: /test/.test(message) };
 }
 
-// ---------- input ----------
+// Input
 const input = $('input');
 function autosize() { input.style.height = 'auto'; input.style.height = Math.min(180, input.scrollHeight) + 'px'; }
 input.addEventListener('input', autosize);
@@ -1619,14 +1634,14 @@ addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.preventDefault(); PC.closePicker(); return; }
     if (a !== input && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { PC.focusPicker(); return; }
   }
-  // y / a / n (esc for no) answer a question before a risky command, like the terminal
+  // y / a / n (esc for no) answer a question before a risky command.
   const ans = askKey(e);
   if (ans) { e.preventDefault(); answerAsk(ans); return; }
   if (e.key === 'Escape' && state.busy && document.activeElement !== input && !state.ask) stop();
   if (a !== input && !['SELECT', 'BUTTON', 'A', 'INPUT', 'TEXTAREA'].includes(a.tagName) && !a.isContentEditable && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) input.focus();
 });
 
-// ---------- shard buddy draw (web/shard.js when it is loaded) ----------
+// Shard buddy drawing (shard.js when it is loaded)
 function drawBuddy(now) {
   const S = window.PrismShard;
   if (S && typeof S.drawSmall === 'function') {
@@ -1640,7 +1655,7 @@ function drawBuddy(now) {
   drawShard(now);
 }
 
-// ---------- terminal handoff ----------
+// Terminal handoff
 let handoffSeen = false;
 function showHandoff() {
   handoffSeen = true;
@@ -1667,7 +1682,7 @@ function showClosed() {
   o.appendChild(hint);
   document.body.appendChild(o);
 }
-// 3s liveness ping — raw fetch, never the demo stub
+// Liveness ping every 3s. Raw fetch, never the demo stub.
 function startHeartbeat() {
   if (DEMO) return;
   let everOk = false;
@@ -1682,7 +1697,7 @@ function startHeartbeat() {
   }, 3000);
 }
 
-// ---------- tab strip ----------
+// Tab strip
 const tabStrip = $('tab-strip');
 let tabState = { tabs: [], version: 0, active: 0 };
 let tabPollTimer = null;
@@ -1700,10 +1715,8 @@ function statusDotClass(status) {
 
 function renderTabStrip() {
   const tabs = tabState.tabs;
-  // hide when only one tab
   if (!tabs || tabs.length <= 1) { tabStrip.hidden = true; return; }
   tabStrip.hidden = false;
-  // rebuild buttons
   tabStrip.innerHTML = '';
   tabs.forEach((tab, i) => {
     const btn = document.createElement('button');
@@ -1739,7 +1752,7 @@ function switchTab(id) {
   if (state.busy) return;
   tabState.active = id;
   renderTabStrip();
-  // reload history for the selected tab; use a generation token to drop stale responses
+  // A generation token drops history responses from an earlier switch.
   const gen = ++tabSwitchGen;
   resetTranscript();
   api('/api/history?tab=' + id).then((hist) => {
@@ -1757,9 +1770,8 @@ async function pollTabs() {
     if (data && data.tabs) {
       tabState.tabs = data.tabs;
       tabState.version = data.version || 0;
-      // set active to first tab if not yet set
       if (!tabState.active && data.tabs.length > 0) tabState.active = data.tabs[0].ID;
-      // if the active tab was closed, switch to the first available tab
+      // The active tab was closed: switch to the first one.
       const activeStillExists = data.tabs.some((t) => t.ID === tabState.active);
       if (!activeStillExists && data.tabs.length > 0) {
         const newId = data.tabs[0].ID;
@@ -1780,7 +1792,7 @@ async function pollTabs() {
   tabPollTimer = setTimeout(pollTabs, Date.now() - started < 1000 ? 5000 : 100);
 }
 
-// ---------- boot ----------
+// Boot
 async function boot() {
   let saved = null;
   try { saved = localStorage.getItem('prism-theme'); } catch { /* ignore */ }
@@ -1797,7 +1809,9 @@ async function boot() {
     if (info) {
       if (info.project) $('project').textContent = info.project;
       if (info.theme && !params.get('theme') && !saved) setTheme(info.theme);
-      state.modelsReady = info.models_ready; state.pinned = info.model || ''; state.plan = !!info.plan; renderStatus();
+      state.modelsReady = info.models_ready; state.pinned = info.model || ''; state.pinSource = info.source || ''; state.plan = !!info.plan; renderStatus();
+      if (info.beam != null) beamEnabled = !!info.beam;
+      if (info.quiet != null) quiet = !!info.quiet;
       if (info.handoff) showHandoff();
     }
     const hist = await api('/api/history');

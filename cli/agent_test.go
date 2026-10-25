@@ -916,6 +916,7 @@ func TestCompleteHeadersAndToolCallFixups(t *testing.T) {
 		wantRoute   string
 		wantWait    time.Duration
 		wantFamily  []string
+		wantSource  string
 		routeEvents int
 	}{
 		{
@@ -930,6 +931,13 @@ func TestCompleteHeadersAndToolCallFixups(t *testing.T) {
 			headers:     map[string]string{"x-prism-route": "prism-b", "x-prism-family": "llama", "content-type": "application/json"},
 			wantRoute:   "prism-b",
 			wantFamily:  []string{"llama"},
+			routeEvents: 1,
+		},
+		{
+			name:        "a plan's answer carries its source",
+			headers:     map[string]string{"x-free-route": "claude/opus", "x-prism-source": "subscription", "content-type": "application/json"},
+			wantRoute:   "claude/opus",
+			wantSource:  "subscription",
 			routeEvents: 1,
 		},
 		{
@@ -963,7 +971,7 @@ func TestCompleteHeadersAndToolCallFixups(t *testing.T) {
 			if len(routes) != tc.routeEvents {
 				t.Fatalf("route events = %+v", routes)
 			}
-			if tc.routeEvents == 1 && (routes[0].route != tc.wantRoute || routes[0].wait != tc.wantWait) {
+			if tc.routeEvents == 1 && (routes[0].route != tc.wantRoute || routes[0].wait != tc.wantWait || routes[0].source != tc.wantSource) {
 				t.Errorf("route event = %+v", routes[0])
 			}
 			if strings.Join(a.families, ",") != strings.Join(tc.wantFamily, ",") {

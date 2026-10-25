@@ -1,6 +1,7 @@
 // Your own AI providers, added with "prism keys add".
 // The list lives in custom-providers.json (next to keys.conf); the secret keys stay in keys.conf.
 import { readFileSync, writeFileSync, statSync, chmodSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 const here = new URL('.', import.meta.url)
 
@@ -138,7 +139,7 @@ export const toProvider = entry => ({
   mark: { paid: entry.paid, source: 'yours' },
 })
 
-const defaultFile = () => process.env.PRISM_CUSTOM_FILE || new URL('custom-providers.json', here).pathname
+const defaultFile = () => process.env.PRISM_CUSTOM_FILE || fileURLToPath(new URL('custom-providers.json', here))
 export const customFilePath = defaultFile
 let cache = { file: '', stamp: '', providers: [] }
 let reported = ''
@@ -162,26 +163,25 @@ export const customProviders = (file = defaultFile()) => {
 // Paid routes only take part in "auto" when the user turned that on. Pinning a model always works.
 export const eligible = (route, env = process.env) => route.paid !== true || env.PRISM_USE_PAID === '1'
 
-// --- keys.conf: the AI model keys ---------------------------------------------------------
-//
-// Docker feeds the file to the router as env_file at start; it is also mounted
-// read-write, so a key added from inside prism (POST /keys) works without a restart.
+// keys.conf holds the AI model keys. Docker passes it to the router as env_file at
+// start and also mounts it read-write, so a key added from inside prism (POST /keys)
+// works without a restart.
 
 export const keysPath = () => {
   if (process.env.PRISM_KEYS_FILE) return process.env.PRISM_KEYS_FILE
-  for (const candidate of [new URL('keys.conf', here).pathname, new URL('../keys.conf', here).pathname]) {
+  for (const candidate of [fileURLToPath(new URL('keys.conf', here)), fileURLToPath(new URL('../keys.conf', here))]) {
     try {
       statSync(candidate)
       return candidate
     } catch {}
   }
-  return new URL('../keys.conf', here).pathname
+  return fileURLToPath(new URL('../keys.conf', here))
 }
 
 let keysCache = { file: '', stamp: '', vars: [] }
 
-// syncKeys mirrors keys.conf into process.env, re-reading when the file changed.
-// Vars removed from the file are deleted, so a removed key stops working at once.
+// Re-reads keys.conf when it changes. Vars removed from the file are deleted from
+// process.env, so a removed key stops working at once.
 export const syncKeys = (file = keysPath(), force = false) => {
   let stamp = 'missing'
   try {

@@ -7,8 +7,8 @@ import (
 )
 
 // Free models sometimes go in circles. A reply that keeps repeating the same text (in the
-// answer, the reasoning or a tool call's input) is dropped and asked again of another model
-// (readStream, completeRetry). A turn that keeps making the same tool call with the same
+// answer, the reasoning or a tool call's input) is dropped and asked again of another model.
+// A turn that keeps making the same tool call with the same
 // result gets a note telling the model so, and its next step goes to another model; after
 // maxLoopSwitches of those the turn stops instead of using up the free models.
 
@@ -21,7 +21,6 @@ const (
 
 var errLooping = errors.New("The model kept repeating itself. Try again, reword the request, or pick another model with /model.")
 
-// loopError stops a turn that kept going in circles.
 type loopError struct{ what string }
 
 func (e *loopError) Error() string {
@@ -45,7 +44,6 @@ func waits(text string) bool {
 	return false
 }
 
-// countsForLoops reports whether a call goes into the loop check.
 func countsForLoops(call FunctionCall) bool {
 	switch {
 	case call.Name == "bash":

@@ -14,14 +14,15 @@ Chat
 - `/resume` lists earlier chats in this folder; `/resume <number>` reopens one.
 - `/compact` summarises the conversation to free context; `/compact <focus>` guides the summary. Prism hints at it near 70% full.
 - `/undo` puts back the files Prism changed in its last turn (files you edited yourself afterwards are left alone).
+- `/plan` or `/plan <task>` plans first: Prism may read files and search the web but can't edit, write or run commands. It answers with the goal, steps, files and how it will check the work, then asks: run this plan, keep planning, or leave plan mode. The status bar says `plan mode`; `/plan` again or `/plan off` turns it off.
 - `/quit` closes Prism.
 
 Models and accounts
-- `/models` shows which free models are ready; `/models <text>` narrows the list.
+- `/models` lists every model in three groups: free models, your plans (from `/login`) and your own keys (from `/key`), each with ready or "back in Ns"; `/models <text>` narrows the list.
 - `/model` opens a picker; `/model <name>` pins one; `/model auto` returns to automatic.
 - `/key` lists provider keys; `/key <name> <secret>` adds one; `/key rm <name>` removes it.
 - `/login` lists accounts; `/login <name>` signs in; `/login rm <name>` signs out.
-- `/usage` free AI used today.
+- `/usage` requests and tokens used today and in this chat, and how many went to your plans or keys instead of free models. Each answer's line and the status bar say `free`, `plan` or `yours`.
 
 Project
 - `/init` writes PRISM.md, rules Prism always follows in this folder.
@@ -35,6 +36,12 @@ Project
 
 Settings
 - `/theme` or `/theme <name>`, `/beam` finish beam on/off, `/quiet` Shard's lines on/off.
+
+Safety and checks
+- Prism asks before risky commands (deleting folders, `git reset --hard`, `git push`, publishing or deploying, `curl … | sh`, `ssh`, dropping database data, `mkfs`, `shutdown`). Answer y (yes once), a (yes for this chat) or n (no).
+- `/rules` lists the rules for which commands ask first. Own rules go in `.prism/rules.json` (this project) or `~/.config/prism/rules.json` (every project) with `allow`, `ask` and `block` lists; `*` matches anything. A project's `allow` rules only count after `/rules trust` and turn off again when the file changes; `/rules off` turns them off.
+- `/hooks` lists your own checks from `.prism/hooks.json`: `before_bash` (runs before each command; if it fails the command doesn't run), `after_edit` (after a file is written, e.g. a formatter, `match` picks files) and `turn_end` (at the end of a turn that changed things; a `must_pass` hook that fails sends Prism back to work, up to 3 tries). Hooks stay off until `/hooks trust`, turn off again when the file changes; `/hooks off` turns them off.
+- If a free model goes in circles, Prism notices and switches to another one by itself.
 
 Tabs
 - `/tabs` lists open chats and their status; `/rename <name>` names this tab; `/ask <n> <question>` asks about another tab's chat without disturbing it.
@@ -51,7 +58,7 @@ Tabs
 
 Prism works with no keys: a built-in router picks among free models. `prism setup` (in a normal terminal, not in chat) adds free keys for more speed. `prism status` shows which are ready, `prism update` upgrades.
 
-Paid or own models: `/key <name> <secret>` with a preset name: openai, anthropic, deepseek, xai, mistral-paid, gemini-paid, together, fireworks, cerebras, sambanova, openrouter-paid, huggingface, perplexity, cohere, moonshot, dashscope, zhipu, deepinfra, novita, lambda. Local ones need no key: ollama-local, lmstudio. `/key` shows the full list and which are set. Important: models from your own keys answer only when you pick them by name (`/model` picker or `/model <name>`). Auto mode never spends them, so adding a key costs nothing until you choose it.
+Paid or own models: `/key <name> <secret>` with a preset name: openai, anthropic, deepseek, xai, mistral-paid, gemini-paid, together, fireworks, cerebras, sambanova, openrouter-paid, huggingface, perplexity, cohere, moonshot, dashscope, zhipu, deepinfra, novita, lambda. Local ones need no key: ollama-local, lmstudio. `/key` shows the full list and which are set. Important: paid models from your own keys answer only when you pick them by name (`/model` picker or `/model <name>`). Auto mode never spends them, so adding a paid key costs nothing until you choose it. Models that are free to you (local ones like ollama-local and lmstudio) can also answer for auto.
 
 ## Logins (plans you already pay for)
 

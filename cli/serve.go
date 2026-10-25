@@ -18,19 +18,19 @@ import (
 
 type server struct {
 	agent     *Agent
-	agentFor  func(id int) *Agent // nil → single-agent mode
+	agentFor  func(id int) *Agent // nil in single-agent mode
 	hub       *tabHub
 	webDir    string
 	theme     string
 	mu        sync.Mutex
 	cancel    context.CancelFunc
 	busy      bool
-	busyAgent *Agent                 // which agent is currently running (set under mu)
+	busyAgent *Agent                 // set under mu
 	snap      []wireEntry            // history snapshot served while a chat is running
 	agentSnap map[*Agent][]wireEntry // per-agent snapshots for non-default running agents
 	memWG     sync.WaitGroup         // outstanding background memory job
 
-	asks   map[int]chan answer // questions a running turn is waiting on (askWeb)
+	asks   map[int]chan answer // questions a running turn is waiting on
 	askSeq int
 
 	handoff  bool
@@ -93,7 +93,6 @@ func newServer(agent *Agent, webDir, theme string) *server {
 	return &server{agent: agent, webDir: webDir, theme: theme}
 }
 
-// newServerWithHub creates a server that supports multiple tabs.
 func newServerWithHub(agent *Agent, hub *tabHub, agentFor func(id int) *Agent, webDir, theme string) *server {
 	return &server{agent: agent, hub: hub, agentFor: agentFor, webDir: webDir, theme: theme}
 }
@@ -306,7 +305,7 @@ func (s *server) info(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	pinned := a.model
 	s.mu.Unlock()
-	writeJSON(w, map[string]any{"project": projectName(s.agent.dir), "theme": s.theme, "models_ready": ready, "handoff": handoff, "model": pinned, "plan": a.plan.Load()})
+	writeJSON(w, map[string]any{"project": projectName(s.agent.dir), "theme": s.theme, "models_ready": ready, "handoff": handoff, "model": pinned, "source": answeredBy("", pinned), "plan": a.plan.Load(), "beam": loadSetting("beam") != "off", "quiet": loadSetting("quiet") == "on"})
 }
 
 // snapshot converts the agent's messages to wire entries. Callers must hold
@@ -357,12 +356,8 @@ func (s *server) history(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"entries": out})
 }
 
-// agentTab returns the agent for the given tab id (from ?tab= query param).
-// When a hub is configured and ?tab= is present:
-//   - returns 400 if the value is not a valid positive integer
-//   - returns 404 if the id is not known to the hub
-//
-// Falls back to s.agent when hub is nil or no ?tab= param is given.
+// agentTab returns the agent for ?tab=, or s.agent when there is no hub or no
+// ?tab=. A bad id gives 400 and an unknown one 404.
 func (s *server) agentTab(r *http.Request) (*Agent, error) {
 	if s.hub == nil || s.agentFor == nil {
 		return s.agent, nil
@@ -381,8 +376,8 @@ func (s *server) agentTab(r *http.Request) (*Agent, error) {
 	return nil, &httpError{http.StatusNotFound, "tab not found"}
 }
 
-// askWeb asks the page a running turn's questions: an approve event the page answers
-// with POST /api/approve. A closed page or esc stops the turn, which answers no.
+// askWeb sends a running turn's questions to the page as an approve event,
+// answered with POST /api/approve. A closed page or esc stops the turn, which answers no.
 func (s *server) askWeb(send func(map[string]any)) func(context.Context, approval) answer {
 	return func(ctx context.Context, q approval) answer {
 		reply := make(chan answer, 1)
@@ -448,7 +443,6 @@ func (s *server) tabsWorking(r *http.Request, a *Agent, all bool) bool {
 	return false
 }
 
-// httpError carries an HTTP status code and message for agentTab errors.
 type httpError struct {
 	code int
 	msg  string
@@ -456,7 +450,7 @@ type httpError struct {
 
 func (e *httpError) Error() string { return e.msg }
 
-// tabs serves GET /api/tabs — returns the tab list plus a version for long-polling.
+// tabs serves GET /api/tabs: the tab list plus a version for long-polling.
 // ?since=<version> holds the request until the list changes (up to 25 s).
 func (s *server) tabs(w http.ResponseWriter, r *http.Request) {
 	if s.hub == nil {
@@ -577,9 +571,9 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
-	start, route, tools, tests := time.Now(), "", 0, false
+	start, route, source, tools, tests := time.Now(), "", "", 0, false
 	pending := map[string]string{}
-	// this turn's questions go to the page that started it, even on a terminal tab's agent
+	// This turn's questions go to the page that started it, even on a terminal tab's agent.
 	confirm, approve := a.confirm, a.approve
 	a.confirm = s.askWeb(send)
 	if a.system {
@@ -593,8 +587,8 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		}
 		switch e := event.(type) {
 		case evRoute:
-			route = e.route
-			send(map[string]any{"type": "route", "route": e.route, "wait_ms": e.wait.Milliseconds()})
+			route, source = e.route, e.source
+			send(map[string]any{"type": "route", "route": e.route, "wait_ms": e.wait.Milliseconds(), "source": answeredBy(e.source, "")})
 		case evThinking:
 			send(map[string]any{"type": "thinking"})
 		case evReasoning:
@@ -624,7 +618,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		case evDone:
 			switch {
 			case e.err == nil:
-				done := map[string]any{"type": "done", "seconds": time.Since(start).Seconds(), "model": modelName(route), "tools": tools, "tests_passed": tests, "plan": a.plan.Load()}
+				done := map[string]any{"type": "done", "seconds": time.Since(start).Seconds(), "model": modelName(route), "source": answeredBy(source, a.model), "tools": tools, "tests_passed": tests, "plan": a.plan.Load()}
 				if a.plan.Load() {
 					done["pick"] = pickWire(planMenu(), func(it menuItem) string { return "/plan " + it.match })
 				}
@@ -660,7 +654,6 @@ func webDir() string {
 	return ""
 }
 
-// toneName is a menu tone as the web picker's class suffix.
 func toneName(t tone) string {
 	switch t {
 	case toneOK:
@@ -675,9 +668,8 @@ func toneName(t tone) string {
 	return "muted"
 }
 
-// pickWire is a TUI menu as JSON for the web picker (web/commands.js picker):
-// the same rows, wording and order. run gives the slash command a row runs
-// when it is picked.
+// pickWire turns a menu into JSON for the web picker. run gives the slash
+// command a row runs when it is picked.
 func pickWire(p menuState, run func(it menuItem) string) map[string]any {
 	items := []map[string]any{}
 	for _, it := range p.items {
@@ -696,20 +688,25 @@ func pickWire(p menuState, run func(it menuItem) string) map[string]any {
 	return out
 }
 
-// modelsTable is /models for the web: the rows filterRoutes kept, aligned in
-// columns (model, provider, state, yours/plan), and the same hints as the TUI.
+// modelsTable is /models for the web: the rows filterRoutes kept, in columns
+// (model, provider, state, yours/plan).
 func modelsTable(rows []routeRow, more int, filter string) map[string]any {
 	title := "models, in the order prism tries them"
 	if filter != "" {
 		title = fmt.Sprintf("models matching %q", filter)
 	}
 	out := []map[string]any{}
+	group := -1
 	for _, r := range rows {
+		if g := groupOf(r); g != group {
+			group = g
+			out = append(out, map[string]any{"head": routeGroups[g].title, "tone": answeredBy(r.Source, "")})
+		}
 		dot, tone, state := "●", "ok", "ready"
 		if !r.Ready {
 			dot, tone, state = "◌", "muted", fmt.Sprintf("back in %ds", r.RetryIn)
 		}
-		out = append(out, map[string]any{"dot": dot, "tone": tone, "cells": []string{modelName(r.Route), provider(r.Route), state, routeTag(r)}})
+		out = append(out, map[string]any{"dot": dot, "tone": tone, "cells": []string{modelName(r.Route), provider(r.Route), state}})
 	}
 	var footer []string
 	if more > 0 {
@@ -721,18 +718,18 @@ func modelsTable(rows []routeRow, more int, filter string) map[string]any {
 	if len(rows) == 0 && filter == "" {
 		footer = append(footer, "no models ready yet · add one: prism setup or /key")
 	}
-	footer = append(footer, "pin one for this chat: /model · add more free models: prism setup")
+	footer = append(footer, "pin one for this chat: /model · more free models: prism setup · your plans: /login · your own keys: /key")
 	return map[string]any{"kind": "table", "title": title, "rows": out, "footer": footer}
 }
 
-// commandList serves GET /api/commands: the one command list (commands in
-// commands.go), with which ones the browser can run.
+// commandList serves GET /api/commands: every command, and which ones the
+// browser can run.
 func (s *server) commandList(w http.ResponseWriter, r *http.Request) {
 	out := []map[string]any{}
 	for _, c := range commands {
 		out = append(out, map[string]any{"name": c.name, "help": c.help, "web": c.web})
 	}
-	// saved commands (usercmds.go) follow, re-read when their files change
+	// Saved commands follow, re-read when their files change.
 	a, _ := s.agentTab(r)
 	if a == nil {
 		a = s.agent
@@ -760,11 +757,10 @@ func modelCount(raw json.RawMessage) int {
 }
 
 // loginPoll serves POST /api/login {id, browser}: one check of a sign-in the
-// web started with /login <id>. Browser accounts are signed in once GET
-// /logins says so (and no longer finishing); device-code accounts poll the
-// router like cli/login.go pollLogin. status is pending, ok or error.
-// With {id, code} it finishes a waiting browser sign-in with what the user
-// pasted from the sign-in page (see loginCode).
+// web started with /login <id>. Browser accounts are done once GET /logins
+// says so and they are no longer finishing; device-code accounts poll the
+// router. status is pending, ok or error. With {id, code} it finishes a
+// waiting browser sign-in with the code the user pasted.
 func (s *server) loginPoll(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ID      string `json:"id"`
@@ -978,7 +974,7 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		text := pinModel(a, fields[1])
-		writeJSON(w, map[string]any{"kind": "model", "model": a.model, "text": text})
+		writeJSON(w, map[string]any{"kind": "model", "model": a.model, "source": answeredBy("", a.model), "text": text})
 	case "/key", "/keys":
 		if len(fields) == 1 {
 			list, err := fetchKeys(a.api)
@@ -1078,11 +1074,22 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 	case "/tree":
 		title, lines := treeCommand(a, strings.Join(fields[1:], " "))
 		info(title, lines)
+	case "/beam", "/quiet":
+		key := strings.TrimPrefix(fields[0], "/")
+		on := loadSetting(key) == "on" || (key == "beam" && loadSetting(key) != "off")
+		on = !on
+		if len(fields) > 1 {
+			on = fields[1] != "off"
+		}
+		state := map[bool]string{true: "on", false: "off"}[on]
+		saveSetting(key, state)
+		writeJSON(w, map[string]any{"kind": "setting", "name": key, "on": on})
 	case "/usage":
 		u := todayUsage()
-		info("free AI usage", []string{
+		info("AI usage", []string{
 			fmt.Sprintf("today: %d requests, %s tokens sent", u.Requests, short(u.Tokens)),
 			fmt.Sprintf("this chat: %d requests, %s tokens sent, %s cached", s.requests, short(s.sent), short(s.agent.cached)),
+			usageFooter(u),
 		})
 	case "/memory", "/forget":
 		if busy {
@@ -1147,7 +1154,7 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 			}
 			a.resume(full)
 			s.snap = nil
-			writeJSON(w, map[string]any{"kind": "reload", "model": a.model})
+			writeJSON(w, map[string]any{"kind": "reload", "model": a.model, "source": answeredBy("", a.model)})
 			return
 		}
 		if len(others) == 0 {
@@ -1211,8 +1218,8 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// login is /login for the web: the account picker (the TUI loginItems rows),
-// sign-out, or starting a sign-in. Browser accounts answer with a URL the web
+// login is /login for the web: the account picker, sign-out, or starting a
+// sign-in. Browser accounts answer with a URL the web
 // opens; device-code accounts with a code. The web then polls /api/login.
 func (s *server) login(w http.ResponseWriter, a *Agent, fields []string) {
 	fail := func(text string) { writeJSON(w, map[string]any{"kind": "error", "text": text}) }
@@ -1307,8 +1314,7 @@ func (s *server) login(w http.ResponseWriter, a *Agent, fields []string) {
 		"expires": out.Expires, "interval": out.Interval, "title": "sign in to " + id, "lines": lines})
 }
 
-// mcpMenu is the /mcp add picker, the same rows as the TUI openMCPMenu
-// (cli/mcp_setup.go).
+// mcpMenu is the /mcp add picker. Keep in sync with openMCPMenu in mcp_setup.go.
 func mcpMenu(dir string) menuState {
 	cfg, _ := loadMCPConfig(dir)
 	var items []menuItem

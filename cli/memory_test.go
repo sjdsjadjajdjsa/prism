@@ -392,8 +392,8 @@ func TestAddUsageAndTodayUsage(t *testing.T) {
 		t.Errorf("fresh usage should be zero, got %+v", u0)
 	}
 
-	addUsage(100)
-	addUsage(200)
+	addUsage(100, false)
+	addUsage(200, true)
 
 	u := todayUsage()
 	if u.Requests != 2 {
@@ -401,6 +401,9 @@ func TestAddUsageAndTodayUsage(t *testing.T) {
 	}
 	if u.Tokens != 300 {
 		t.Errorf("expected 300 tokens, got %d", u.Tokens)
+	}
+	if u.Yours != 1 {
+		t.Errorf("expected 1 request on your plans or keys, got %d", u.Yours)
 	}
 	if u.Day != time.Now().Format("2006-01-02") {
 		t.Errorf("day mismatch: %q", u.Day)

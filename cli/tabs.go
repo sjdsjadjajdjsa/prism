@@ -13,7 +13,7 @@ import (
 )
 
 // tab is one chat in the window: its agent, transcript and turn state. model
-// embeds the active tab, so m.entries, m.agent, ... always mean the tab on screen.
+// embeds the active tab, so m.entries, m.agent and so on mean the tab on screen.
 type tab struct {
 	input      []rune
 	entries    []*entry
@@ -27,6 +27,7 @@ type tab struct {
 	events     chan any
 	agent      *Agent
 	route      string
+	source     string // who answered last: routeRow.Source
 	tokens     int
 	window     int
 	scroll     int
@@ -48,8 +49,8 @@ type tab struct {
 	result string // "done" or "error" after a turn, until the tab is left
 	task   string // what the tab was last asked
 	closed chan struct{}
-	// session and msgLen are snapshots written by evSaved on the UI goroutine
-	// so saveTabs can read them without touching agent.messages/session.
+	// session and msgLen are copies written by evSaved on the UI goroutine, so
+	// saveTabs never touches agent.messages or agent.session.
 	session string
 	msgLen  int
 }
@@ -129,7 +130,6 @@ func (m *model) openTabs(first *Agent, resume bool) {
 	m.switchTo(active)
 }
 
-// newTab wraps an agent in a tab with its own event channel.
 func newTab(agent *Agent) *tab {
 	t := &tab{agent: agent, events: make(chan any, 256), closed: make(chan struct{}), name: "new chat"}
 	if agent != nil {
@@ -232,21 +232,19 @@ func (m *model) syncTab(t *tab) {
 var agentByIDMu sync.RWMutex
 var agentByIDMap = map[int]*Agent{}
 
-// registerAgent adds id→agent to the process-wide map (called when a tab opens).
 func registerAgent(id int, a *Agent) {
 	agentByIDMu.Lock()
 	agentByIDMap[id] = a
 	agentByIDMu.Unlock()
 }
 
-// unregisterAgent removes id from the process-wide map (called when a tab closes).
 func unregisterAgent(id int) {
 	agentByIDMu.Lock()
 	delete(agentByIDMap, id)
 	agentByIDMu.Unlock()
 }
 
-// agentFor returns the agent for hub id, safe to call from HTTP goroutines.
+// agentFor is safe to call from HTTP goroutines.
 func agentFor(id int) *Agent {
 	agentByIDMu.RLock()
 	a := agentByIDMap[id]
@@ -254,13 +252,13 @@ func agentFor(id int) *Agent {
 	return a
 }
 
-// syncHubPositions updates hub.posOf so brief() and claimFile() show 1-based
-// tab-bar positions that match what the user sees, not internal hub IDs.
+// syncHubPositions sets hub.posOf so brief() and claimFile() show tab-bar
+// positions instead of hub IDs.
 func (m *model) syncHubPositions() {
 	if m.hub == nil {
 		return
 	}
-	// Build a snapshot of id→position on the UI goroutine.
+	// Snapshot the positions on the UI goroutine.
 	pos := make(map[int]int, len(m.tabs))
 	for i, t := range m.tabs {
 		pos[t.id] = i + 1
@@ -275,7 +273,6 @@ func (m *model) syncHubPositions() {
 	m.hub.mu.Unlock()
 }
 
-// addTab opens a tab for agent, registers it and makes it the active one.
 func (m *model) addTab(agent *Agent) (*tab, tea.Cmd) {
 	t := newTab(agent)
 	if m.hub != nil {
@@ -362,7 +359,6 @@ func (m *model) closeTab(force bool) {
 	m.saveTabs()
 }
 
-// renameTab is /rename.
 func (m *model) renameTab(name string) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -389,9 +385,8 @@ func (m *model) started(text string) {
 	m.syncTab(m.tab)
 }
 
-// saveTabs remembers which chats are open (for `prism --continue`).
-// It reads only tab.session and tab.msgLen, which are set on the UI goroutine
-// by the evSaved handler — never agent.messages or agent.session directly.
+// saveTabs remembers which chats are open, for `prism --continue`. It reads
+// only tab.session and tab.msgLen, never the agent's fields.
 func (m *model) saveTabs() {
 	if m.tab == nil || m.agent == nil || m.agent.store == nil || len(m.tabs) == 0 {
 		return
@@ -580,7 +575,7 @@ func drawTabBar(cv *canvas, t theme, m model, x, y, w int) {
 		}
 		start := cx
 		cx = cv.text(cx, y, l.text, fg, bold)
-		// the dot is the third cell: " 1 ● name "
+		// The dot is the third cell: " 1 ● name ".
 		if i := strings.IndexRune(l.text, '●'); i >= 0 {
 			cv.set(start+len([]rune(l.text[:i])), y, dot, dotCol, true)
 		}

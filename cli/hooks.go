@@ -532,7 +532,7 @@ func (a *Agent) bashWithHooks(ctx context.Context, raw string) toolResult {
 }
 
 // afterTool runs the after_edit hooks on a file the AI just wrote and tells it what they did.
-// Crew and MCP calls mark the turn changed where they run (agent.go loop), bash in bashWithHooks.
+// Crew and MCP calls mark the turn changed in the agent loop, bash in bashWithHooks.
 func (a *Agent) afterTool(ctx context.Context, call FunctionCall, result *toolResult) {
 	if (call.Name != "edit" && call.Name != "write") || !result.ok {
 		return
@@ -569,7 +569,7 @@ func (a *Agent) turnEndHooks(ctx context.Context, emit func(any)) bool {
 	emit(evToolStart{id, "hooks", "turn end"})
 	runs, failed := a.hooks.turnEnd(ctx, a.dir)
 	if failed && len(runs) == 0 && ctx.Err() == nil {
-		// an edit, even by the AI, must not quietly switch the checks off
+		// An edit, even by the AI, must not quietly switch the checks off.
 		emit(evToolDone{id, toolResult{summary: "skipped: hooks.json changed"}})
 		emit(evNote{".prism/hooks.json changed during this turn, so the turn-end checks were skipped · /hooks trust turns them back on"})
 		return false

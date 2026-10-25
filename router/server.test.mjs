@@ -204,7 +204,21 @@ test('auto:vision uses only vision routes and 503s without one', async () => {
   const blind = await startRouter([{ name: 'pa', baseURL: a, models: [model('alpha', { family: 'glm' })] }])
   const res = await blind.ask({ model: 'auto:vision' })
   assert.equal(res.status, 503)
-  assert.equal((await res.json()).error.message, 'no free model that can see images is available right now')
+  assert.equal((await res.json()).error.message, 'no model that can see images is ready: pin a plan model with /model, or add a free Gemini key with prism setup')
+})
+
+test('auto:vision uses a paid vision route only when the chat prefers it', async () => {
+  const free = await upstream(echo())
+  const plan = await upstream(echo())
+  const r = await startRouter([
+    { name: 'pb', baseURL: free, models: [model('beta', { family: 'gemini', vision: true })] },
+    { name: 'claude', baseURL: plan, mark: { paid: true, source: 'subscription' }, models: [model('opus', { family: 'claude', vision: true })] },
+  ])
+  assert.equal((await r.ask({ model: 'auto:vision' })).headers.get('x-free-route'), 'pb/beta')
+  const preferred = await r.ask({ model: 'auto:vision', prism_prefer: 'claude/opus' })
+  assert.equal(preferred.headers.get('x-free-route'), 'claude/opus')
+  assert.equal(preferred.headers.get('x-prism-source'), 'subscription')
+  assert.equal((await r.ask({ model: 'auto', prism_prefer: 'claude/opus' })).headers.get('x-free-route'), 'pb/beta')
 })
 
 test('exact pin by route id or upstream model name', async () => {
@@ -355,8 +369,12 @@ test('your own paid models are used only when pinned ', async () => {
   writeFileSync(file, JSON.stringify([{ id: 'mine', baseURL: mine, keyVar: 'MINE_API_KEY', models: ['big'] }]))
   const env = { PRISM_CUSTOM_FILE: file, MINE_API_KEY: 'sk-test-1234' }
   const r = await startRouter([{ name: 'free', baseURL: free, models: ['m'] }], env)
-  assert.equal((await (await r.ask({})).json()).received.model, 'm')
-  assert.equal((await (await r.ask({ model: 'mine/big' })).json()).received.model, 'big')
+  const freeReply = await r.ask({})
+  assert.equal(freeReply.headers.get('x-prism-source'), null)
+  assert.equal((await freeReply.json()).received.model, 'm')
+  const mineReply = await r.ask({ model: 'mine/big' })
+  assert.equal(mineReply.headers.get('x-prism-source'), 'yours')
+  assert.equal((await mineReply.json()).received.model, 'big')
   assert.equal((await (await r.ask({ model: 'big' })).json()).received.model, 'm')
   const rows = await (await fetch(r.url + '/status')).json()
   assert.deepEqual(rows.filter(row => row.source === 'yours').map(row => [row.route, row.paid]), [['mine/big', true]])

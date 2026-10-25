@@ -272,7 +272,6 @@ func stripTags(s string) string {
 	return strings.Join(strings.Fields(html.UnescapeString(tagRe.ReplaceAllString(s, " "))), " ")
 }
 
-// webRead fetches a public page and returns its title and readable text, clipped.
 func webRead(ctx context.Context, target string) (title, text string, cut int, err error) {
 	u, err := url.Parse(target)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {

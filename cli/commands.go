@@ -19,15 +19,14 @@ import (
 )
 
 // command is one slash command. help is the short phrase /help and the
-// suggestion box show; web says whether the browser (cli/serve.go command and
-// web/app.js runCommand) can run it too.
+// suggestion box show; web says whether the browser can run it too.
 type command struct {
 	name, help string
 	web        bool
 }
 
-// commands is the one list of slash commands: the TUI, /help and the web UI
-// (GET /api/commands) all read it.
+// commands is the one list of slash commands, read by the terminal, /help and
+// the web UI (GET /api/commands).
 var commands = []command{
 	{"/models", "every model in the order prism tries them · /models <text> narrows", true},
 	{"/model", "pick the model for this chat · /model <name> · /model auto", true},
@@ -81,7 +80,6 @@ type modelsMsg struct {
 // file can't take them either.
 var commandAliases = []string{"/exit", "/status", "/continue", "/keys", "/logins", "/themes", "/forget"}
 
-// isBuiltin says whether name (with the slash) is a built-in command.
 func isBuiltin(name string) bool {
 	for _, c := range commands {
 		if c.name == name {
@@ -98,13 +96,12 @@ func isBuiltin(name string) bool {
 
 // pickerCommands open a pick-one-thing menu when run bare, so taking one from
 // the suggestion list (tab as well as enter) runs it at once and the menu
-// opens with no second enter. web/commands.js PICKERS is the same list.
+// opens with no second enter. Keep in sync with PICKERS in web/commands.js.
 var pickerCommands = map[string]bool{"/model": true, "/login": true, "/key": true, "/resume": true, "/theme": true, "/tabs": true}
 
-// suggestion is one row of the slash-command suggestion list.
 type suggestion struct {
 	command
-	saved bool // a saved command (usercmds.go): tagged "saved" in the list
+	saved bool // a saved command, tagged "saved" in the list
 	close bool // a fuzzy match: listed under the "close matches" divider
 }
 
@@ -119,7 +116,7 @@ func splitHelp(help string) (desc, usage string) {
 // rankCommand says whether name (with the slash) answers query (what is typed
 // after the slash, lower case) and where it sorts: tier 0 is the exact name,
 // tier 1 a prefix (shorter first; a bare "/" keeps the list order), tier 2 a
-// close match — the query inside the name ("odel"), then its letters in order
+// close match: the query inside the name ("odel"), then its letters in order
 // ("mdl"). A lower score sorts first within a tier.
 func rankCommand(name, query string) (tier, score int, ok bool) {
 	n := strings.ToLower(strings.TrimPrefix(name, "/"))
@@ -135,7 +132,7 @@ func rankCommand(name, query string) (tier, score int, ok bool) {
 	case strings.Contains(n, query):
 		return 2, 100 + strings.Index(n, query)*10 + len(n), true
 	}
-	// the query's letters in order: score by how spread out they are
+	// The query's letters in order: score by how spread out they are.
 	q, at, first, last := []rune(query), 0, -1, -1
 	for i, r := range []rune(n) {
 		if at < len(q) && r == q[at] {
@@ -151,8 +148,8 @@ func rankCommand(name, query string) (tier, score int, ok bool) {
 	return 2, 1000 + (last-first+1-len(q))*10 + first*5 + len(n), true
 }
 
-// rankSuggestions sorts rows into the suggestion order for query; rows not
-// matching it are dropped. The web (web/commands.js rank) does the same.
+// rankSuggestions sorts rows into the suggestion order for query and drops
+// rows that don't match. Keep in sync with rank in web/commands.js.
 func rankSuggestions(rows []suggestion, query string) []suggestion {
 	type ranked struct {
 		s           suggestion
@@ -179,7 +176,7 @@ func rankSuggestions(rows []suggestion, query string) []suggestion {
 }
 
 // suggestions is the suggestion list for what is typed so far: built-in
-// commands and saved commands (usercmds.go) for the folder prism runs in,
+// commands and saved commands for the folder prism runs in,
 // exact match first, then prefixes, then close matches.
 func suggestions(input string) []suggestion {
 	if !strings.HasPrefix(input, "/") || strings.ContainsAny(input, " \n") {
@@ -207,7 +204,6 @@ func suggestIn(dir, input string) []suggestion {
 	return rankSuggestions(rows, strings.ToLower(strings.TrimPrefix(input, "/")))
 }
 
-// matching is the suggestion list as plain commands.
 func matching(input string) []command {
 	dir, _ := os.Getwd()
 	return matchingIn(dir, input)
@@ -247,7 +243,7 @@ func (m *model) command(text string) tea.Cmd {
 		if m.busy && m.cancel != nil {
 			m.cancel()
 		}
-		// Save the current session first (like /new), then clear screen + context.
+		// Save the current session first, as /new does, then clear the screen and context.
 		m.agent.saveSession()
 		m.agent.reset()
 		m.entries, m.tokens, m.route = nil, 0, ""
@@ -314,7 +310,7 @@ func (m *model) command(text string) tea.Cmd {
 		}
 		projectFile, _ := projectRules(m.agent.dir)
 		v := memoryView(title, lines, projectFile)
-		// kind "info" keeps e.text+e.lines for web/test compat; view gives richer terminal rendering.
+		// Kind "info" keeps e.text and e.lines for the web and tests; view renders better in the terminal.
 		m.entries = append(m.entries, &entry{kind: "info", text: title, lines: lines, view: &v})
 	case "/web":
 		m.startWeb()
@@ -340,7 +336,7 @@ func (m *model) command(text string) tea.Cmd {
 			m.entries = append(m.entries, &entry{kind: "error", text: res.title, arg: strings.Join(res.lines, " · ")})
 			return nil
 		}
-		// Use structured view for /mcp list; fall back to info for add/remove/test results
+		// /mcp list gets the structured view; add, remove and test results stay plain info.
 		if len(fields) == 1 {
 			var mcpList []mcpStatus
 			if m.agent.mcp != nil {
@@ -560,8 +556,8 @@ func undoLast(a *Agent) (title string, lines []string, note string) {
 	return title, lines, ""
 }
 
-// compactChat is /compact for the web: the same summary request and rebuilt
-// history as the TUI compactCommand (cli/compact.go), returning its lines.
+// compactChat is /compact for the web, returning its lines. Keep in sync with
+// compactCommand in compact.go.
 func compactChat(ctx context.Context, a *Agent, focus string) ([]string, error) {
 	if len(a.messages) <= 1 {
 		return nil, errors.New("nothing to compact yet")

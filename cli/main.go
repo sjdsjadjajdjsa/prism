@@ -31,23 +31,24 @@ type statusMsg struct {
 }
 
 type entry struct {
-	kind  string
-	text  string
-	id    string
-	tool  string
-	arg   string
-	done  bool
-	res   toolResult
-	open  bool
-	rows  []routeRow
-	more  int // rows hidden by the /models cap
-	lines []string
-	crew  *crewBlock
-	view  *cmdView // structured command output (kind=="cmd")
+	kind   string
+	text   string
+	id     string
+	tool   string
+	arg    string
+	done   bool
+	res    toolResult
+	open   bool
+	rows   []routeRow
+	more   int    // rows hidden by the /models cap
+	source string // kind=="meta": who answered, routeRow.Source
+	lines  []string
+	crew   *crewBlock
+	view   *cmdView // structured command output (kind=="cmd")
 }
 
 type model struct {
-	*tab                  // the chat on screen; see tabs.go
+	*tab                  // the chat on screen
 	tabs           []*tab // every open chat, in tab bar order
 	hub            *tabHub
 	spawn          func() *Agent // a fresh agent for a new tab
@@ -75,8 +76,8 @@ type model struct {
 	web            *webSession
 	ticking        bool
 	active         time.Duration
-	menu           menuState    // the pick-one-thing overlay; see menu.go
-	sug            suggestState // the slash-command suggestion list's highlight; see chat.go
+	menu           menuState    // the pick-one-thing overlay
+	sug            suggestState // the slash-command suggestion list's highlight
 	fb             filesState   // the /files browser and viewer overlay
 	loginTab       *tab         // only the tab that started the browser poll captures codes
 	loginWaiting   string       // browser sign-in using the main input for pasted codes
@@ -187,7 +188,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// The chat input takes the pasted code until the sign-in ends.
 			m.loginWaiting, m.loginTab = msg.id, m.tab
 		}
-		// kind "login": the link renders as a clickable link and the device code stands out.
+		// Kind "login": the link renders as a clickable link and the device code stands out.
 		m.entries = append(m.entries, &entry{kind: "login", text: "sign in to " + msg.id, lines: loginLines(msg), arg: msg.url, tool: msg.code})
 		m.scroll = 0
 		interval := 5
@@ -265,7 +266,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.t == m.tab {
 			m.keepView(func() { m.handle(msg.event) })
 		} else {
-			// a background tab: apply the event to that tab, keep this one on screen
+			// A background tab: apply the event to that tab and keep this one on screen.
 			shown := m.tab
 			m.tab = msg.t
 			m.keepView(func() { m.handle(msg.event) })
@@ -422,7 +423,7 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.submit()
 	case "tab":
-		// tab only takes a suggestion (suggestKey); it never types a tab
+		// tab only takes a suggestion; it never types a tab
 	case "shift+enter", "ctrl+j":
 		m.input = append(m.input, '\n')
 	case "backspace":
@@ -478,9 +479,9 @@ func (m *model) submit() tea.Cmd {
 	events, agent := m.events, m.agent
 	go func() {
 		agent.Run(ctx, text, func(e any) { events <- e })
-		// Run has returned: agent.session and agent.messages are stable now.
-		// Snapshot them into evSaved so the UI goroutine never reads agent fields
-		// while another goroutine might be appending (data-race fix).
+		// Run has returned, so agent.session and agent.messages are stable. Copy
+		// them into evSaved so the UI goroutine never reads agent fields while
+		// another goroutine may be appending.
 		events <- evSaved{session: agent.session, msgLen: len(agent.messages)}
 	}()
 	return nil
@@ -509,7 +510,7 @@ func (m *model) keepView(change func()) {
 func (m *model) handle(event any) {
 	switch e := event.(type) {
 	case evRoute:
-		m.route, m.waited, m.answering = e.route, e.wait, true
+		m.route, m.source, m.waited, m.answering = e.route, e.source, e.wait, true
 	case evReasoning:
 		m.reasoning += e.text
 		if len(m.reasoning) > 4000 {
@@ -608,7 +609,7 @@ func (m *model) handle(event any) {
 		}
 		switch {
 		case e.err == nil:
-			m.entries = append(m.entries, &entry{kind: "meta", text: fmt.Sprintf("%.1fs", (m.now - m.busySince).Seconds()), arg: m.route})
+			m.entries = append(m.entries, &entry{kind: "meta", text: fmt.Sprintf("%.1fs", (m.now - m.busySince).Seconds()), arg: m.route, source: m.source})
 			m.finish(true, false)
 			m.planAsk = m.agent.plan.Load()
 			if job := m.agent.memoryJob(); job != nil {
@@ -703,8 +704,8 @@ func (m model) View() tea.View {
 	if m.chat {
 		v.MouseMode = tea.MouseModeCellMotion
 		if m.menu.open || m.fb.open || len(m.suggesting().rows) > 0 {
-			// an overlay highlights the row under the pointer, so it needs
-			// motion without a button held
+			// An overlay highlights the row under the pointer, so it needs
+			// motion without a button held.
 			v.MouseMode = tea.MouseModeAllMotion
 		}
 	}
@@ -931,7 +932,7 @@ func main() {
 	if *themeName == "" {
 		*themeName = loadTheme()
 	}
-	// every tab gets its own agent on the same project, sharing skills and MCP servers
+	// Every tab gets its own agent on the same project, sharing skills and MCP servers.
 	spawn := func() *Agent {
 		a := newAgent(*api, dir, project)
 		a.skills, a.mcp, a.system = agent.skills, agent.mcp, agent.system

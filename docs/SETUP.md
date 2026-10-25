@@ -182,7 +182,7 @@ If you see a red message, find the closest match below.
 | "prism: command not found" | Open a new terminal. Still missing? Run `~/.prism/prism install` (or `./prism install` from the folder you downloaded Prism into). |
 | "docker: command not found" on Windows | In Docker Desktop, put a check in the box for WSL integration for Ubuntu (Windows step 4). |
 | The first start is very slow | That's normal the first time: Docker downloads and builds everything once. |
-| "no free models ready" or "every free AI model is busy" | Check your internet, wait a minute and try again. `prism status` shows each model. Adding a free key with `prism setup` helps a lot. |
+| "no models ready" or "every free AI model is busy" | Check your internet, wait a minute and try again. `prism status` shows each model. Adding a free key with `prism setup` helps a lot. |
 | "Prism won't start in your home folder" | Prism won't run in your home folder or `/`. Use `cd` to go into a project folder first. |
 
 **Uninstall:** run `prism stop`, then `rm -rf ~/.prism ~/.local/bin/prism`. To also delete Prism's saved chats and memory: `docker volume rm prism_prism-config prism_router-data`. To free the disk space Docker used for Prism: `docker rmi prism-agent prism-router`. The installer may also have added one `export PATH=...` line to `~/.bashrc` (or `~/.zshrc` if you use zsh, or `~/.bash_profile` on a Mac using bash); you can delete it.

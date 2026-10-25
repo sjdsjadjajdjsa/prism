@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// approval is one question to the user before a tool call runs.
 type approval struct {
 	tool, arg string
 	why       string   // plain words: what a risky command can do, or which rule asked
@@ -40,9 +39,8 @@ const askGuard = 600 * time.Millisecond
 
 const saidNo = "The user said no to this. Do not try it again another way; explain what you wanted to do and ask what they prefer."
 
-// refused decides whether a tool call needs a yes first and asks for it. It reports true,
-// with the result to send back, when the call must not run. Commands are checked against the
-// built-in risky kinds and the user's rules (risk.go); prism fix asks before every change.
+// refused asks for a yes when a tool call needs one. It reports true, with the result to
+// send back, when the call must not run. prism fix asks before every change.
 func (a *Agent) refused(ctx context.Context, call FunctionCall, result *toolResult) bool {
 	askAll := a.approve != nil && (needsApproval[call.Name] || a.mcp.has(call.Name))
 	q := approval{tool: call.Name, arg: approvalText(call.Name, call.Arguments)}

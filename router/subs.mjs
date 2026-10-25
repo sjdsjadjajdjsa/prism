@@ -2,6 +2,7 @@
 // browser sign-in, the same way the vendor's own tools do. Tokens live in
 // subscriptions.json. Client ids are the vendors' own public CLI clients.
 import { readFileSync, writeFileSync, statSync, chmodSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { createHash, randomUUID } from 'node:crypto'
 import http from 'node:http'
 import { grokFetch, grokRequestHeaders } from './wire.mjs'
@@ -102,7 +103,7 @@ export const SUBSCRIPTIONS = [
     redirectPort: 56121,
     redirectPath: '/callback',
     redirectHost: '127.0.0.1',
-    // adapted from router-for-me/CLIProxyAPI (MIT): scope, CLI proxy and chat models.
+    // Scope, CLI proxy and chat models adapted from router-for-me/CLIProxyAPI (MIT).
     scopes: 'openid profile email offline_access grok-cli:access api:access',
     apiBase: 'https://cli-chat-proxy.grok.com/v1',
     wire: 'grok',
@@ -114,8 +115,7 @@ export const SUBSCRIPTIONS = [
     kind: 'browser',
     authorizeURL: 'https://accounts.google.com/o/oauth2/v2/auth',
     tokenURL: 'https://oauth2.googleapis.com/token',
-    // Antigravity's own public IDE client (constants.go), written directly in
-    // the code the way the IDE ships it.
+    // Antigravity's own public IDE client, hardcoded the way the IDE ships it.
     clientID: '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com',
     clientSecret: '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',
     redirectPort: 51121,
@@ -136,19 +136,19 @@ export const SUBSCRIPTIONS = [
 
 export const subsPath = () => {
   if (process.env.PRISM_SUBS_FILE) return process.env.PRISM_SUBS_FILE
-  for (const candidate of [new URL('subscriptions.json', here).pathname, new URL('../subscriptions.json', here).pathname]) {
+  for (const candidate of [fileURLToPath(new URL('subscriptions.json', here)), fileURLToPath(new URL('../subscriptions.json', here))]) {
     try {
       statSync(candidate)
       return candidate
     } catch {}
   }
-  return new URL('../subscriptions.json', here).pathname
+  return fileURLToPath(new URL('../subscriptions.json', here))
 }
 
 let subsCache = { file: '', stamp: '', data: {} }
 
-// loadSubs reads subscriptions.json (mtime-cached). Never throws: a missing
-// or broken file just means nobody is signed in.
+// Cached by mtime. Never throws: a missing or broken file means nobody is
+// signed in.
 export const loadSubs = (file = subsPath()) => {
   let stamp = 'missing'
   try {
@@ -180,7 +180,6 @@ const saveSubs = (file, data) => {
 // exchange endpoint when it is close to expiring.
 const apiTokens = new Map()
 
-// refreshOAuth renews a browser sign-in with its refresh token.
 const refreshOAuth = async sub => {
   const generation = loginGenerations.get(sub.id)
   const stored = loadSubs()[sub.id]
@@ -243,8 +242,6 @@ export const subToken = async sub => {
   return fresh
 }
 
-// --- browser sign-in ------------------------------------------------------------------------
-
 const browserPending = new Map()
 const finishingAccounts = new Map()
 const loginGenerations = new Map()
@@ -259,8 +256,7 @@ const cancelLogin = id => {
   return loginGenerations.get(id)
 }
 
-// loginErrors remembers the last sign-in failure per account, so /login can
-// say what went wrong instead of failing silently.
+// Last sign-in failure per account, so /login can say what went wrong.
 const loginErrors = new Map()
 const GROK_CONSENT_ERROR = 'sign in to grok again to give Prism access to your Grok plan (/login grok)'
 const needsGrokConsent = id => {
@@ -295,7 +291,7 @@ const loginPage = (ok, message) =>
 
 // startBrowserLogin builds an authorize URL (PKCE) and waits for the vendor's
 // redirect. Fixed-port providers (ChatGPT 1455, Grok 56121) get their own
-// listener; the rest ride on the router's own port via handleOAuthCallback.
+// listener; the rest use the router's port via handleOAuthCallback.
 export const startBrowserLogin = async sub => {
   const generation = cancelLogin(sub.id)
   loginErrors.delete(sub.id)
@@ -364,8 +360,8 @@ const closeBrowserLogin = entry => {
   if (browserPending.get(entry.state) === entry) browserPending.delete(entry.state)
 }
 
-// handleOAuthCallback serves the redirect for providers that ride on the
-// router's own port (Claude). Returns true when it handled the path.
+// Serves the redirect for providers on the router's own port (Claude).
+// Returns true when it handled the path.
 export const handleOAuthCallback = async (req, res, pathname) => {
   const url = new URL(req.url, 'http://router')
   for (const entry of browserPending.values()) {
@@ -378,8 +374,8 @@ export const handleOAuthCallback = async (req, res, pathname) => {
   return false
 }
 
-// finishSafely never throws: a failed save or a bad reply becomes a login error
-// the user can read, instead of an unhandled rejection that kills the router.
+// Never throws: a failed save or a bad reply becomes a login error the user
+// can read, instead of an unhandled rejection that kills the router.
 const finishSafely = async (sub, url) => {
   try {
     return await finishBrowserLogin(url.searchParams.get('code'), url.searchParams.get('state'))
@@ -500,7 +496,7 @@ const finishBrowserLogin = async (code, state, retry = false) => {
       refreshToken: data.refresh_token,
       expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
       accountId: accountIdOf(data.id_token),
-      // A stable device and session identity, the way the CLI has one.
+      // A stable device and session identity, like the vendor CLI has.
       deviceId: randomUUID(),
       accountUuid: accountUuidOf(data.id_token) ?? randomUUID(),
       sessionId: randomUUID(),
@@ -557,10 +553,9 @@ const projectOf = data => {
   return ''
 }
 
-// onboardAntigravity does the post-sign-in onboarding the Antigravity IDE does:
-// loadCodeAssist for an existing project, then onboardUser (polled) when there
-// is none yet. Returns the project id, or undefined when it could not be found;
-// failures land in loginErrors so /login can say what went wrong.
+// The onboarding the Antigravity IDE does after sign-in: loadCodeAssist for an
+// existing project, then onboardUser (polled) if there is none. Returns the
+// project id or undefined. Failures go to loginErrors so /login can show them.
 const onboardAntigravity = async (sub, account, current) => {
   try {
     const load = await fetch(`${sub.apiBase}/v1internal:loadCodeAssist`, {
@@ -618,7 +613,6 @@ const HIDDEN = {
   grok: [/^grok-[0-2]/, /video/i],
 }
 
-// visibleModels keeps the models worth showing for an account.
 export const visibleModels = (id, list) => {
   const kept = (list ?? []).filter(name => ![...HIDDEN.all, ...(HIDDEN[id] ?? [])].some(rule => rule.test(name)))
   // Antigravity lists its models in no particular order; group them by name.
@@ -627,23 +621,24 @@ export const visibleModels = (id, list) => {
 
 // subscriptionProviders turns signed-in accounts into router providers. Their
 // routes are paid-marked: they answer when picked by name, never for auto.
+// Plans whose models all take images. Copilot is left out: some of its models are text only.
+const SEES_IMAGES = new Set(['chatgpt', 'claude', 'grok', 'antigravity'])
+
 export const subscriptionProviders = () =>
   SUBSCRIPTIONS.filter(sub => loadSubs()[sub.id]?.accessToken && !needsGrokConsent(sub.id) && visibleModels(sub.id, loadSubs()[sub.id]?.models).length).map(sub => ({
     name: sub.id,
     baseURL: loadSubs()[sub.id].apiBase ?? sub.apiBase,
-    models: visibleModels(sub.id, loadSubs()[sub.id].models).map(name => ({ name, family: name.split('/').pop().split(/[-_.]/)[0], roles: [], vision: false })),
+    models: visibleModels(sub.id, loadSubs()[sub.id].models).map(name => ({ name, family: name.split('/').pop().split(/[-_.]/)[0], roles: [], vision: SEES_IMAGES.has(sub.id) })),
     mark: { subscription: sub.id, paid: true, source: 'subscription' },
   }))
-
-// --- device-code sign-in ---------------------------------------------------------------------
 
 const pending = new Map()
 
 export const startLogin = async sub => {
   const generation = cancelLogin(sub.id)
   loginErrors.delete(sub.id)
-  // OIDC discovery and form-encoded device grants:
-  // adapted from router-for-me/CLIProxyAPI (MIT)
+  // OIDC discovery and form-encoded device grants adapted from
+  // router-for-me/CLIProxyAPI (MIT).
   let deviceURL = sub.deviceURL, tokenURL = sub.tokenURL
   if (sub.id === 'grok' && sub.discoveryURL) {
     try {
@@ -653,7 +648,7 @@ export const startLogin = async sub => {
         deviceURL = data.device_authorization_endpoint ?? deviceURL
         tokenURL = data.token_endpoint ?? tokenURL
       }
-    } catch { /* Configured endpoints remain a fallback if discovery is down. */ }
+    } catch { /* Fall back to the configured endpoints if discovery is down. */ }
   }
   const params = { client_id: sub.clientID, ...(sub.scopes && { scope: sub.scopes }) }
   let res

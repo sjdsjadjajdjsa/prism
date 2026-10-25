@@ -60,7 +60,7 @@ func callSig(name, args, output string) string {
 			args = string(canonical)
 		}
 	}
-	// timings and clock times change between identical runs, so they don't count; other numbers do
+	// Timings and clock times change between identical runs, so they don't count. Other numbers do.
 	sum := sha256.Sum256([]byte(timings.ReplaceAllString(strings.TrimSpace(output), "T")))
 	return strconv.Itoa(len(name)) + ":" + name + args + "\x00" + hexenc.EncodeToString(sum[:])
 }

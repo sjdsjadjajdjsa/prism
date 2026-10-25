@@ -161,6 +161,13 @@ func TestUsageView(t *testing.T) {
 	for _, width := range []int{60, 100, 140} {
 		checkNoOverflow(t, "/usage", v, width)
 	}
+	if !strings.Contains(rendered, "all free") {
+		t.Errorf("free-only day should say all free: %s", rendered)
+	}
+	u.Yours = 5
+	if r := renderCmdView(usageView(u, 7, 12000, 3000), 100); strings.Contains(r, "all free") || !strings.Contains(r, "37 free · 5 on your plans or keys") {
+		t.Errorf("a day with plan answers must not say all free: %s", r)
+	}
 }
 
 // ── /memory ───────────────────────────────────────────────────────────────────

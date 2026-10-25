@@ -3,9 +3,9 @@ package main
 // Saved commands: a markdown file .prism/commands/<name>.md (this project) or
 // <config>/prism/commands/<name>.md (yours) becomes /<name>. Typing
 // "/<name> some words" sends the file's text as a chat message, with
-// $ARGUMENTS replaced by the words and $1, $2 … by single words. The idea is
-// the one opencode commands, pi prompt templates and Gemini CLI custom
-// commands share; this code is prism's own.
+// $ARGUMENTS replaced by the words and $1, $2 … by single words. The idea
+// comes from opencode commands, pi prompt templates and Gemini CLI custom
+// commands; the code is prism's own.
 
 import (
 	"os"
@@ -19,7 +19,6 @@ import (
 	"unicode/utf8"
 )
 
-// userCommand is one saved command file.
 type userCommand struct {
 	name    string // with the slash, like /review
 	help    string // description: from the front matter, else the first line
@@ -185,7 +184,7 @@ func loadUserCommands(dir string, maxAge time.Duration) []userCommand {
 		}
 		list = append(list, c)
 	}
-	// this project wins over yours
+	// This project wins over yours.
 	for i := range list {
 		if list[i].source != "yours" || !list[i].runnable() {
 			continue
@@ -200,7 +199,6 @@ func loadUserCommands(dir string, maxAge time.Duration) []userCommand {
 	return list
 }
 
-// shortCmdPath shows a command file relative to the project or as ~/….
 func shortCmdPath(p, dir string) string {
 	if rel, err := filepath.Rel(dir, p); err == nil && !strings.HasPrefix(rel, "..") {
 		return filepath.ToSlash(rel)
@@ -211,7 +209,6 @@ func shortCmdPath(p, dir string) string {
 	return p
 }
 
-// findUserCommand returns the runnable saved command called name (with slash).
 func findUserCommand(dir, name string) (userCommand, bool) {
 	for _, c := range loadUserCommands(dir, 0) {
 		if c.name == name && c.runnable() {

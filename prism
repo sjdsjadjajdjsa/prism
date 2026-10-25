@@ -229,8 +229,8 @@ term_size_args() {
   fi
 }
 
-# watch_logins opens the user's browser when a subscription sign-in starts inside
-# prism (/login chatgpt and friends): the router holds the page until then.
+# watch_logins opens the browser when a subscription sign-in (/login chatgpt and so on)
+# starts inside prism. The router holds the page until then.
 watch_logins() {
   local parent="$1" last="" url
   command -v curl >/dev/null 2>&1 || return 0
@@ -362,8 +362,8 @@ setup() {
   echo "Already pay for a model? Add it with: $(prism_cmd) keys add"
 }
 
-# ---- your own models: prism keys / keys add / keys remove ----
-# The list lives in custom-providers.json (one entry per line); the secret keys stay in keys.conf.
+# Your own models (prism keys, keys add, keys remove). The list lives in
+# custom-providers.json, one entry per line; the secret keys stay in keys.conf.
 CUSTOM="$HERE/custom-providers.json"
 FREE_KEYS="NVIDIA_API_KEY:NVIDIA GROQ_API_KEY:Groq GEMINI_API_KEY:Google MISTRAL_API_KEY:Mistral OPENROUTER_API_KEY:OpenRouter ZAI_API_KEY:Z.ai"
 
@@ -420,8 +420,8 @@ keys_list() {
 
 keys_add() {
   local choice id name url var def paid link key current models first test_url saved_url answer code body entry list m guess reserved
-  echo "Add a model you pay for (or one on this computer). It is never used for the free \"auto\"."
-  echo "It only answers when you pick it by name."
+  echo "Add a model you pay for (or one on this computer)."
+  echo "Paid ones only answer when you pick them by name. Free ones, like a model on this computer, can also answer for \"auto\"."
   echo
   echo "  1) OpenAI"
   echo "  2) Anthropic (Claude)"
@@ -516,7 +516,7 @@ keys_add() {
   restart_router
   echo
   echo "Saved. Pick it by name: ${id}/${first}"
-  [[ "$paid" == false ]] || echo "Prism won't use it for \"auto\", so nothing is spent unless you pick it."
+  if [[ "$paid" == false ]]; then echo "It's free to you, so \"auto\" can use it too."; else echo "Prism won't use it for \"auto\", so nothing is spent unless you pick it."; fi
 }
 
 keys_remove() {

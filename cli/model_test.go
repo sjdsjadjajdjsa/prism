@@ -29,8 +29,13 @@ func TestFilterRoutes(t *testing.T) {
 		big = append(big, routeRow{Route: "openrouter-paid/m" + string(rune('a'+i%26)) + strings.Repeat("x", 0)})
 	}
 	kept, more = filterRoutes(big, "")
-	if len(kept) != 60 || more != 240 {
+	if len(kept) != 40 || more != 260 {
 		t.Fatalf("cap: kept %d more %d", len(kept), more)
+	}
+	mixed := []routeRow{{Route: "mine/a", Source: "yours"}, {Route: "claude/b", Source: "subscription"}, {Route: "nvidia/c"}}
+	kept, _ = filterRoutes(append(big, mixed...), "")
+	if len(kept) != 42 || kept[40].Route != "claude/b" || kept[41].Route != "mine/a" {
+		t.Fatalf("groups: free, plans, own keys, each capped on its own: %v", kept[39:])
 	}
 }
 

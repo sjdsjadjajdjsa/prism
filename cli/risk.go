@@ -1214,8 +1214,8 @@ func riskGlob(pattern, text string) bool {
 	return strings.HasSuffix(text, parts[len(parts)-1])
 }
 
-// check is the rules a turn started with (Agent.startRules), made stricter by the files as they
-// are now: an edit or /rules off mid-turn can add a block or take an allow away, never the reverse.
+// check is the rules a turn started with, made stricter by the files as they are now: an
+// edit or /rules off mid-turn can add a block or take an allow away, never the reverse.
 func (r ruleSet) check(command string) check {
 	c := r.checkRules(command)
 	if r.project.path == "" {

@@ -392,7 +392,7 @@ func TestCommandModelsListsRoutes(t *testing.T) {
 	// /models <text> narrows, like the TUI filterRoutes
 	res := decode(t, do(t, h, http.MethodPost, "/api/command", host, origin, `{"text":"/models model-b"}`))
 	rows, _ := res["rows"].([]any)
-	if len(rows) != 1 || !strings.Contains(fmt.Sprint(rows[0]), "model-b") || !strings.Contains(res["title"].(string), "model-b") {
+	if len(rows) != 2 || !strings.Contains(fmt.Sprint(rows[0]), "free models") || !strings.Contains(fmt.Sprint(rows[1]), "model-b") || !strings.Contains(res["title"].(string), "model-b") {
 		t.Fatalf("/models model-b: %v", res)
 	}
 }
@@ -405,10 +405,19 @@ func TestModelsTableCapsAndTags(t *testing.T) {
 	rows = append(rows, routeRow{Route: "chatgpt/gpt-x", Ready: true, Source: "subscription"}, routeRow{Route: "openai/gpt-y", Ready: true, Source: "yours"})
 	kept, more := filterRoutes(rows, "")
 	out := modelsTable(kept, more, "")
-	if got := len(out["rows"].([]map[string]any)); got != 60 {
-		t.Fatalf("rows = %d, want 60", got)
+	if got := len(out["rows"].([]map[string]any)); got != 45 {
+		t.Fatalf("rows = %d, want 40 free + 2 paid + 3 group heads", got)
 	}
-	if f := strings.Join(out["footer"].([]string), "\n"); !strings.Contains(f, "+12 more · /models <text> narrows") {
+	var heads []string
+	for _, r := range out["rows"].([]map[string]any) {
+		if h, ok := r["head"].(string); ok {
+			heads = append(heads, h+":"+r["tone"].(string))
+		}
+	}
+	if got := strings.Join(heads, ","); got != "free models:free,your plans:plan,your own keys:yours" {
+		t.Fatalf("heads = %s", got)
+	}
+	if f := strings.Join(out["footer"].([]string), "\n"); !strings.Contains(f, "+30 more · /models <text> narrows") {
 		t.Fatalf("footer = %q", f)
 	}
 	kept, more = filterRoutes(rows, "gpt")
@@ -875,6 +884,25 @@ func TestCommandResumeEmptyAndAliases(t *testing.T) {
 	}
 }
 
+func TestBeamAndQuietAreSaved(t *testing.T) {
+	h, _, port := testServer(t)
+	host := "127.0.0.1:" + port
+	for _, c := range []struct{ text, name, want string }{
+		{"/beam off", "beam", "off"},
+		{"/quiet", "quiet", "on"},
+		{"/beam", "beam", "on"},
+	} {
+		res := decode(t, do(t, h, http.MethodPost, "/api/command", host, "http://"+host, `{"text":"`+c.text+`"}`))
+		if res["kind"] != "setting" || res["name"] != c.name || loadSetting(c.name) != c.want {
+			t.Fatalf("%s: reply %v, saved %q", c.text, res, loadSetting(c.name))
+		}
+	}
+	info := decode(t, do(t, h, http.MethodGet, "/api/info", host, "", ""))
+	if info["beam"] != true || info["quiet"] != true {
+		t.Fatalf("info after reload: %v", info)
+	}
+}
+
 func TestCommandUsageReportsThisChat(t *testing.T) {
 	h, s, port := testServer(t)
 	host := "127.0.0.1:" + port
@@ -883,7 +911,7 @@ func TestCommandUsageReportsThisChat(t *testing.T) {
 	s.mu.Unlock()
 	res := decode(t, do(t, h, http.MethodPost, "/api/command", host, "http://"+host, `{"text":"/usage"}`))
 	lines, _ := res["lines"].([]any)
-	if len(lines) != 2 || !strings.Contains(lines[1].(string), "this chat: 3 requests") {
+	if len(lines) != 3 || !strings.Contains(lines[1].(string), "this chat: 3 requests") || !strings.Contains(lines[2].(string), "all free") {
 		t.Fatalf("usage lines: %v", lines)
 	}
 }

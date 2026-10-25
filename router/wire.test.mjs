@@ -108,6 +108,14 @@ test('chat becomes an Anthropic messages request', () => {
   assert.equal(out.messages[2].content[0].tool_use_id, 'c1')
 })
 
+test('screenshots reach every wire as images', () => {
+  const body = { model: 'm', messages: [{ role: 'user', content: [{ type: 'text', text: 'what is on screen?' }, { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,QUJD' } }] }] }
+  assert.deepEqual(toCodex(body).input[0].content, [{ type: 'input_text', text: 'what is on screen?' }, { type: 'input_image', image_url: 'data:image/jpeg;base64,QUJD' }])
+  assert.deepEqual(toAnthropic(body).messages[0].content, [{ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'QUJD' } }, { type: 'text', text: 'what is on screen?' }])
+  assert.deepEqual(toGemini(body).contents[0].parts, [{ text: 'what is on screen?' }, { inlineData: { mimeType: 'image/jpeg', data: 'QUJD' } }])
+  assert.equal(toAnthropic({ messages: [{ role: 'user', content: 'plain' }] }).messages[0].content, 'plain')
+})
+
 test('anthropic stream becomes chat chunks', () => {
   const s = new AnthropicStream()
   const out = s.write('data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"yo"}}\n\ndata: {"type":"content_block_start","content_block":{"type":"tool_use","id":"t1","name":"read"}}\n\ndata: {"type":"content_block_delta","delta":{"type":"input_json_delta","partial_json":"{\\"a\\":"}}\n\ndata: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"input_tokens":1,"output_tokens":2}}\n\n')

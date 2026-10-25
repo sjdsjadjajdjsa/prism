@@ -32,8 +32,7 @@ func (m *model) openPicker() tea.Cmd {
 	}
 }
 
-// pickerLoaded fills the picker with fetched routes; a late reply after the
-// picker closed is dropped.
+// A late reply after the picker closed is dropped.
 func (m *model) pickerLoaded(msg pickerMsg) {
 	var items []menuItem
 	if msg.err == nil || len(msg.rows) > 0 {
@@ -52,7 +51,7 @@ func modelItems(rows []routeRow, current string) []menuItem {
 	items := []menuItem{{
 		dot: "◆", dotTone: toneAccent, label: "auto", state: state, match: "auto",
 		run: func(m *model) tea.Cmd {
-			m.agent.model = ""
+			m.agent.model, m.source = "", ""
 			m.entries = append(m.entries, &entry{kind: "note", text: "model: auto"})
 			m.scroll = 0
 			return nil
@@ -69,7 +68,7 @@ func modelItems(rows []routeRow, current string) []menuItem {
 		}
 		route := r.Route
 		it.run = func(m *model) tea.Cmd {
-			m.agent.model = route
+			m.agent.model, m.source = route, ""
 			m.entries = append(m.entries, &entry{kind: "note", text: "model: " + route + " · every request in this chat uses it"})
 			m.scroll = 0
 			return nil

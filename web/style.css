@@ -1,7 +1,7 @@
-/* prism — browser front end. themes mirror cli/theme.go */
+/* Keep themes in sync with cli/theme.go. */
 
-/* slots 4-6 of the spectrum; themes with a shorter spectrum (cli/theme.go) override these so no var() is ever invalid.
-   Do NOT define --s4..--s6 for them: spectrum() in app.js counts --sN to match the terminal. */
+/* Slots 4-6 of the spectrum. Themes with a shorter spectrum override these so no var() is ever invalid.
+   Don't define --s4..--s6 for them: spectrum() in app.js counts --sN. */
 :root { --x4: var(--s4); --x5: var(--s5); --x6: var(--s6); }
 [data-theme="prism"] {
   --bg: #0b0b10; --panel: #14141c; --fg: #e8e6f0; --muted: #6e6a86; --faint: #1d1c29;
@@ -81,7 +81,7 @@ button, select, textarea { font: inherit; color: inherit; }
 }
 @keyframes slide { to { background-position: 300% 0; } }
 
-/* ---- header ---- */
+/* Header */
 .top {
   flex: none; z-index: 5; background: var(--bg);
 }
@@ -106,7 +106,7 @@ textarea:focus-visible, select:focus-visible {
 }
 .top-say { font-style: italic; }
 
-/* ---- transcript column ---- */
+/* Transcript column */
 /* overflow-wrap is inherited: a long word or URL anywhere in the chat (notes,
    errors, info blocks, markdown links) breaks instead of widening the column;
    code blocks, diffs and tables keep white-space:pre and scroll in their own box */
@@ -235,7 +235,7 @@ textarea:focus-visible, select:focus-visible {
 .note .web-copy { color: var(--muted); background: var(--panel); border: 1px solid var(--faint); border-radius: 3px; cursor: pointer; font-size: 12px; padding: 0 6px; }
 .note .web-copy:hover { color: var(--fg); }
 .note .web-copy:focus-visible { outline: 2px solid var(--x4); outline-offset: 2px; }
-/* a question before a risky command (cli/chat.go draws the same box) */
+/* a question before a risky command */
 .ask { margin: 10px 0; padding: 10px 12px; border-radius: 4px; background: color-mix(in srgb, var(--s0) 9%, var(--panel)); border-left: 3px solid var(--s0); }
 .ask-head { color: var(--fg); font-weight: 700; }
 .ask-arg { margin: 6px 0 4px 2ch; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--s3); font: inherit; }
@@ -252,7 +252,6 @@ textarea:focus-visible, select:focus-visible {
 .meta { color: var(--muted); margin: 8px 0 4px; }
 .meta .dot { color: var(--faint); }
 .meta .model { color: var(--muted); }
-.meta .free { color: var(--green); }
 
 /* live line */
 .live { color: var(--muted); min-height: 1.6em; margin-top: 4px; }
@@ -263,14 +262,14 @@ textarea:focus-visible, select:focus-visible {
 .live .draft .arg { color: var(--fg); }
 .cursor { display: inline-block; width: .6ch; height: 1em; vertical-align: -2px; background: var(--fg); animation: pulse 1s steps(2) infinite; }
 
-/* ---- dock (input + status) ---- */
+/* Dock (input and status) */
 .dock {
   flex: none; position: relative; z-index: 6; background: var(--bg); overflow-x: clip;
   padding-top: 10px;
 }
 .dock-inner { max-width: var(--col); margin: 0 auto; padding: 0 16px 16px; position: relative; }
 
-/* ↓ latest: shown while the reader is scrolled up from the end of the chat (app.js follow) */
+/* ↓ latest: shown while the reader is scrolled up from the end of the chat */
 .jump {
   position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); z-index: 7;
   padding: 3px 12px; border-radius: 999px; border: 1px solid var(--faint); background: var(--panel);
@@ -323,7 +322,7 @@ body.busy .inputbox::before { animation-duration: 1.6s; opacity: 1; }
 
 /* shard buddy */
 .buddy-wrap { position: absolute; right: -228px; bottom: 68px; width: 170px; height: 100px; pointer-events: none; }
-/* canvas is 170x140: the top 40px (sparkles, z's, the beam charge) overhang the 100px wrap, as in app.js */
+/* canvas is 170x140: the top 40px (sparkles, z's, the beam charge) overhang the 100px wrap */
 .shard { display: block; width: 170px; height: 140px; margin-top: -40px; image-rendering: pixelated; }
 .bubble {
   position: absolute; right: 20px; bottom: 110px; white-space: nowrap;
@@ -363,14 +362,14 @@ body.busy .inputbox::before { animation-duration: 1.6s; opacity: 1; }
   .status .dot, #models, #pinned { display: none; }
   .status > :not(.spacer):not(.route) { flex: none; }
   .status .route { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; margin-right: 8px; }
-  .status .green { margin-left: 0; }
+  .status #cost { margin-left: 0; }
   .meter { margin: 0 8px; gap: 2px; }
   .meter i { width: 5px; }
   .status #usage { min-width: 4ch; text-align: right; }
   .status > .spacer { display: none; }
 }
 
-/* ---- splash ---- */
+/* Splash */
 .splash {
   position: fixed; inset: 0; z-index: 50; background: var(--bg);
   display: flex; align-items: center; justify-content: center;
@@ -405,7 +404,7 @@ body.busy .inputbox::before { animation-duration: 1.6s; opacity: 1; }
 .splash-motto span { opacity: 0; font-weight: 700; }
 .splash-hint { color: var(--muted); margin-top: 28px; font-size: 12px; opacity: 0; }
 
-/* ---- last prism beam ---- */
+/* Last prism beam */
 .beam { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
 .beam[hidden] { display: none; }
 #beam-canvas { width: 100%; height: 100%; display: block; }
@@ -417,7 +416,7 @@ body.shake { transform: translate(var(--shake-x, 0px), var(--shake-y, 0px)); }
   .splash { transition: none; }
   }
 
-/* ---- tab strip ---- */
+/* Tab strip */
 .tab-strip {
   flex: none; display: flex; align-items: stretch; gap: 2px;
   background: var(--bg); border-bottom: 1px solid var(--faint);
@@ -448,20 +447,15 @@ body.shake { transform: translate(var(--shake-x, 0px), var(--shake-y, 0px)); }
   overflow: hidden; text-overflow: ellipsis; min-width: 0;
 }
 .tab-btn .tab-dot { flex: none; width: 7px; height: 7px; }
-/* status dots: differ by BOTH colour and shape */
-/* working — filled circle, pulsing (blue) */
+/* status dots differ by both colour and shape */
 .tab-dot-working  { background: var(--x4); border-radius: 50%; animation: tab-pulse 1s ease-in-out infinite; }
-/* waiting — hollow ring (amber) */
 .tab-dot-waiting  { background: transparent; border-radius: 50%; border: 2px solid var(--s1); }
-/* done — filled square with rounded corners (green) */
 .tab-dot-done     { background: var(--green); border-radius: 2px; }
-/* error — sharp square (red) */
 .tab-dot-error    { background: var(--red); border-radius: 0; }
-/* idle — small dim circle */
 .tab-dot-idle     { background: var(--faint); border-radius: 50%; }
 @keyframes tab-pulse { 50% { opacity: .3; } }
 
-/* Files panel (web/files.js + /tree.css) */
+/* Files panel */
 .files-toggle { background: transparent; color: var(--fg); border: 1px solid var(--faint); border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; transition: border-color .15s, background .15s; }
 .files-toggle:hover, .files-toggle[aria-expanded="true"] { border-color: var(--s6, var(--s0)); background: color-mix(in srgb, var(--s6, var(--s0)) 12%, transparent); }
 .files-panel { position: fixed; top: 56px; right: 12px; bottom: 12px; width: min(760px, 52vw); z-index: 30; background: var(--bg); border: 1px solid var(--faint); border-radius: 14px; padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 18px 60px rgba(0,0,0,.45); animation: files-in .18s ease-out; }

@@ -21,7 +21,7 @@ var planTools = map[string]bool{"list": true, "grep": true, "read": true, "web":
 
 func (a *Agent) planAllows(tool string) bool { return planTools[tool] || a.isSkill(tool) }
 
-// planRefused reads as a failed step, here and in a reopened chat (pastSummary shows its first line).
+// planRefused reads as a failed step, here and in a reopened chat.
 func planRefused(tool string) toolResult {
 	r := fail("not in plan mode\n" + tool + " is not available until the user runs the plan. Use list, grep, read and web, then reply with the plan.")
 	r.summary = "not in plan mode"
@@ -91,7 +91,7 @@ func planText(on bool) string {
 	return "plan mode off · prism can change files again"
 }
 
-// planSwitch is /plan in the terminal and on the web. arg is empty (switch), on, off,
+// planSwitch is /plan. arg is empty (switch), on, off,
 // keep, run, or a task to plan. message is what to send next, if anything.
 func planSwitch(a *Agent, arg string) (on bool, text, message string) {
 	arg = strings.TrimSpace(arg)
@@ -116,7 +116,6 @@ func planSwitch(a *Agent, arg string) (on bool, text, message string) {
 	return on, text, message
 }
 
-// planMenu is shown when a planned turn ends: run it, keep planning, or leave plan mode.
 func planMenu() menuState {
 	return menuState{kind: "plan", title: "plan ready", hint: "↑↓ move · enter pick · esc keep planning", items: []menuItem{
 		{label: "run this plan", detail: "plan mode turns off and prism starts", dot: "◆", dotTone: toneOK, match: "run"},
@@ -125,7 +124,7 @@ func planMenu() menuState {
 	}}
 }
 
-// commandArg is everything typed after the command name, newlines kept.
+// commandArg keeps newlines.
 func commandArg(text, name string) string {
 	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), name))
 }

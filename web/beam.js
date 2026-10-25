@@ -93,8 +93,7 @@
     var tFg = theme && theme.fg ? (typeof theme.fg === 'string' ? parseHex(theme.fg) : theme.fg) : { r: 232, g: 230, b: 240 };
     var white = { r: 255, g: 255, b: 255 };
 
-    // Screen dim before 1250ms — darkens the whole frame evenly toward mix(bg, black, 0.6),
-    // mirroring the per-cell fg/bg dim in drawBeam (cli/shard.go).
+    // Screen dim before 1250ms: darkens the whole frame evenly toward mix(bg, black, 0.6).
     if (n < 1250) {
       var dim = Math.max(0, Math.min(1, 0.35 * charge * (1 - fire * 0.4)));
       var dimBg = mix(tBg, { r: 0, g: 0, b: 0 }, 0.6);
@@ -123,14 +122,13 @@
 
     var rays = 7;
 
-    // cells already painted by rays / glow / beam — sparkles only land on empty cells
-    // (terminal check: c.ch == ' ')
+    // cells already painted by rays, glow or beam; sparkles only land on empty cells
     var drawn = Object.create(null);
     function markCell(mx, my) { drawn[mx + ',' + my] = 1; }
     function cellTaken(mx, my) { return drawn[mx + ',' + my] === 1; }
     var shadeHalf = 'rgba(' + shade.r + ',' + shade.g + ',' + shade.b + ',0.5)';
 
-    // Phase 1: Rays and glow point (drawn ONLY while fire == 0)
+    // Phase 1: rays and glow point, drawn only while fire == 0
     if (fire === 0) {
       var spread = (1 - converge) * 0.5;
       for (var i = 0; i < rays; i++) {
@@ -144,7 +142,6 @@
           if (rx * cw < 20 || rx > sx) continue;
           var ry = sy + Math.round(Math.tan(angle) * d * 0.5);
           if (ry < 0 || ry >= rows) continue;
-          // terminal: c.bg = mix(c.bg, shade, 0.5) then cv.set(x, y, '━', col, true)
           ctx.fillStyle = shadeHalf;
           ctx.fillRect(rx * cw, ry * ch, cw, ch);
           var barH = Math.max(1, Math.round(ch * 0.2));
@@ -160,7 +157,6 @@
         for (var r = 0; r < 3; r++) {
           var gx = sx - r;
           if (gx < 0 || gx > sx) continue;
-          // terminal: c.bg = shade, then '█' in mix(shade, glowCol, …) on top
           ctx.fillStyle = toRgbStr(shade);
           ctx.fillRect(gx * cw, sy * ch, cw, ch);
             var cellCol = mix(shade, glowCol, converge * (1 - r * 0.3));
@@ -171,7 +167,7 @@
       }
     }
 
-    // Phase 2: Firing beam (once firing, solid beam leftward from originX to left edge)
+    // Phase 2: once firing, a solid beam from originX to the left edge
     if (fire > 0) {
       var beamCols = Math.floor(length * fire);
       var half = 1 + Math.floor(fire * 1.5 * (1 - fade));
@@ -190,10 +186,7 @@
           var finalCol = mix(col, tBg, fade);
           ctx.fillStyle = toRgbStr(finalCol);
 
-          // Straight crisp top/bottom edges:
-          // dy == -half: '▄' (bottom half of cell)
-          // dy == half:  '▀' (top half of cell)
-          // dy in between: '█' (full cell)
+          // Crisp top and bottom edges: '▄' at dy == -half, '▀' at dy == half, '█' in between.
           var cellX = bx * cw;
           var cellY = by * ch;
           if (dy === -half) {
@@ -222,8 +215,7 @@
         var drift = age * (2 + hash(si, 8, 3) * 5);
         var sign = hash(si, 4, 1) - 0.5 < 0 ? -1 : 1;
         var spy = sy + Math.round((hash(si, 3, 7) - 0.5) * 4 + Math.abs(drift) * sign);
-        // dir is -1 (leftward): px = sx - int(d + age*hash*6*dir) -> in Go: sx + dir*int(d + age*hash*6*float64(dir))
-        // Since dir is -1, float64(dir) is -1.0, so d + age*hash*6*(-1) -> px = sx - int(d - age*hash*6)
+        // dir is -1 (leftward), so the offset shrinks as the sparkle ages.
         var spx = sx - Math.trunc(sd - age * hash(si, 6, 2) * 6);
         var life = 1 - Math.max(0, age - hash(si, 9, 9) * 0.6) / 0.9;
 
@@ -231,7 +223,6 @@
         if (spx > sx) continue; // never drawn right of the origin
         if (spx < 0 || spy < 0 || spy >= rows) continue;
 
-        // terminal: only lands where c.ch == ' ' — i.e. no ray, glow or beam cell here
         if (cellTaken(spx, spy)) continue;
 
         var spCol = mix(tBg, at(theme, hash(si, 5, 6)), life);
@@ -244,12 +235,10 @@
   function play(opts) {
     if (!opts) return function() {};
 
-    // Refuse to start if already running
     if (activeAnimation) {
       return function() {};
     }
 
-    // Prefers-reduced-motion check
     if (typeof window !== 'undefined' && window.matchMedia) {
       var mq = window.matchMedia('(prefers-reduced-motion: reduce)');
       if (mq && mq.matches) {

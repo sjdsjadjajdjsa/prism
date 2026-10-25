@@ -9,9 +9,8 @@ import (
 // compactWindow is the fraction of the context window at which Prism suggests /compact.
 const compactWindow = 0.70
 
-// compactCommand runs /compact [focus] from the UI.
-// It summarises the conversation using the agent's existing request path,
-// replaces history with system prompt + summary, and reports before/after token counts.
+// compactCommand runs /compact [focus]: it swaps the history for the system
+// prompt plus a summary and reports token counts before and after.
 func (m *model) compactCommand(focus string) {
 	if m.busy {
 		m.entries = append(m.entries, &entry{kind: "note", text: "wait until prism finishes, then run /compact"})
@@ -21,8 +20,7 @@ func (m *model) compactCommand(focus string) {
 		m.entries = append(m.entries, &entry{kind: "note", text: "nothing to compact yet"})
 		return
 	}
-	// Refuse to compact if the history ends with an assistant tool_calls message
-	// that has no matching tool results — the API would reject the rebuilt history.
+	// The API would reject a rebuilt history that ends with unanswered tool calls.
 	if hasOrphanedToolCalls(m.agent.messages) {
 		m.entries = append(m.entries, &entry{kind: "note", text: "cannot compact: history has unanswered tool calls; wait for the turn to finish"})
 		return
@@ -41,7 +39,7 @@ func (m *model) compactCommand(focus string) {
 		prompt = fmt.Sprintf("Summarize this conversation for yourself so you can continue the work with no other context. Focus especially on: %s. Include the user's goal and latest request, key decisions, every file read or changed and how, commands run and their results, problems found, and exactly what remains to do next. Be concise but complete. Do not call tools.", focus)
 	}
 
-	// Use the agent's existing complete() path directly (same as agent.compact).
+	// Keep in sync with agent.compact.
 	request := append(append([]Message{}, m.agent.messages...), Message{Role: "user", Content: prompt})
 	light := m.agent.light
 	m.agent.light = false
@@ -57,7 +55,6 @@ func (m *model) compactCommand(focus string) {
 		return
 	}
 
-	// Rebuild project map (same as agent.compact does).
 	if m.agent.mapReady != nil {
 		<-m.agent.mapReady
 	}
@@ -87,31 +84,29 @@ func (m *model) compactCommand(focus string) {
 	m.tokens = after
 }
 
-// hasOrphanedToolCalls returns true if the message history ends with an
-// assistant message that has tool_calls but no following tool-result messages.
-// Such a history would be rejected by the API after compaction.
+// hasOrphanedToolCalls reports whether the history ends with tool calls that
+// have no results yet.
 func hasOrphanedToolCalls(msgs []Message) bool {
-	// Walk backwards to find the last assistant message with tool_calls.
+
 	for i := len(msgs) - 1; i >= 0; i-- {
 		m := msgs[i]
 		if m.Role == "tool" {
-			// There is at least one tool result after the last assistant message.
+
 			return false
 		}
 		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
-			// Assistant tool_calls with no following tool results.
+
 			return true
 		}
 		if m.Role == "assistant" || m.Role == "user" || m.Role == "system" {
-			// A non-tool-call assistant message or user/system message — no orphan.
+
 			return false
 		}
 	}
 	return false
 }
 
-// maybeNudgeCompact appends a one-time note when context passes ~70% of the window.
-// It is called from handle() after evUsage events.
+// maybeNudgeCompact adds a one-time note once context passes compactWindow.
 func (m *model) maybeNudgeCompact() {
 	if m.window == 0 {
 		return
@@ -120,7 +115,7 @@ func (m *model) maybeNudgeCompact() {
 	if pct < compactWindow {
 		return
 	}
-	// Only nudge once per session: check if we already have a compact nudge entry.
+	// Only nudge once per session.
 	for _, e := range m.entries {
 		if e.kind == "note" && strings.Contains(e.text, "/compact") {
 			return

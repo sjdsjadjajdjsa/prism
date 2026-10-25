@@ -20,7 +20,6 @@ type crewRow struct {
 	Note   string `json:"note,omitempty"`
 }
 
-// crewBlock is the state behind one in-place updating crew block.
 type crewBlock struct {
 	rows    []crewRow
 	review  bool
@@ -118,8 +117,7 @@ func crewModel(model string) string {
 
 var crewResultLine = regexp.MustCompile(`(?m)^\[([^\]\n]+)\] (\w+) \((\w+), (\d+) steps\)`)
 
-// crewFromHistory rebuilds the final state of a crew block from the crew tool
-// call and the result text it left in the conversation.
+// crewFromHistory rebuilds a finished crew block from the tool call and its result.
 func crewFromHistory(args, output string) *crewBlock {
 	var plan struct {
 		Tasks  []crewTask `json:"tasks"`

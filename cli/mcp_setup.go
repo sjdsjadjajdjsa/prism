@@ -78,8 +78,6 @@ func mcpWhere(name string) string {
 	return ""
 }
 
-// --- secrets -------------------------------------------------------------
-//
 // keys.conf feeds only the router container (the AI model keys). The agent
 // container, where MCP servers run, never sees it, so keys for MCP servers live
 // in mcp.env inside prism's own settings folder instead. That folder is a
@@ -211,8 +209,6 @@ func (e *mcpMissingEnvError) Error() string {
 	return strings.Join(parts, " ")
 }
 
-// --- project config file -------------------------------------------------
-
 func mcpProjectPath(dir string) string { return filepath.Join(dir, ".prism", "mcp.json") }
 
 // mcpWriteFile replaces path atomically (temp file in the same folder, fsync,
@@ -288,9 +284,8 @@ func mcpWriteProject(dir string, top, servers map[string]json.RawMessage) error 
 	return mcpWriteFile(mcpProjectPath(dir), append(data, '\n'), 0o644)
 }
 
-// mcpAddServer merges a catalog entry into the project file under its id.
-// An entry that already exists is left exactly as it is. Reports whether it
-// was newly written.
+// mcpAddServer adds a catalog entry to the project file under its id. An
+// existing entry is left as it is. Reports whether it was newly written.
 func mcpAddServer(dir string, e mcpCatalogEntry) (bool, error) {
 	top, servers, err := mcpReadProject(dir)
 	if err != nil {
@@ -325,8 +320,6 @@ func mcpRemoveServer(dir, name string) (bool, error) {
 	return true, mcpWriteProject(dir, top, servers)
 }
 
-// --- hub changes at runtime ----------------------------------------------
-
 // holds reports whether s is still one of the hub's servers. Call under h.mu.
 func (h *mcpHub) holds(s *mcpServer) bool {
 	for _, x := range h.servers {
@@ -337,7 +330,6 @@ func (h *mcpHub) holds(s *mcpServer) bool {
 	return false
 }
 
-// restart (re)connects the named server with cfg, replacing any earlier one.
 func (h *mcpHub) restart(name string, cfg mcpServerConfig) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -403,8 +395,6 @@ func (h *mcpHub) await(name string, limit time.Duration) (mcpStatus, bool) {
 	return mcpStatus{name: name, state: "error", err: "not found"}, true
 }
 
-// --- plain-language errors -----------------------------------------------
-
 func mcpExplain(name, raw string) string {
 	low := strings.ToLower(raw)
 	switch {
@@ -434,8 +424,6 @@ func mcpExplain(name, raw string) string {
 	}
 	return raw
 }
-
-// --- the /mcp command, shared by the terminal and the web UI -------------
 
 type mcpReply struct {
 	title  string
@@ -570,8 +558,7 @@ func mcpCommand(a *Agent, fields []string) (mcpReply, func(time.Duration) (mcpRe
 	return mcpFail("/mcp doesn't know \""+sub+"\"", "/mcp · /mcp add · /mcp add <name or number> · /mcp key NAME value · /mcp remove <name> · /mcp test <name>")
 }
 
-// openMCPMenu is /mcp add with no name: pick a catalog server; enter adds it
-// exactly like /mcp add <name>.
+// openMCPMenu is /mcp add with no name: pick a catalog server to add.
 func (m *model) openMCPMenu() {
 	cfg, _ := loadMCPConfig(m.agent.dir)
 	var items []menuItem

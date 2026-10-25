@@ -58,8 +58,8 @@ func usageErrorf(format string, args ...any) error {
 	return &usageError{msg: fmt.Sprintf(format, args...)}
 }
 
-// isUsageError reports whether err came from a bad /memory command (show it as a
-// note); any other error from memoryCommand is a real disk failure (show it as an error).
+// isUsageError reports whether err came from a bad /memory command rather than
+// a disk failure.
 func isUsageError(err error) bool {
 	var u *usageError
 	return errors.As(err, &u)
@@ -91,6 +91,7 @@ type usageDay struct {
 	Day      string `json:"day"`
 	Requests int    `json:"requests"`
 	Tokens   int    `json:"tokens"`
+	Yours    int    `json:"yours,omitempty"` // requests answered by your plans or keys, not the free routes
 }
 
 var usageMu sync.Mutex
@@ -257,8 +258,8 @@ func (s *store) showList() []string {
 	return items
 }
 
-// memoryCommand runs /memory and /forget. Errors for which isUsageError is true
-// are mistakes in the command (show as a note); any other error is a disk failure.
+// memoryCommand runs /memory and /forget. Show usage errors as a note and any
+// other error as an error.
 func (s *store) memoryCommand(fields []string) (string, []string, bool, error) {
 	args := fields[1:]
 	if fields[0] == "/memory" && len(args) > 0 {
@@ -343,7 +344,6 @@ func (s *store) saveSession(sess session) error {
 	return nil
 }
 
-// pruneSessions keeps only the newest keep session files by modification time.
 func (s *store) pruneSessions(keep int) {
 	if s.dir == "" {
 		return
@@ -377,8 +377,8 @@ func (s *store) pruneSessions(keep int) {
 	}
 }
 
-// sessions lists saved chats, newest first, decoding only the header fields.
-// The returned sessions carry no Messages; resume loads the full file on demand.
+// sessions lists saved chats, newest first, without their Messages. resume
+// loads the full file when needed.
 func (s *store) sessions() []session {
 	seen := map[string]bool{}
 	var out []session
@@ -420,7 +420,6 @@ func (s *store) sessions() []session {
 	return out
 }
 
-// loadSession reads one full session file, messages included.
 func (s *store) loadSession(id string) (session, error) {
 	var sess session
 	if s.dir == "" || id == "" {
@@ -439,8 +438,8 @@ func (s *store) loadSession(id string) (session, error) {
 	return sess, nil
 }
 
-// saveOpenTabs atomically writes the window's open tabs, per project, next to
-// the sessions. A nil or dir-less store is a no-op.
+// saveOpenTabs writes this project's open tabs next to the sessions. A nil or
+// dir-less store is a no-op.
 func (s *store) saveOpenTabs(tabs []openTab) error {
 	if s == nil || s.dir == "" {
 		return nil
@@ -515,7 +514,6 @@ func lockFile(path string) func() {
 	}
 	// Non-blocking: a holder suspended mid-update must not park this goroutine
 	// forever (addUsage runs on every response, outside any cancellable context).
-	// After a short wait, proceed unlocked rather than losing the update.
 	fd := int(f.Fd())
 	locked := false
 	for i := 0; i < 20; i++ {
@@ -539,7 +537,7 @@ func lockFile(path string) func() {
 	}
 }
 
-func addUsage(tokens int) {
+func addUsage(tokens int, yours bool) {
 	usageMu.Lock()
 	defer usageMu.Unlock()
 	if p := usagePath(); p != "" {
@@ -548,6 +546,9 @@ func addUsage(tokens int) {
 	u := todayUsage()
 	u.Requests++
 	u.Tokens += tokens
+	if yours {
+		u.Yours++
+	}
 	data, _ := json.Marshal(u)
 	writeAtomic(usagePath(), data)
 }
@@ -696,12 +697,10 @@ type memoryJob struct {
 	gen                   uint64 // store generation when the job was created
 }
 
-// persists reports whether a memory write could be saved: the store has a
-// directory, a file can be created in it, and it is kept somewhere: either the
-// launcher says so (PRISM_MEMORY_KEEP=1, it mounts the persistent config
-// volume) or we run outside a container. A throwaway container loses the file
-// on exit, so the memory request is skipped there. When nothing can be saved,
-// a memory update would be wasted work, so callers skip the job.
+// persists reports whether a memory write would be kept: the store has a
+// writable directory, and either the launcher mounts a persistent config
+// volume (PRISM_MEMORY_KEEP=1) or we are not in a container. A throwaway
+// container loses the file on exit, so callers skip the memory job there.
 func (s *store) persists() bool {
 	if s == nil || s.dir == "" {
 		return false
@@ -800,7 +799,6 @@ func memoryLines(text string, cutOff bool) []string {
 
 var danglingWords = map[string]bool{"a": true, "an": true, "and": true, "as": true, "at": true, "by": true, "for": true, "from": true, "in": true, "of": true, "on": true, "or": true, "the": true, "to": true, "with": true, "via": true, "using": true, "is": true, "are": true}
 
-// looksUnfinished reports whether a bullet reads like it was cut off.
 func looksUnfinished(body string) bool {
 	body = strings.TrimSpace(body)
 	if strings.Count(body, "`")%2 != 0 || strings.Count(body, `"`)%2 != 0 {

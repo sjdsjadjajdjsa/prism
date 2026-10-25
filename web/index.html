@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="commands.css">
 </head>
 <body>
-  <nav id="tab-strip" class="tab-strip" aria-label="Open tabs" hidden></nav>
+  <nav id="tab-strip" class="tab-strip" role="tablist" aria-label="Open tabs" hidden></nav>
 
   <div id="splash" class="splash" aria-hidden="true">
     <canvas id="splash-stars"></canvas>
@@ -48,7 +48,7 @@
     </div>
   </header>
 
-  <aside id="files-panel" class="files-panel" hidden aria-label="Project files">
+  <aside id="files-panel" class="files-panel" hidden role="dialog" aria-label="Project files">
     <div class="files-panel-head"><span class="grad">project files</span><span class="muted" id="files-live">live</span><button id="files-close" class="files-close" type="button" aria-label="Close files">×</button></div>
     <div id="files-tree" class="files-tree"></div>
     <section id="file-view" class="file-view" hidden aria-label="File viewer">
@@ -94,7 +94,7 @@
       </form>
       <div class="status">
         <span class="grad">◆ </span><span id="route" class="route">auto</span><span id="pinned" class="pinned muted" hidden></span><span id="plan-badge" class="plan-badge" hidden> · plan mode</span>
-        <span class="dot faint">  ·  </span><span class="green">free</span>
+        <span class="dot faint">  ·  </span><span id="cost" class="tone-ok">free</span>
         <span class="meter" id="meter"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
         <span id="usage" class="muted">0%</span>
         <span class="spacer"></span>

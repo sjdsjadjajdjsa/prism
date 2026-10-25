@@ -171,8 +171,6 @@ func resolve(dir, path string) string {
 	return filepath.Join(dir, path)
 }
 
-// resolvedDir resolves symlinks in dir, returning the real path.
-// It is called once per outside() invocation.
 func resolvedDir(dir string) string {
 	if r, err := filepath.EvalSymlinks(dir); err == nil {
 		return r
@@ -180,19 +178,19 @@ func resolvedDir(dir string) string {
 	return dir
 }
 
-// resolveDeepest resolves symlinks on the deepest existing ancestor of path.
-// This handles the case where path does not yet exist (e.g. a write to a new file).
+// resolveDeepest resolves symlinks on the deepest existing ancestor of path,
+// so it also works for a file that doesn't exist yet.
 func resolveDeepest(path string) string {
-	// Walk up until we find an existing component.
+
 	for p := path; ; {
 		if r, err := filepath.EvalSymlinks(p); err == nil {
-			// Re-attach the non-existing suffix.
+
 			suffix := path[len(p):]
 			return filepath.Clean(r + suffix)
 		}
 		parent := filepath.Dir(p)
 		if parent == p {
-			// Reached filesystem root with no existing component.
+			// Hit the root without finding anything that exists.
 			return path
 		}
 		p = parent
@@ -358,7 +356,6 @@ func capGrep(lines []string, perFile int) []string {
 	return kept
 }
 
-// clipRunes cuts s to at most n runes, marking the cut with "…".
 func clipRunes(s string, n int) string {
 	if len(s) <= n {
 		return s
@@ -380,7 +377,6 @@ const (
 
 var outlineRe = regexp.MustCompile(`^ {0,4}(?:async def|def|class|func|function|export function|export class|type|interface)\s`)
 
-// outline lists the symbol-looking lines of a file with their line numbers.
 func outline(lines []string) string {
 	var b strings.Builder
 	n := 0
@@ -455,19 +451,18 @@ func readTool(dir string, args map[string]any) toolResult {
 	return toolResult{ok: true, output: b.String(), summary: fmt.Sprintf("%d lines", end-start)}
 }
 
-// writeToolWithUndo wraps writeTool with claimFile and undo recording.
-// It prepends any cross-tab ownership warning to the result output.
+// writeToolWithUndo adds file claims and undo to writeTool. A cross-tab
+// ownership warning goes in front of the output.
 func (a *Agent) writeToolWithUndo(args map[string]any) toolResult {
-	// Use the symlink-resolved path as the claim key so two paths to the same
-	// file collide correctly. resolveDeepest handles files that don't exist yet.
+	// Claim the symlink-resolved path so two paths to the same file collide.
 	path := resolveDeepest(resolve(a.dir, sarg(args, "path")))
-	// Record before the write (outside the lock — see recordBefore).
+	// Record before the write, outside the lock (see recordBefore).
 	if a.undoStack != nil {
 		a.undoStack.recordBefore(a.currentTurn, path)
 	}
 	result := writeTool(a.dir, args)
 	if result.ok {
-		// Claim only after a successful write; warn but continue if contested.
+		// Claim only after a successful write. A contested claim only warns.
 		if warn := a.claimFile(path); warn != "" {
 			result.output = "Warning: " + warn + "\n" + result.output
 		}
@@ -478,17 +473,16 @@ func (a *Agent) writeToolWithUndo(args map[string]any) toolResult {
 	return result
 }
 
-// editToolWithUndo wraps editTool with claimFile and undo recording.
 func (a *Agent) editToolWithUndo(args map[string]any) toolResult {
-	// Use the symlink-resolved path as the claim key.
+
 	path := resolveDeepest(resolve(a.dir, sarg(args, "path")))
-	// Record before the edit (outside the lock — see recordBefore).
+
 	if a.undoStack != nil {
 		a.undoStack.recordBefore(a.currentTurn, path)
 	}
 	result := editTool(a.dir, args)
 	if result.ok {
-		// Claim only after a successful edit; warn but continue if contested.
+
 		if warn := a.claimFile(path); warn != "" {
 			result.output = "Warning: " + warn + "\n" + result.output
 		}
@@ -612,8 +606,7 @@ func (t *tailBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// tail returns at most limit bytes of the newest output as a string. When it
-// has to cut, it cuts on a rune boundary and marks the cut with "…".
+// tail cuts on a rune boundary and marks the cut with "…".
 func (t *tailBuffer) tail() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -654,8 +647,7 @@ func (h *headTailBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// String returns the kept head and tail, cut on rune boundaries, with a
-// marker saying how many bytes in the middle were left out.
+// String cuts on rune boundaries and says how many middle bytes were left out.
 func (h *headTailBuffer) String() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -706,7 +698,7 @@ func bashTool(ctx context.Context, dir string, args map[string]any) toolResult {
 	} else if err == nil && cmd.Process != nil {
 		// Kill any background processes that redirected their output and let
 		// the shell exit cleanly (the pipe was already closed, so WaitDelay
-		// never fires). ESRCH means the group is already gone — that's fine.
+		// never fires). ESRCH just means the group is already gone.
 		if kerr := syscall.Kill(-cmd.Process.Pid, 0); kerr == nil {
 			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 			leftover = true

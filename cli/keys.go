@@ -28,7 +28,6 @@ func authorizeRouter(req *http.Request) {
 
 const routerRefused = "the router refused this (admin token missing); restart prism"
 
-// keyRow is one provider in the router's key list.
 type keyRow struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -39,7 +38,6 @@ type keyRow struct {
 	Set     string `json:"set"`
 }
 
-// keysInfo is the router's GET /keys reply: built-in free keys plus presets.
 type keysInfo struct {
 	Free    []keyRow `json:"free"`
 	Presets []keyRow `json:"presets"`
@@ -123,7 +121,6 @@ func postKey(api, id, value string) (keySetMsg, error) {
 	return msg, nil
 }
 
-// keyCommand runs /key: pick a provider, set, or remove a provider key.
 func (m *model) keyCommand(fields []string) tea.Cmd {
 	api := m.agent.api
 	if len(fields) == 1 {
@@ -175,14 +172,12 @@ func (m *model) keyCommand(fields []string) tea.Cmd {
 	}
 }
 
-// keysLoaded fills the /key menu.
 func (m *model) keysLoaded(msg keysMsg) {
 	m.fillMenu("key", keyMenuItems(msg.info), msg.err)
 }
 
-// keyMenuItems lists the built-in free providers and the presets with their
-// masked state. Enter puts "/key <id> " in the input box so the secret is
-// typed or pasted there, never shown here; a set key also gets a remove row.
+// keyMenuItems: enter puts "/key <id> " in the input box so the secret is
+// typed there and never shown in the menu.
 func keyMenuItems(info keysInfo) []menuItem {
 	var items []menuItem
 	add := func(row keyRow, detail string) {

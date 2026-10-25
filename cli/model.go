@@ -1,28 +1,56 @@
 package main
 
 import (
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 )
 
+// routeGroups are the /models sections in the order they are shown: the
+// built-in free routes, subscriptions signed in with /login, and keys or
+// local models you added. Source is routeRow.Source for that group.
+var routeGroups = []struct{ source, title string }{
+	{"", "free models"},
+	{"subscription", "your plans"},
+	{"yours", "your own keys"},
+}
+
+// groupOf is the index in routeGroups of the section a route belongs to.
+func groupOf(r routeRow) int {
+	for i, g := range routeGroups {
+		if g.source == r.Source {
+			return i
+		}
+	}
+	return 0
+}
+
 // filterRoutes narrows the /models list to rows whose route or provider matches
-// the text, and caps the list so a huge provider (OpenRouter probes list ~300)
-// stays readable. Returns the rows to show and how many were hidden.
+// the text, in routeGroups order, and caps each group so a huge provider
+// (OpenRouter lists ~300) does not push the others out. It returns the rows
+// to show and how many were hidden.
 func filterRoutes(rows []routeRow, filter string) ([]routeRow, int) {
 	filter = strings.ToLower(strings.TrimSpace(filter))
-	var kept []routeRow
+	const cap = 40
+	groups := make([][]routeRow, len(routeGroups))
+	more := 0
 	for _, r := range rows {
 		if filter != "" && !strings.Contains(strings.ToLower(r.Route), filter) {
 			continue
 		}
-		kept = append(kept, r)
+		g := groupOf(r)
+		if len(groups[g]) == cap {
+			more++
+			continue
+		}
+		groups[g] = append(groups[g], r)
 	}
-	const cap = 60
-	if len(kept) <= cap {
-		return kept, 0
+	var kept []routeRow
+	for _, g := range groups {
+		kept = append(kept, g...)
 	}
-	return kept[:cap], len(kept) - cap
+	return kept, more
 }
 
 // resolveModel accepts what the user sees: the full route id
@@ -87,6 +115,18 @@ func routeTag(r routeRow) string {
 	return ""
 }
 
+// answeredBy is what an answer's line, the status bar and /usage say about
+// who answered: "free", "plan" or "yours". A pinned subscription model counts as "plan" before its first answer.
+func answeredBy(source, pinned string) string {
+	if source == "" && slices.Contains(subscriptionIDs, provider(pinned)) {
+		source = "subscription"
+	}
+	if tag := routeTag(routeRow{Source: source}); tag != "" {
+		return tag
+	}
+	return "free"
+}
+
 // modelMenu is the /model picker: auto, the role autos, then every route
 // grouped by provider. Each row's match is what "/model <match>" pins.
 func modelMenu(rows []routeRow, current string) []menuItem {
@@ -107,9 +147,9 @@ func modelMenu(rows []routeRow, current string) []menuItem {
 	return append(items, routes...)
 }
 
-// pinModel is /model <name> for the web: auto and the role autos set
-// directly; anything else is resolved against the router's routes like the
-// TUI modelCommand. It returns the note the TUI shows for the same pin.
+// pinModel is /model <name> for the web: auto and the role autos are set
+// directly, anything else is resolved against the router's routes. It
+// returns the note to show.
 func pinModel(a *Agent, name string) string {
 	switch name {
 	case "auto":
@@ -151,6 +191,7 @@ func (m *model) modelCommand(fields []string) tea.Cmd {
 		return nil
 	}
 	name := fields[1]
+	m.source = ""
 	if name == "auto" || name == "auto:code" || name == "auto:fast" || name == "auto:review" || name == "auto:vision" {
 		m.agent.model = ""
 		if name != "auto" {

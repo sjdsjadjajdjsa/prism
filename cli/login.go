@@ -16,7 +16,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// loginRow is one subscription account in the router's /logins list.
 type loginRow struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
@@ -81,7 +80,6 @@ func fetchLogins(api string) ([]loginRow, error) {
 	return out.Subscriptions, nil
 }
 
-// loginRound does one call to the router's /logins endpoint.
 func loginRound(api string, body map[string]any, out any) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -106,7 +104,6 @@ func loginRound(api string, body map[string]any, out any) error {
 	return nil
 }
 
-// submitLoginCode finishes a pending browser sign-in using a code or callback URL.
 func submitLoginCode(api, id, code string) (models int, note string, err error) {
 	var out struct {
 		OK     bool     `json:"ok"`
@@ -152,9 +149,8 @@ const loginPastePrompt = "paste the code or link from the sign-in page here · e
 // waits for its pasted code.
 const loginInputHint = "paste the sign-in code here"
 
-// loginLines is what the terminal shows after a sign-in starts: the link
-// (always on screen, since prism can't know the browser opened) and either the
-// device code to type there or the paste instruction.
+// loginLines always shows the link, since prism can't know the browser
+// opened, plus the device code or the paste instruction.
 func loginLines(msg loginCodeMsg) []string {
 	if msg.browser {
 		return []string{"1. open this link and sign in (prism tries your browser and copies the link to your clipboard):", msg.url,
@@ -165,8 +161,8 @@ func loginLines(msg loginCodeMsg) []string {
 		"nothing to paste here: prism signs you in by itself once you allow it"}
 }
 
-// openBrowser starts the system browser on link without waiting for it. It
-// is best effort: the link stays on screen either way.
+// openBrowser opens link without waiting. Best effort: the link stays on
+// screen anyway.
 var openBrowser = func(link string) error {
 	if os.Getenv("PRISM_NO_BROWSER") != "" {
 		return errors.New("browser disabled")
@@ -204,9 +200,8 @@ func loginStarted(msg loginCodeMsg) tea.Cmd {
 	})
 }
 
-// pollLogin loops until the sign-in finishes: the router's token poll for
-// device-code accounts, or the signed-in flag for browser accounts. It runs in
-// a tea.Cmd goroutine.
+// pollLogin runs in a tea.Cmd goroutine until the sign-in finishes: the token
+// poll for device-code accounts, the signed-in flag for browser accounts.
 func pollLogin(api, id string, interval, expires int, browser bool) tea.Cmd {
 	return func() tea.Msg {
 		deadline := time.Now().Add(time.Duration(expires) * time.Second)
@@ -266,13 +261,11 @@ func pollLogin(api, id string, interval, expires int, browser bool) tea.Cmd {
 	}
 }
 
-// loginOutMsg is the router's answer to a sign-out.
 type loginOutMsg struct {
 	id  string
 	err error
 }
 
-// loginCommand runs /login: pick an account, start a sign-in, or sign out.
 func (m *model) loginCommand(fields []string) tea.Cmd {
 	api := m.agent.api
 	if len(fields) == 1 {
@@ -365,8 +358,7 @@ func signOut(api, id string) tea.Cmd {
 	}
 }
 
-// loginsLoaded fills the /login menu: every account with its state and last
-// error; enter signs in like /login <id>, and a signed-in account gets a
+// loginsLoaded fills the /login menu. A signed-in account gets a
 // "sign out of" row under it.
 func (m *model) loginsLoaded(msg loginsMsg) {
 	m.fillMenu("login", loginItems(msg.rows), msg.err)
@@ -421,17 +413,9 @@ func loginsView(rows []loginRow) cmdView {
 	return v
 }
 
-// countModels says "1 model" or "N models".
 func countModels(n int) string {
 	if n == 1 {
 		return "1 model"
 	}
 	return fmt.Sprintf("%d models", n)
-}
-
-func countFree(n int) string {
-	if n == 1 {
-		return "1 free model ready"
-	}
-	return fmt.Sprintf("%d free models ready", n)
 }

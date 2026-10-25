@@ -49,8 +49,9 @@ type FunctionCall struct {
 }
 
 type evRoute struct {
-	route string
-	wait  time.Duration
+	route  string
+	wait   time.Duration
+	source string // routeRow.Source: "" free, "subscription" or "yours"
 }
 
 var errCutOff = errors.New("the reply was cut off before it finished")
@@ -141,7 +142,7 @@ type Agent struct {
 	mcp        *mcpHub
 	system     bool
 	approve    func(ctx context.Context, tool, arg string) bool // prism fix: a yes before every change
-	confirm    func(ctx context.Context, q approval) answer     // asks the user one question (approve.go)
+	confirm    func(ctx context.Context, q approval) answer     // asks the user one question
 
 	role      string
 	model     string
@@ -157,18 +158,18 @@ type Agent struct {
 	hub   *tabHub
 	tabID int
 
-	plan     atomic.Bool // plan mode: nothing changes until the user runs the plan (plan.go)
+	plan     atomic.Bool // plan mode: nothing changes until the user runs the plan
 	planSent bool        // the last turn was planned, so the next one says plan mode is off
 
-	hooks       hookSet // this turn's .prism/hooks.json (hooks.go)
+	hooks       hookSet // this turn's .prism/hooks.json
 	hooksNoted  bool    // said once that the hooks file is off or broken
 	hookTries   int     // turn_end checks that failed this turn
 	turnChanged bool    // this turn edited files or ran commands, so turn_end checks run
 
-	rules        ruleSet         // the user's command rules, read once per turn (risk.go)
+	rules        ruleSet         // the user's command rules, read once per turn
 	allowedRisks map[string]bool // risky kinds the user allowed for this chat
 
-	calls        callLog  // this turn's tool calls, to notice one repeated with the same result (loopguard.go)
+	calls        callLog  // this turn's tool calls, to notice one repeated with the same result
 	loopAvoid    []string // models this turn left for going in circles
 	loopSwitches int
 
@@ -179,12 +180,11 @@ type Agent struct {
 	// resend those messages byte-for-byte and the cached prefix reaches past them.
 	pastBriefs []sentBrief
 
-	// undoStack records file snapshots per turn so /undo can restore them.
 	undoStack   *undoStack
 	currentTurn *undoTurn
 }
 
-// evApprove asks the user something (approve.go) and waits for the answer on reply.
+// evApprove asks the user something and waits for the answer on reply.
 type evApprove struct {
 	approval
 	reply chan answer
@@ -229,7 +229,7 @@ func (a *Agent) reset() {
 	a.touched = map[string]string{}
 	a.touchMu.Unlock()
 	// The project map is built in the background so the first frame doesn't wait for the
-	// walk; the first request waits for it (see useMap).
+	// walk; the first request waits for it.
 	ready := make(chan struct{})
 	a.mapReady, a.files, a.mapShown = ready, "", false
 	go func() {
@@ -317,8 +317,8 @@ Work like a careful senior engineer:
 - When finished, reply briefly in plain words: what you changed and how you checked it.`, dir)
 }
 
-// claimFile attempts to claim a file for this tab. Returns "" if fine,
-// or a warning string if another tab already owns the file.
+// claimFile claims a file for this tab. It returns a warning if another tab
+// already owns it, else "".
 func (a *Agent) claimFile(path string) string {
 	if a.hub == nil {
 		return ""
@@ -327,7 +327,6 @@ func (a *Agent) claimFile(path string) string {
 	if ok {
 		return ""
 	}
-	// find the owner's 1-based tab-bar position and name
 	name := ""
 	pos := owner
 	a.hub.mu.Lock()
@@ -413,7 +412,6 @@ func (a *Agent) Run(ctx context.Context, prompt string, emit func(any)) {
 	// Release all file claims when the turn ends (idempotent).
 	defer a.hub.release(a.tabID)
 	a.messages = append(a.messages, Message{Role: "user", Content: prompt, Note: a.planNote()})
-	// Begin a new undo turn for this user request.
 	if a.undoStack != nil {
 		a.currentTurn = a.undoStack.beginTurn()
 	}
@@ -604,7 +602,7 @@ func (a *Agent) completeRetry(ctx context.Context, emit func(any)) (Message, err
 	var be *busyError
 	var avoid []string
 	busy := 0
-	// Build the outgoing request with the brief injected (does not mutate a.messages).
+	// Add the brief to the outgoing request; a.messages stays as it is.
 	outgoing := withNotes(a.injectBrief(a.messages))
 	for attempt := 0; ; attempt++ {
 		var extra map[string]any
@@ -763,7 +761,7 @@ func (a *Agent) complete(ctx context.Context, messages []Message, extra map[stri
 	}
 	if route := a.lastRoute; route != "" {
 		wait, _ := strconv.Atoi(res.Header.Get("x-free-wait"))
-		emit(evRoute{route, time.Duration(wait) * time.Millisecond})
+		emit(evRoute{route, time.Duration(wait) * time.Millisecond, res.Header.Get("x-prism-source")})
 	}
 	before := a.tokens
 	var reply Message
@@ -793,7 +791,7 @@ func (a *Agent) complete(ctx context.Context, messages []Message, extra map[stri
 		a.prefer = a.lastRoute
 	}
 	a.requests++
-	addUsage(prompt)
+	addUsage(prompt, res.Header.Get("x-prism-source") != "")
 	for i := range reply.ToolCalls {
 		if reply.ToolCalls[i].ID == "" {
 			reply.ToolCalls[i].ID = fmt.Sprintf("call_%d_%d", time.Now().UnixNano(), i)
@@ -857,7 +855,7 @@ func (a *Agent) readStream(body io.Reader, emit func(any)) (Message, error) {
 	var order []int
 	thinking, ended := false, false
 	lastDraft := 0
-	// a reply stuck repeating itself is stopped early (loopguard.go); what it showed is taken back
+	// A reply stuck repeating itself is stopped early and what it showed is taken back.
 	textWatch, thinkWatch := repeatWatch{min: textLoopMin}, repeatWatch{min: textLoopMin}
 	looping := func() (Message, error) {
 		emit(evDropText{shown.String()})
@@ -935,7 +933,7 @@ func (a *Agent) readStream(body io.Reader, emit func(any)) (Message, error) {
 	if err := scanner.Err(); err != nil {
 		return Message{}, err
 	}
-	// a file meant to repeat closes fine; input that never closed and ends repeating ran out of room in a loop
+	// A file meant to repeat closes fine. Input that never closed and ends repeating ran out of room in a loop.
 	for _, index := range order {
 		if args := calls[index].Function.Arguments; !json.Valid([]byte(args)) && repeatingTail(args, argsLoopMin) {
 			return looping()

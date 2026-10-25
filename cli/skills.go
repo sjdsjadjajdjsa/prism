@@ -110,7 +110,6 @@ func (a *Agent) isSkill(name string) bool {
 	return false
 }
 
-// findSkill looks a skill up by name for /skills <name>.
 func findSkill(skills []skill, name string) (skill, bool) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	for _, s := range skills {
@@ -121,13 +120,11 @@ func findSkill(skills []skill, name string) (skill, bool) {
 	return skill{}, false
 }
 
-// skillGroup is one display group for /skills output.
 type skillGroup struct {
 	label  string
 	skills []skill
 }
 
-// skillKind maps a skill name to a display group label.
 func skillKind(name string) string {
 	switch name {
 	case "fix-bug", "retry-ladder", "prove-it", "security-review", "accessibility-review", "release-check", "test-my-app":
@@ -152,7 +149,6 @@ var skillShowcase = []string{
 	"refactor", "explain-code", "prism", "learn-mode", "git-basics", "computer-help", "handoff-note",
 }
 
-// showcaseOrder returns a copy of skills sorted by skillShowcase.
 func showcaseOrder(skills []skill) []skill {
 	rank := map[string]int{}
 	for i, n := range skillShowcase {
@@ -169,7 +165,7 @@ func showcaseOrder(skills []skill) []skill {
 	return out
 }
 
-// groupSkills organises skills into display groups, preserving sort order within each group.
+// groupSkills keeps the sort order inside each group.
 func groupSkills(skills []skill) []skillGroup {
 	order := []string{"building things", "fixing & checking", "improving code", "learning & exploring", "workflow", "your skills"}
 	byLabel := map[string][]skill{}
