@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-10-25)
 
 ### New
 
@@ -16,6 +16,11 @@
 - Pictures and videos open from `/tree`. In Ghostty, kitty and WezTerm pictures are real pictures; other terminals get coloured blocks. Videos play in the terminal (space pauses, arrows skip 5 seconds) and `o` opens them in the browser.
 - Browser Files panel: pictures show, videos play, and Markdown files show their pictures with a Preview button.
 - ffmpeg (a 76 MB static build, checked against its SHA-256) is in Prism's box for videos.
+
+### Changed
+
+- The benchmark charts and the GitHub preview picture are redrawn in one style and show results without ranking the tools.
+- Shard's idle face no longer has the two mouth dots; they stay for his working phase.
 
 ## 0.3.0 (2026-10-25)
 
