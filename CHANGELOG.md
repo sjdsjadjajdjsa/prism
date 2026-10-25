@@ -4,6 +4,9 @@
 
 ### New
 
+- Commands show their choices as you type: `/editor ` lists simple and nvim, `/theme ` the themes, `/beam ` on and off, and so on, in the terminal and the browser.
+- A simple editor is now the default beside the chat: type to write, the mouse selects, ctrl+s saves, ctrl+z undoes, ctrl+c/x/v, ctrl+a, ctrl+f find. Neovim is still there with `/editor nvim`.
+- The file tree starts closed; ctrl+b opens it. Without Neovim installed, text files open in the viewer instead of failing.
 - A file tree that stays open on the left, in the terminal (ctrl+b or `/tree`) and the browser. Click to open, files Prism is working on light up, the open file is highlighted. New file, new folder, rename and delete from the tree; mention a file in the chat with `@` or by dragging it.
 - The map (browser, `/map`): how files link through imports and Markdown links, including `[[wiki links]]`, like Obsidian's graph.
 - File paths in the browser chat open the file when clicked. Markdown previews show HTML pictures and follow links to other files.

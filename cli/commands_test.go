@@ -701,3 +701,40 @@ func TestSuggestMouse(t *testing.T) {
 		t.Errorf("click outside changed the input to %q", string(m.input))
 	}
 }
+
+func TestOptionSuggestions(t *testing.T) {
+	cases := []struct {
+		input string
+		want  []string
+	}{
+		{"/editor ", []string{"/editor simple", "/editor nvim"}},
+		{"/editor n", []string{"/editor nvim"}},
+		{"/editor im", []string{"/editor simple", "/editor nvim"}},
+		{"/beam o", []string{"/beam on", "/beam off"}},
+		{"/editor README.md", nil},
+		{"/editor nvim x", nil},
+		{"/help ", nil},
+	}
+	for _, c := range cases {
+		got := suggestNames(suggestions(c.input))
+		if strings.Join(got, ",") != strings.Join(c.want, ",") {
+			t.Errorf("%q: %v, want %v", c.input, got, c.want)
+		}
+	}
+	if rows := suggestions("/theme "); len(rows) != len(themes) || !rows[0].option {
+		t.Fatalf("/theme lists every theme: %v", suggestNames(rows))
+	}
+}
+
+func TestOptionEnterAndTab(t *testing.T) {
+	m := suggestModel(t, 120, 30)
+	m.input = []rune("/beam ")
+	if _, ok := m.suggestKey("enter"); ok {
+		t.Fatal("enter on \"/beam \" with nothing picked runs it as typed")
+	}
+	m.input = []rune("/editor n")
+	m.suggestKey("tab")
+	if string(m.input) != "/editor nvim " {
+		t.Fatalf("tab fills the option: %q", string(m.input))
+	}
+}

@@ -64,7 +64,6 @@
     side.hidden = false
     document.body.classList.add('sidebar-open')
     toggle.setAttribute('aria-expanded', 'true')
-    try { localStorage.setItem('prism-sidebar', 'on') } catch { /* private window */ }
     return start()
   }
 
@@ -75,7 +74,6 @@
     side.hidden = true
     document.body.classList.remove('sidebar-open')
     toggle.setAttribute('aria-expanded', 'false')
-    try { localStorage.setItem('prism-sidebar', 'off') } catch { /* private window */ }
     if (inside) toggle.focus({ preventScroll: true })
   }
 
@@ -450,7 +448,4 @@
     if (!mapView.hidden) { closePanel(); e.stopPropagation() }
   })
 
-  let wantSide = false
-  try { wantSide = localStorage.getItem('prism-sidebar') === 'on' } catch { /* private window */ }
-  if (wantSide && innerWidth > 860) show()
 })()

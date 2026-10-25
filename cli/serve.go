@@ -733,7 +733,15 @@ func modelsTable(rows []routeRow, more int, filter string) map[string]any {
 func (s *server) commandList(w http.ResponseWriter, r *http.Request) {
 	out := []map[string]any{}
 	for _, c := range commands {
-		out = append(out, map[string]any{"name": c.name, "help": c.help, "web": c.web})
+		row := map[string]any{"name": c.name, "help": c.help, "web": c.web}
+		if opts := commandOptions(c.name); len(opts) > 0 {
+			words := make([]map[string]string, len(opts))
+			for i, o := range opts {
+				words[i] = map[string]string{"word": o.word, "help": o.help}
+			}
+			row["options"] = words
+		}
+		out = append(out, row)
 	}
 	// Saved commands follow, re-read when their files change.
 	a, _ := s.agentTab(r)

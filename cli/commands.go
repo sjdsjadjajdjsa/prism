@@ -48,7 +48,7 @@ var commands = []command{
 	{"/memory", "what prism remembers · /memory forget <n>", true},
 	{"/usage", "free AI used today", true},
 	{"/tree", "the file tree on the left (ctrl+b) · /tree changed lists changes", true},
-	{"/editor", "Neovim beside the chat · /editor <file>", false},
+	{"/editor", "the editor beside the chat · /editor <file> · /editor nvim or simple", false},
 	{"/files", "find a file by name and read it", true},
 	{"/map", "a map of how the files link, in the browser", true},
 	{"/open", "read a file in the viewer · /open <path>", true},
@@ -103,13 +103,94 @@ var pickerCommands = map[string]bool{"/model": true, "/login": true, "/key": tru
 
 type suggestion struct {
 	command
-	saved bool // a saved command, tagged "saved" in the list
-	close bool // a fuzzy match: listed under the "close matches" divider
+	saved  bool // a saved command, tagged "saved" in the list
+	close  bool // a fuzzy match: listed under the "close matches" divider
+	option bool // one of a command's options ("/editor nvim")
 }
 
 // splitHelp splits a help phrase into what the command does and its usage
 // hints: "pick the model · /model <name> · /model auto" gives "pick the
 // model" and "/model <name> · /model auto".
+// option is one word a command takes after its name, offered in the
+// suggestion list once the name and a space are typed.
+type option struct{ word, help string }
+
+// commandOptions are the settings and actions a command takes as its next
+// word. Keep in sync with the "options" field GET /api/commands sends.
+func commandOptions(name string) []option {
+	switch name {
+	case "/editor":
+		return []option{{"simple", "the easy editor: type, ctrl+s saves (default)"}, {"nvim", "Neovim, for Vim users"}}
+	case "/beam":
+		return []option{{"on", "show the finish beam"}, {"off", "hide the finish beam"}}
+	case "/quiet":
+		return []option{{"on", "Shard stops talking"}, {"off", "Shard talks again"}}
+	case "/plan":
+		return []option{{"off", "leave plan mode"}}
+	case "/model":
+		out := []option{{"auto", "prism picks a free model for each step"}}
+		for _, ra := range roleAutos {
+			out = append(out, option{ra.name, ra.what})
+		}
+		return out
+	case "/theme":
+		out := make([]option, len(themes))
+		for i, t := range themes {
+			out[i] = option{t.name, "colour theme"}
+		}
+		return out
+	case "/tree":
+		return []option{{"changed", "list only the files that changed"}}
+	case "/hooks":
+		return []option{{"trust", "turn this project's hooks on"}, {"off", "turn them off"}}
+	case "/rules":
+		return []option{{"trust", "turn this project's allow rules on"}, {"off", "turn them off"}}
+	case "/mcp":
+		return []option{{"add", "pick a tool server to add"}, {"remove", "remove one · /mcp remove <name>"}, {"test", "check one · /mcp test <name>"}}
+	case "/memory":
+		return []option{{"forget", "forget one · /memory forget <n> · forget all"}}
+	case "/skills":
+		return []option{{"new", "write your own · /skills new <name>"}}
+	case "/commands":
+		return []option{{"new", "save a prompt · /commands new <name>"}}
+	case "/login":
+		return []option{{"rm", "sign out · /login rm <name>"}}
+	case "/key":
+		return []option{{"rm", "remove a key · /key rm <name>"}}
+	}
+	return nil
+}
+
+// optionSuggestions lists a command's options once "/name " is typed: words
+// that start with what follows the space first, then words that contain it.
+func optionSuggestions(input string) []suggestion {
+	name, rest, ok := strings.Cut(input, " ")
+	if !ok || strings.ContainsAny(rest, " \n") {
+		return nil
+	}
+	var web bool
+	for _, c := range commands {
+		if c.name == name {
+			web = c.web
+		}
+	}
+	q := strings.ToLower(rest)
+	var first, later []suggestion
+	for _, o := range commandOptions(name) {
+		w := strings.ToLower(o.word)
+		s := suggestion{command: command{name + " " + o.word, o.help, web}, option: true}
+		switch {
+		case w == q && q != "":
+			first = append([]suggestion{s}, first...)
+		case strings.HasPrefix(w, q):
+			first = append(first, s)
+		case strings.Contains(w, q):
+			later = append(later, s)
+		}
+	}
+	return append(first, later...)
+}
+
 func splitHelp(help string) (desc, usage string) {
 	desc, usage, _ = strings.Cut(help, " · ")
 	return desc, usage
@@ -181,8 +262,11 @@ func rankSuggestions(rows []suggestion, query string) []suggestion {
 // commands and saved commands for the folder prism runs in,
 // exact match first, then prefixes, then close matches.
 func suggestions(input string) []suggestion {
-	if !strings.HasPrefix(input, "/") || strings.ContainsAny(input, " \n") {
+	if !strings.HasPrefix(input, "/") || strings.Contains(input, "\n") {
 		return nil
+	}
+	if strings.Contains(input, " ") {
+		return optionSuggestions(input)
 	}
 	dir, _ := os.Getwd()
 	return suggestIn(dir, input)
@@ -390,6 +474,11 @@ func (m *model) command(text string) tea.Cmd {
 			return m.showEditor("")
 		}
 		arg := strings.Join(fields[1:], " ")
+		if kind := map[string]string{"nvim": "nvim", "neovim": "nvim", "vim": "nvim", "simple": "simple", "easy": "simple"}[strings.ToLower(arg)]; kind != "" {
+			if _, err := os.Stat(filepath.Join(m.agent.dir, arg)); err != nil {
+				return m.chooseEditor(kind)
+			}
+		}
 		if _, rel, err := projectPath(m.agent.dir, arg); err != nil {
 			m.note("✕ " + err.Error())
 		} else {

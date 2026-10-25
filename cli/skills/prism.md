@@ -9,6 +9,8 @@ Use this when the user asks how Prism works, what a command does, how to sign in
 
 ## Commands (type in the chat box; tab completes)
 
+Commands with settings (/editor, /theme, /model, /beam, /quiet, /plan, /tree, /hooks, /rules, /mcp, /memory, /skills, /commands, /login, /key) show their choices as soon as you type the name and a space, for example `/editor ` lists simple and nvim. Arrows pick, enter runs, tab fills it in.
+
 Chat
 - `/new` fresh chat. `/clear` clears the screen and starts fresh (saves first).
 - `/resume` lists earlier chats in this folder; `/resume <number>` reopens one.
@@ -34,7 +36,7 @@ Project
 - Mouse: in the terminal, click a tab to switch, click the key hints in the bottom bar (files, editor, new tab), click y / a / n to answer a question, click in the tree or the editor to move there, drag the line between chat and editor.
 - `/map` (browser): with a file open it starts around that file (its links two steps out); the **around …** button switches to the whole project. a graph of how files link (imports and Markdown links, including [[wiki links]]), coloured by folder; files Prism is working on glow; click a dot to open it.
 - Pictures (.png .jpg .gif .webp .bmp) and videos (.mp4 .webm .mov .mkv) open from `/tree` or `/open <path>`. Pictures are sharp in Ghostty, kitty and WezTerm and blocky elsewhere. Videos play in the terminal without sound: space pauses, ← → skip 5 seconds, esc closes. `o` opens the file in the browser, where videos have sound. In the browser Files panel, pictures show, videos play, and Markdown files show their pictures (Preview / Source).
-- `/editor` or ctrl+e opens Neovim beside the chat; `/editor <file>` opens a file in it. ctrl+e switches the keyboard between the chat and the editor, a click does too, `/editor` again hides it (open files stay), `:q` closes it. Drag the line between them to resize. Files Prism changes reload in the editor by themselves. Neovim comes with Prism; nothing to install.
+- `/editor` or ctrl+e opens the editor beside the chat; `/editor <file>` opens a file. By default it is Prism's simple editor: type to write, mouse to place the cursor and select, ctrl+s save, ctrl+z undo, ctrl+shift+z redo, ctrl+c/x/v copy, cut, paste (with nothing selected they work on the whole line), ctrl+a select all, ctrl+f find (enter for the next match, esc to stop), ctrl+d copy the line, tab / shift+tab indent. ctrl+e closes the editor (open files stay for next time); a click moves between chat and editor. Inside the editor ctrl+c copies, so quit from the chat. Files Prism changes reload unless you have unsaved edits. `/editor nvim` switches to Neovim (`:w` saves, everything but ctrl+e goes to Neovim), `/editor simple` switches back; the choice is remembered.
 - `/web` opens this chat in the browser; press enter in the terminal to come back (in web mode `o` reopens, `c` copies the link).
 
 Settings
@@ -55,7 +57,7 @@ Tabs
 - ctrl+pgup / ctrl+pgdown (or ctrl+shift+tab / ctrl+tab) switch tabs; alt+1..9 jump to a tab.
 - esc stops the current turn (or says no to a permission question). enter sends; shift+enter or ctrl+j adds a new line; ctrl+u clears the input.
 - ctrl+o opens or folds all steps. ctrl+y changes theme. pgup/pgdown scroll, end jumps to the latest. ctrl+c quits.
-- ctrl+b: file tree (press again in the tree to hide it; esc or tab goes back to the chat). ctrl+e: Neovim editor (ctrl+e again goes back to the chat). Inside Neovim every key goes to Neovim except ctrl+e, so press ctrl+e first to use ctrl+b, ctrl+c and the other Prism keys. The tab, theme and quit keys also work while the tree has the keyboard. The bottom bar always shows the keys that matter right now.
+- ctrl+b: file tree; ctrl+b again closes it from anywhere (chat, tree or the simple editor). Esc or tab moves from the tree back to the chat without closing it. ctrl+e: the editor (ctrl+e again closes it). Inside Neovim every key goes to Neovim except ctrl+e, so press ctrl+e first to use ctrl+b, ctrl+c and the other Prism keys. The tab, theme and quit keys also work while the tree has the keyboard. The bottom bar always shows the keys that matter right now.
 - When Prism asks to run something: y or enter allows, n or esc refuses.
 
 ## Free vs paid models

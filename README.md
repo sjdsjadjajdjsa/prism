@@ -263,16 +263,16 @@ Inside the terminal app, `/web` moves the current chat to your browser, with the
 
 ## Files and the editor
 
-<p align="center"><img src="docs/editor-and-tree.png" alt="Prism in the terminal: the file tree on the left, the chat in the middle and Neovim on the right, with the open file highlighted in the tree" width="820"></p>
+<p align="center"><img src="docs/editor-and-tree.png" alt="Prism in the terminal: the file tree on the left, the chat in the middle and Neovim (the optional editor) on the right, with the open file highlighted in the tree" width="820"></p>
 
-**The file tree.** ctrl+b (or `/tree`) opens the project's files on the left, in the terminal and in the browser, and it stays open while you work. Click a folder to open it and a file to open it: text goes to Neovim in the terminal and to the viewer in the browser, pictures and videos to the media viewer. The file you have open is highlighted, and the tree follows it. A small dot shows changes: yellow changed, green new, and the accent dot means Prism is editing it right now. In the terminal you can also click the tabs and the key hints at the bottom.
+**The file tree.** ctrl+b (or `/tree`) opens the project's files on the left, in the terminal and in the browser, and ctrl+b again closes it. Click a folder to open it and a file to open it: text goes to the editor in the terminal and to the viewer in the browser, pictures and videos to the media viewer. The file you have open is highlighted, and the tree follows it. A small dot shows changes: yellow changed, green new, and the accent dot means Prism is editing it right now. In the terminal you can also click the tabs and the key hints at the bottom.
 
 - New file, new folder, rename, delete: right-click in the browser, or `a`, `A`, `r`, `d` in the terminal (delete asks first).
 - Mention a file to the AI: drag it into the chat box in the browser, or press `@` in the terminal.
 - A file path in the chat opens the file when you click it (browser).
 - `/` finds a file by name. `/files` is a quick search box for the same thing.
 
-**Neovim beside the chat.** `/editor` or ctrl+e opens Neovim next to the chat, and `/editor <file>` opens a file in it. ctrl+e moves the keyboard between the chat and the editor, and so does a click. `/editor` again hides it, `:q` closes it, and you can drag the line between them to resize. Files Prism changes reload in the editor by themselves. Neovim comes inside Prism's Docker box, so there is nothing to install.
+**The editor beside the chat.** `/editor` or ctrl+e opens an editor next to the chat, and `/editor <file>` opens a file in it. It works like a notes app, with no learning curve: type and it types, the mouse places the cursor and selects, `ctrl+s` saves, `ctrl+z` undoes (`ctrl+shift+z` redoes), `ctrl+c` / `ctrl+x` / `ctrl+v` copy, cut and paste, `ctrl+a` selects all, `ctrl+f` finds, `ctrl+d` copies the line and `tab` indents. ctrl+e closes it (your open files stay for next time), and clicking the chat or the editor moves the keyboard between them. Files Prism changes reload by themselves, but never over your unsaved edits. Prefer Neovim? `/editor nvim` switches to it (it comes inside Prism's Docker box) and `/editor simple` switches back; Prism remembers.
 
 <p align="center"><img src="docs/files.png" alt="The browser: the file tree docked on the left and README.md open on the right with its pictures shown" width="820"></p>
 
@@ -319,7 +319,7 @@ Prism can search the web and read pages when it needs facts it doesn't have, lik
 | `esc` | stop the AI |
 | `ctrl+c` or `/quit` | close Prism |
 | `ctrl+y` or `/theme` | switch theme (prism, tokyo-night, catppuccin, rose-pine, matte-black, gruvbox, nord, everforest) |
-| `ctrl+e` or `/editor` | Neovim beside the chat · `/editor <file>` opens a file |
+| `ctrl+e` or `/editor` | the editor beside the chat · `/editor <file>` opens a file · `/editor nvim` or `/editor simple` picks the editor |
 | `ctrl+b` or `/tree` | the file tree on the left · `/tree changed` lists what changed |
 | `/map` | a map of how the files link (browser) |
 | `pgup` `pgdown`, mouse wheel | scroll (smooth, with a scrollbar) |

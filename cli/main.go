@@ -101,9 +101,6 @@ func (m model) Init() tea.Cmd {
 	for _, t := range m.tabs {
 		cmds = append(cmds, waitTab(t))
 	}
-	if m.side.shown {
-		cmds = append(cmds, sideTree(m.agent, 0, false))
-	}
 	return tea.Batch(cmds...)
 }
 
@@ -439,10 +436,6 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+e":
 		return m, m.showEditor("")
 	case "ctrl+b":
-		if m.sideOn() && !m.side.focus {
-			m.side.focus, m.es.focus = true, false
-			return m, nil
-		}
 		return m, m.toggleSidebar()
 	case "ctrl+t":
 		return m, m.newChatTab()
@@ -575,7 +568,7 @@ func (m model) clickAct(act string) (tea.Model, tea.Cmd) {
 	k, _ := strings.CutPrefix(act, "key:")
 	if k == ":w" {
 		if m.es.ed != nil {
-			m.es.ed.input("<Esc>:w<CR>")
+			m.es.ed.save()
 		}
 		return m, nil
 	}
@@ -1097,7 +1090,7 @@ func main() {
 		return a
 	}
 	m := model{ticking: true, start: time.Now(), hub: newTabHub(), spawn: spawn, ready: -1, project: projectName(dir), lastTextAt: -time.Hour, theme: themeIndex(*themeName), gallery: *gallery,
-		beamOn: loadSetting("beam") != "off", quiet: loadSetting("quiet") == "on", sayAt: -time.Hour, es: editorState{split: loadEditorSplit()}, side: sidebarState{shown: loadSetting("sidebar") == "on", expanded: map[string]bool{}}}
+		beamOn: loadSetting("beam") != "off", quiet: loadSetting("quiet") == "on", sayAt: -time.Hour, es: editorState{split: loadEditorSplit()}, side: sidebarState{expanded: map[string]bool{}}}
 	m.openTabs(agent, *resume)
 	var options []tea.ProgramOption
 	if os.Getenv("COLORTERM") == "" && os.Getenv("TERM") != "linux" {

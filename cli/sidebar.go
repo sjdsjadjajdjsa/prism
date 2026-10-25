@@ -81,7 +81,6 @@ func sideTree(a *Agent, version int, wait bool) tea.Cmd {
 func (m *model) toggleSidebar() tea.Cmd {
 	if m.side.shown {
 		m.side.shown, m.side.focus = false, false
-		saveSetting("sidebar", "off")
 		return nil
 	}
 	return m.showSidebar()
@@ -98,7 +97,6 @@ func (m *model) showSidebar() tea.Cmd {
 	first := !m.side.shown
 	m.side.shown, m.side.focus = true, true
 	m.es.focus = false
-	saveSetting("sidebar", "on")
 	if first {
 		return sideTree(m.agent, 0, false)
 	}

@@ -69,7 +69,8 @@
   // match is the suggestion list for what is typed so far: rows of {name, help, saved, close},
   // exact match first, then prefixes, then close matches.
   function match(text) {
-    if (text.charAt(0) !== "/" || text.indexOf(" ") !== -1 || text.indexOf("\n") !== -1) return [];
+    if (text.charAt(0) !== "/" || text.indexOf("\n") !== -1) return [];
+    if (text.indexOf(" ") !== -1) return options(text);
     var q = text.slice(1).toLowerCase(), ranked = [];
     for (var i = 0; i < list.length; i++) {
       var r = rank(list[i].name, q);
@@ -80,6 +81,24 @@
   }
 
   // isName: text is a whole command name (listed or an alias); enter runs it as typed
+  // options lists a command's next words once "/name " is typed (Keep in sync with
+  // optionSuggestions in cli/commands.go): words starting with the rest first, then words containing it.
+  function options(text) {
+    var sp = text.indexOf(" "), name = text.slice(0, sp), q = text.slice(sp + 1).toLowerCase();
+    if (q.indexOf(" ") !== -1) return [];
+    var c = null;
+    for (var i = 0; i < list.length; i++) if (list[i].name === name) c = list[i];
+    if (!c || !c.options) return [];
+    var first = [], later = [];
+    c.options.forEach(function (o) {
+      var w = o.word.toLowerCase(), row = { name: name + " " + o.word, help: o.help || "", option: true };
+      if (q && w === q) first.unshift(row);
+      else if (w.indexOf(q) === 0) first.push(row);
+      else if (w.indexOf(q) !== -1) later.push(row);
+    });
+    return first.concat(later);
+  }
+
   function isName(text) {
     if (ALIASES.indexOf(text) !== -1) return true;
     for (var i = 0; i < all.length; i++) if (all[i].name === text) return true;
@@ -96,6 +115,7 @@
   function hintFor(c) {
     var usage = splitHelp(c.help)[1];
     if (usage) return usage;
+    if (c.option) return c.name + " · enter runs it";
     if (PICKERS[c.name]) return c.name + " · enter opens the list";
     if (c.saved) return c.name + " <words> · sends your saved prompt";
     return c.name + " · enter runs it";
@@ -304,7 +324,8 @@
         done();
         // A whole command name typed with the highlight untouched runs as typed (an alias like
         // /exit has no row of its own).
-        if (shown && !(sel === 0 && isName(text) && found[0].name !== text)) { take(sel, true); return; }
+        var bare = sel === 0 && / $/.test(text) && found[0] && found[0].option;
+        if (shown && !bare && !(sel === 0 && isName(text) && found[0].name !== text)) { take(sel, true); return; }
         found = []; sel = 0; paint();
         run(text);
       }

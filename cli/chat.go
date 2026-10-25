@@ -642,7 +642,10 @@ func drawStatus(cv *canvas, t theme, m model, x, y, w int, enter float64) {
 	var keys []seg
 	switch {
 	case m.es.ed != nil && m.es.focus:
-		keys = append(key("ctrl+e", "back to chat"), key(":w", "save")...)
+		keys = key("ctrl+e", "close")
+		if m.es.ed.file() != "" {
+			keys = append(keys, key(m.es.ed.saveKey(), "save")...)
+		}
 	case m.side.focus:
 		keys = append(key("esc", "back to chat"), key("ctrl+b", "hide files")...)
 	default:
@@ -650,7 +653,14 @@ func drawStatus(cv *canvas, t theme, m model, x, y, w int, enter float64) {
 		if m.busy {
 			first = key("esc", "stop")
 		}
-		keys = append(append(first, key("ctrl+b", "files")...), key("ctrl+e", "editor")...)
+		files, edit := "files", "editor"
+		if m.sideOn() {
+			files = "hide files"
+		}
+		if m.editorOn() {
+			edit = "close editor"
+		}
+		keys = append(append(first, key("ctrl+b", files)...), key("ctrl+e", edit)...)
 		keys = append(keys, key("ctrl+c", "quit")...)
 	}
 	keys[len(keys)-1].text = strings.TrimRight(keys[len(keys)-1].text, " ")
@@ -952,6 +962,11 @@ func (m *model) suggestKey(k string) (cmd tea.Cmd, ok bool) {
 		if text := string(m.input); l.sel == 0 && isCommandName(text) && l.rows[0].name != text {
 			return nil, false
 		}
+		// "/editor " with nothing after the space runs as typed unless an
+		// option was picked with the arrows.
+		if text := string(m.input); l.sel == 0 && strings.HasSuffix(text, " ") && l.rows[0].option {
+			return nil, false
+		}
 		return m.suggestTake(l, true), true
 	default:
 		return nil, false
@@ -1033,6 +1048,8 @@ func suggestHint(c suggestion) string {
 		return usage
 	}
 	switch {
+	case c.option:
+		return c.name + " · enter runs it"
 	case pickerCommands[c.name]:
 		return c.name + " · enter opens the list"
 	case c.saved:

@@ -56,6 +56,11 @@ type editorExitMsg struct {
 	err error
 }
 
+func nvimInstalled() bool {
+	_, err := exec.LookPath("nvim")
+	return err == nil
+}
+
 func startEditor(dir string, w, h int, t theme) (*editor, error) {
 	if _, err := exec.LookPath("nvim"); err != nil {
 		if inScreenshotContainer() {
@@ -165,6 +170,15 @@ func escapeVimPath(p string) string {
 	}
 	return b.String()
 }
+
+func (e *editor) key(msg tea.KeyPressMsg) tea.Cmd {
+	e.input(nvimKeys(msg))
+	return nil
+}
+
+func (e *editor) save()           { e.input("<Esc>:w<CR>") }
+func (e *editor) refresh()        {}
+func (e *editor) saveKey() string { return ":w" }
 
 func (e *editor) file() string {
 	e.mu.Lock()

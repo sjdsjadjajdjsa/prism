@@ -15,7 +15,7 @@ const (
 )
 
 type editorState struct {
-	ed     *editor
+	ed     pane
 	shown  bool
 	focus  bool
 	drag   bool
@@ -66,20 +66,51 @@ func (m *model) showEditor(path string) tea.Cmd {
 			m.es.split = loadEditorSplit()
 		}
 		_, w := m.editorRect()
-		ed, err := startEditor(m.agent.dir, w, m.h, themes[m.theme])
-		if err != nil {
-			m.note("✕ " + err.Error())
-			return nil
+		if loadSetting("editor") == "nvim" && nvimInstalled() {
+			ed, err := startEditor(m.agent.dir, w, m.h, themes[m.theme])
+			if err != nil {
+				m.note("✕ " + err.Error())
+				return nil
+			}
+			m.es.ed = ed
+			cmd = waitEditor(ed)
+		} else {
+			m.es.ed = newSimpleEditor(m.agent.dir, w, m.h, themes[m.theme])
 		}
-		m.es.ed, m.es.theme = ed, m.theme
-		cmd = waitEditor(ed)
+		m.es.theme = m.theme
 	}
 	m.es.shown, m.es.focus = true, true
 	m.syncEditor()
 	if path != "" {
 		m.es.ed.open(path)
+		if m.sideOn() {
+			m.revealInSide(path)
+		}
 	}
 	return cmd
+}
+
+// chooseEditor switches between Prism's simple editor and Neovim, and
+// remembers the choice.
+func (m *model) chooseEditor(kind string) tea.Cmd {
+	if kind == "nvim" && !nvimInstalled() {
+		m.note("Neovim isn't installed here · the simple editor stays on")
+		return nil
+	}
+	if m.es.ed != nil && m.es.ed.unsaved() {
+		m.note("save your changes in the editor first, then switch")
+		return nil
+	}
+	saveSetting("editor", kind)
+	file := ""
+	if m.es.ed != nil {
+		file = m.es.ed.file()
+		m.es.ed.close()
+	}
+	m.es = editorState{split: m.es.split}
+	name := map[string]string{"nvim": "Neovim", "simple": "the simple editor"}[kind]
+	m.note("editor: " + name + " · /editor nvim or /editor simple switches")
+	return m.showEditor(file)
 }
 
 func (m *model) hideEditor() {
@@ -102,6 +133,7 @@ func (m *model) syncEditor() {
 	}
 	_, w := m.editorRect()
 	m.es.ed.resize(w, m.h)
+	m.es.ed.refresh()
 	if m.es.theme != m.theme {
 		m.es.theme = m.theme
 		m.es.ed.theme(themes[m.theme])
@@ -129,11 +161,14 @@ func (m model) editorMsg(msg tea.Msg) (model, tea.Cmd) {
 
 func (m model) editorKey(msg tea.KeyPressMsg) (model, tea.Cmd) {
 	if msg.String() == "ctrl+e" {
-		m.es.focus = false
+		m.hideEditor()
 		return m, nil
 	}
-	m.es.ed.input(nvimKeys(msg))
-	return m, nil
+	// Neovim keeps ctrl+b for paging; the simple editor hands it to the tree.
+	if _, simple := m.es.ed.(*simpleEditor); simple && msg.String() == "ctrl+b" {
+		return m, m.toggleSidebar()
+	}
+	return m, m.es.ed.key(msg)
 }
 
 // editorMouse handles the pointer while the editor is shown: the divider
