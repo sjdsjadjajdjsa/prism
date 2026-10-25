@@ -18,15 +18,18 @@ FONT_FILES = {
 }
 FONT_DIRS = [
     pathlib.Path.home() / ".local/share/fonts",
-    pathlib.Path("/usr/share/fonts/truetype/dejavu"),
+    pathlib.Path("/usr/share/fonts/TTF"),  # Arch: ttf-jetbrains-mono-nerd, ttf-dejavu
     pathlib.Path("/usr/share/fonts/truetype/jetbrains-mono"),
     pathlib.Path("/usr/share/fonts/opentype/jetbrains-mono"),
+    pathlib.Path("/usr/share/fonts/truetype/dejavu"),
+    pathlib.Path("/usr/share/fonts/dejavu"),
 ]
 
 
 def font_path(bold):
-    for directory in FONT_DIRS:
-        for name in FONT_FILES[bold]:
+    # Prefer JetBrains Mono in any folder before falling back to DejaVu, so every chart has the same face.
+    for name in FONT_FILES[bold]:
+        for directory in FONT_DIRS:
             candidate = directory / name
             if candidate.exists():
                 return candidate
@@ -251,7 +254,10 @@ def grouped(name, title, subtitle, rows):
         mine = [r for r in rows if r["harness"] == h]
         done = [r for r in mine if r["pass"] is not None]
         passed = sum(r.get("passed", int(bool(r["pass"]))) for r in done)
-        legend = f'{h} · {passed}/{sum(r.get("runs", 1) for r in done)} pass · {round(sum(r["seconds"] for r in done), 1):g}s'
+        total = f'{round(sum(r["seconds"] for r in done), 1):g}s'
+        # Rows with "runs" hold a median per task, so their sum is a sum of medians, not a wall-clock total.
+        total = f'sum of medians {total}' if any("runs" in r for r in done) else f'total {total}'
+        legend = f'{h} · {passed}/{sum(r.get("runs", 1) for r in done)} pass · {total}'
         bar(h, lx, legend_y - 11, 12, 1)
         draw.text(((lx + 18) * SCALE, legend_y * SCALE), legend, font=font(12, h == "prism"), fill=rgb(FG), anchor="ls")
         out.append(f'<text x="{lx + 18}" y="{legend_y}" fill="{FG}" font-size="12"{" font-weight=\"700\"" if h == "prism" else ""}>{esc(legend)}</text>')

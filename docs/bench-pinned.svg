@@ -6,9 +6,9 @@
 <text x="32" y="68" fill="#6e6a86" font-size="13">nemotron-3-ultra via NVIDIA only · one run each · 2 tasks re-run after 429s</text>
 <rect x="32" y="80" width="56" height="3" rx="1.5" fill="url(#rainbow)"/>
 <rect x="32" y="104" width="12.0" height="14" rx="3" fill="url(#rainbow)" opacity="1"/>
-<text x="50" y="115" fill="#e8e6f0" font-size="12" font-weight="700">prism · 5/5 pass · 374s</text>
+<text x="50" y="115" fill="#e8e6f0" font-size="12" font-weight="700">prism · 5/5 pass · total 374s</text>
 <rect x="462" y="104" width="12.0" height="14" rx="3" fill="#6fd3ff" opacity="1"/>
-<text x="480" y="115" fill="#e8e6f0" font-size="12">aider · 4/5 pass · 199s</text>
+<text x="480" y="115" fill="#e8e6f0" font-size="12">aider · 4/5 pass · total 199s</text>
 <text x="32" y="141" fill="#6e6a86" font-size="12">per task vs aider: prism wins 2 · loses 3 · ties 0  (more passes win, then the faster time)</text>
 <text x="32" y="191" fill="#e8e6f0" font-size="14">bugfix</text>
 <rect x="150" y="177" width="71.6" height="14" rx="3" fill="url(#rainbow)" opacity="1.0"/>
