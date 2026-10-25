@@ -8,7 +8,7 @@ func TestShardMouthCentered(t *testing.T) {
 		md   mood
 		want map[int]rune
 	}{
-		{"idle", moodIdle, map[int]rune{11: '▄', 14: '▄'}},
+		{"idle", moodIdle, map[int]rune{}},
 		{"thinking", moodThinking, map[int]rune{12: '▄', 13: '▄'}},
 		{"working", moodWorking, map[int]rune{11: '▄', 14: '▄'}},
 		{"happy", moodHappy, map[int]rune{11: '▀', 12: '▄', 13: '▄', 14: '▀'}},
@@ -45,7 +45,7 @@ func TestShardMouthCentered(t *testing.T) {
 					t.Errorf("cell %d (%q) not symmetric with cell %d (%q)", i, glyph, 25-i, found[25-i])
 				}
 			}
-			if tc.md == moodIdle || tc.md == moodWorking {
+			if tc.md == moodWorking {
 				for _, i := range []int{12, 13} {
 					if c := cv.get(x+i, y+shardMouthRow); c.ch != '█' || c.fg == dark {
 						t.Errorf("space at cell %d painted over body: %+v", i, *c)

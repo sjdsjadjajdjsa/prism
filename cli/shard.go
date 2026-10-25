@@ -139,7 +139,7 @@ func drawShard(cv *canvas, t theme, x, y int, md mood, n float64) {
 		}
 		cv.set(cx+1, y+shardEyeRow, eye, dark, false)
 	}
-	mouth := map[mood]string{moodIdle: "▄  ▄", moodThinking: "▄▄", moodWorking: "▄  ▄", moodHappy: "▀▄▄▀", moodSleepy: "▄▄", moodSurprised: "██", moodProud: "▀▄▄▀"}[md]
+	mouth := map[mood]string{moodIdle: "", moodThinking: "▄▄", moodWorking: "▄  ▄", moodHappy: "▀▄▄▀", moodSleepy: "▄▄", moodSurprised: "██", moodProud: "▀▄▄▀"}[md]
 	mx := x + 6*2 + 1 - len([]rune(mouth))/2
 	cell := 0
 	for _, r := range mouth {
