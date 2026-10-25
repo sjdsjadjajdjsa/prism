@@ -634,7 +634,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 			pending[e.id] = e.name + " " + e.arg
 			send(map[string]any{"type": "tool_start", "id": e.id, "tool": e.name, "arg": e.arg})
 		case evToolDone:
-			if strings.HasPrefix(pending[e.id], "bash ") && strings.Contains(pending[e.id], "test") && e.result.ok {
+			if tool, arg, _ := strings.Cut(pending[e.id], " "); ranTests(tool, arg, e.result.ok) {
 				tests = true
 			}
 			send(map[string]any{"type": "tool_done", "id": e.id, "ok": e.result.ok, "summary": e.result.summary, "added": e.result.added, "removed": e.result.removed, "diff": wire(e.result.diff)})

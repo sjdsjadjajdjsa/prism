@@ -620,6 +620,12 @@ func keyPress(k string) tea.KeyPressMsg {
 	return tea.KeyPressMsg{Code: r, Text: k}
 }
 
+// ranTests says whether a finished step ran the project's tests and they
+// passed. The terminal and the browser both use it for Shard's proud moment.
+func ranTests(tool, arg string, ok bool) bool {
+	return tool == "bash" && ok && strings.Contains(arg, "test")
+}
+
 func (m *model) openChat() {
 	m.chat = true
 	m.chatAt = m.now
@@ -757,7 +763,7 @@ func (m *model) handle(event any) {
 		for i := len(m.entries) - 1; i >= 0; i-- {
 			if en := m.entries[i]; (en.kind == "tool" || en.kind == "crew") && en.id == e.id && !en.done {
 				en.done, en.res = true, e.result
-				if en.tool == "bash" && e.result.ok && strings.Contains(en.arg, "test") {
+				if ranTests(en.tool, en.arg, e.result.ok) {
 					m.turnTests = true
 				}
 				if !e.result.ok {

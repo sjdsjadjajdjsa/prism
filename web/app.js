@@ -1503,7 +1503,7 @@ async function runCommand(line) {
   if (compacting) {
     if (state.busy) { hideHello(); addNote('wait until prism finishes, then run /compact'); return; }
     hideHello(); addNote('compacting the conversation…');
-    setBusy(true); setPhase('tool');
+    setBusy(true); setPhase('tool'); $('busyhint').textContent = 'compacting… · esc stops';
   }
   let data = null;
   try { data = await window.PrismCommands.runServer(text, tabQuery()); }
