@@ -52,18 +52,18 @@
     <div class="sidebar-head">
       <span class="grad">files</span><span class="muted" id="files-live"></span>
       <span class="spacer"></span>
-      <button id="files-new" class="side-btn" type="button" title="New file" aria-label="New file">+</button>
+      <button id="files-changed" class="side-btn" type="button" aria-pressed="false" title="Only files that changed">changed</button>
+      <button id="files-new" class="side-btn" type="button" title="New file (right-click a file for more)" aria-label="New file">+</button>
       <button id="files-map" class="side-btn" type="button" aria-pressed="false" title="Map of how files link">map</button>
       <button id="files-close" class="side-btn" type="button" aria-label="Close files">×</button>
     </div>
     <div id="files-tree" class="files-tree"></div>
-    <div class="sidebar-foot muted">right-click a file for more · drag it into the chat</div>
   </aside>
   <div id="side-menu" class="side-menu" role="menu" hidden></div>
 
   <aside id="files-panel" class="files-panel" hidden role="dialog" aria-label="File">
     <section id="map-view" class="map-view" hidden aria-label="Map of the project">
-      <div class="file-view-head"><span class="file-path">map</span><span class="file-msg muted">drag · scroll to zoom · click a dot to open</span><button id="map-linked" class="file-btn" type="button" aria-pressed="false">linked only</button><button id="map-close" class="file-btn" type="button" aria-label="Close the map">×</button></div>
+      <div class="file-view-head"><span class="file-path">map</span><span class="file-msg muted" title="drag to move · scroll to zoom · double-click to fit">click a dot to open</span><button id="map-scope" class="file-btn" type="button" hidden aria-pressed="true">around this file</button><button id="map-linked" class="file-btn" type="button" aria-pressed="false">linked only</button><button id="map-close" class="file-btn" type="button" aria-label="Close the map">×</button></div>
       <canvas id="map-canvas" class="map-canvas"></canvas>
     </section>
     <section id="file-view" class="file-view" hidden aria-label="File viewer">

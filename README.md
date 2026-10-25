@@ -265,7 +265,7 @@ Inside the terminal app, `/web` moves the current chat to your browser, with the
 
 <p align="center"><img src="docs/editor-and-tree.png" alt="Prism in the terminal: the file tree on the left, the chat in the middle and Neovim on the right, with the open file highlighted in the tree" width="820"></p>
 
-**The file tree.** ctrl+b (or `/tree`) opens the project's files on the left, in the terminal and in the browser, and it stays open while you work. Click a folder to open it and a file to open it: text goes to Neovim in the terminal and to the viewer in the browser, pictures and videos to the media viewer. The file you have open is highlighted, and the tree follows it. Changes show as you work: `M` changed, `+` new, `●` Prism edited it, `◦` Prism read it.
+**The file tree.** ctrl+b (or `/tree`) opens the project's files on the left, in the terminal and in the browser, and it stays open while you work. Click a folder to open it and a file to open it: text goes to Neovim in the terminal and to the viewer in the browser, pictures and videos to the media viewer. The file you have open is highlighted, and the tree follows it. A small dot shows changes: yellow changed, green new, and the accent dot means Prism is editing it right now. In the terminal you can also click the tabs and the key hints at the bottom.
 
 - New file, new folder, rename, delete: right-click in the browser, or `a`, `A`, `r`, `d` in the terminal (delete asks first).
 - Mention a file to the AI: drag it into the chat box in the browser, or press `@` in the terminal.
@@ -280,7 +280,7 @@ Inside the terminal app, `/web` moves the current chat to your browser, with the
 
 <p align="center"><img src="docs/map.png" alt="The map: files as dots coloured by folder, lines for imports and Markdown links, with labels on the files most linked" width="820"></p>
 
-**The map.** In the browser, **map** in the file tree (or `/map`) shows how the files link, like Obsidian's graph: imports in code and links between Markdown notes, including `[[wiki links]]`. Dots are coloured by folder, files Prism is working on glow, and clicking a dot opens the file. **linked only** hides files with no links.
+**The map.** In the browser, **map** in the file tree (or `/map`) shows how the files link, like Obsidian's graph: imports in code and links between Markdown notes, including `[[wiki links]]`. Dots are coloured by folder, files Prism is working on glow, and clicking a dot opens the file. With a file open, the map starts around that file (what it links to and what links to it, two steps out), like Obsidian's local graph; **around …** switches to the whole project, and **linked only** hides files with no links.
 
 `/tree changed` and `/tree <text>` print a list instead, with `★` for files many others use. `prism tree --html` writes the browser tree as a page you can open anywhere. The tree respects `.gitignore`, and watching for changes costs nothing while nothing changes. Prism also gets a short version of the map (about 600 tokens), so easy tasks start in the right file.
 

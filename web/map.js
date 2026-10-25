@@ -9,7 +9,7 @@
     const ctx = canvas.getContext('2d')
     let nodes = [], edges = [], byPath = new Map(), heat = 1
     let view = { x: 0, y: 0, k: 1 }, hover = null, drag = null, pan = null, moved = false, frame = 0, alive = true
-    let palette = [], groups = [], fitted = false, last = data, linkedOnly = false
+    let palette = [], groups = [], fitted = false, last = data, linkedOnly = false, center = null
 
     function colors() {
       palette = ['--s0', '--s1', '--s2', '--s3', '--s4', '--s5', '--s6'].map(css).filter(Boolean)
@@ -23,7 +23,23 @@
       colors()
       const files = (d.nodes || []).filter(n => !n.dir && n.git !== 'D')
       files.sort((a, b) => (b.rank || 0) - (a.rank || 0) || ((b.importedBy || []).length - (a.importedBy || []).length))
-      const keep = files.slice(0, 1500)
+      let keep = files.slice(0, 1500)
+      // Around one file, like Obsidian's local graph: the file, what it links to and
+      // what links to it, two steps out.
+      if (center && files.some(n => n.path === center)) {
+        const by = new Map(files.map(n => [n.path, n]))
+        const near = new Map([[center, 0]])
+        let edge = [center]
+        for (let step = 1; step <= 2; step++) {
+          const next = []
+          for (const p of edge) {
+            const n = by.get(p)
+            for (const q of [...(n.imports || []), ...(n.importedBy || [])]) if (by.has(q) && !near.has(q)) { near.set(q, step); next.push(q) }
+          }
+          edge = next
+        }
+        keep = files.filter(n => near.has(n.path))
+      }
       groups = [...new Set(keep.map(n => top(n.path)))].sort()
       const old = byPath
       byPath = new Map()
@@ -114,8 +130,8 @@
         }
         ctx.fillStyle = n.color
         ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill()
-        if (n === hover) { ctx.strokeStyle = fg; ctx.lineWidth = 2; ctx.stroke(); ctx.lineWidth = 1 }
-        const label = n === hover || (near && near.has(n)) || nodes.length <= 60 || view.k > 1.6 || n.links >= 3
+        if (n === hover || n.path === center) { ctx.strokeStyle = fg; ctx.lineWidth = 2; ctx.stroke(); ctx.lineWidth = 1 }
+        const label = n === hover || (near && near.has(n)) || nodes.length <= 60 || n.path === center || view.k > 1.6 || n.links >= 3
         if (label) {
           ctx.globalAlpha = near && !near.has(n) ? 0.3 : 1
           ctx.fillStyle = n === hover ? fg : muted
@@ -206,6 +222,7 @@
     return {
       update: d => load(d),
       fit: () => { fit(); kick() },
+      around: p => { center = p && (last.nodes || []).some(n => n.path === p && (n.imports || []).length + (n.importedBy || []).length) ? p : null; fitted = false; heat = 1; hover = null; for (const n of byPath.values()) { n.x *= 0.3; n.y *= 0.3 } load(last); if (center) { const c = byPath.get(center); if (c) { c.x = 0; c.y = 0 } } return !!center },
       linkedOnly: on => { linkedOnly = on; fitted = false; heat = Math.max(heat, 0.5); load(last) },
       focus: p => { const n = byPath.get(p); if (n) { view.x = -n.x; view.y = -n.y; view.k = Math.max(view.k, 1.4); hover = n; kick() } },
       redraw: () => { colors(); kick() },

@@ -16,6 +16,7 @@ type seg struct {
 	grad  bool
 	phase float64
 	url   string // drawn as an OSC 8 hyperlink
+	act   string // a click on it does this (clickAct)
 }
 
 type line struct {
@@ -334,11 +335,11 @@ func (m model) transcript(t theme, width int) []line {
 			out = append(out, line{fill: &warn, indent: 2, segs: []seg{{text: "     " + row, fg: t.muted}}})
 		}
 		out = append(out, line{fill: &warn, indent: 2})
-		keys := []seg{{text: "   y", fg: t.green, bold: true}, {text: " yes, once   ", fg: t.muted}}
+		keys := []seg{{text: "   "}, {text: "y", fg: t.green, bold: true, act: "key:y"}, {text: " yes, once", fg: t.muted, act: "key:y"}, {text: "   "}}
 		if len(m.pending.risks) > 0 {
-			keys = append(keys, seg{text: "a", fg: t.green, bold: true}, seg{text: " yes for this chat   ", fg: t.muted})
+			keys = append(keys, seg{text: "a", fg: t.green, bold: true, act: "key:a"}, seg{text: " yes for this chat", fg: t.muted, act: "key:a"}, seg{text: "   "})
 		}
-		keys = append(keys, seg{text: "n", fg: t.red, bold: true}, seg{text: " no", fg: t.muted})
+		keys = append(keys, seg{text: "n", fg: t.red, bold: true, act: "key:n"}, seg{text: " no", fg: t.muted, act: "key:n"})
 		if len(m.queued) > 0 {
 			keys = append(keys, seg{text: fmt.Sprintf("   +%d waiting", len(m.queued)), fg: t.at(0.1)})
 		}
@@ -510,7 +511,11 @@ func drawChat(cv *canvas, t theme, m model) {
 				lx += len([]rune(s.text))
 				continue
 			}
+			start := lx
 			lx = cv.text(lx, y, s.text, s.fg, s.bold)
+			if s.act != "" {
+				cv.tag(start, y, lx-start, s.act)
+			}
 		}
 	}
 	for y := top; y < top+height; y++ {
@@ -633,15 +638,22 @@ func drawStatus(cv *canvas, t theme, m model, x, y, w int, enter float64) {
 	pct := fmt.Sprintf("%d%%", int(math.Round(used*100)))
 	meterShown := true
 
-	keys := []seg{{text: "ctrl+t", fg: t.fg}, {text: " new tab   ", fg: t.muted}, {text: "ctrl+c", fg: t.fg}, {text: " quit", fg: t.muted}}
-	if m.es.ed != nil && m.es.focus {
-		keys[0].text, keys[1].text = "ctrl+e", " back to chat   "
-	} else if m.es.ed != nil || m.editorFits() {
-		keys[0].text, keys[1].text = "ctrl+e", " editor   "
+	key := func(k, what string) []seg { return []seg{{text: k, fg: t.fg}, {text: " " + what + "   ", fg: t.muted}} }
+	var keys []seg
+	switch {
+	case m.es.ed != nil && m.es.focus:
+		keys = append(key("ctrl+e", "back to chat"), key(":w", "save")...)
+	case m.side.focus:
+		keys = append(key("esc", "back to chat"), key("ctrl+b", "hide files")...)
+	default:
+		first := key("ctrl+t", "new tab")
+		if m.busy {
+			first = key("esc", "stop")
+		}
+		keys = append(append(first, key("ctrl+b", "files")...), key("ctrl+e", "editor")...)
+		keys = append(keys, key("ctrl+c", "quit")...)
 	}
-	if m.busy {
-		keys[0].text, keys[1].text = "esc", " stop   "
-	}
+	keys[len(keys)-1].text = strings.TrimRight(keys[len(keys)-1].text, " ")
 	keysShown := true
 
 	widthOf := func(ss []seg) int {
@@ -739,8 +751,12 @@ func drawStatus(cv *canvas, t theme, m model, x, y, w int, enter float64) {
 	}
 	if keysShown {
 		kx := x + w - widthOf(keys)
-		for _, k := range keys {
+		for i, k := range keys {
+			start := kx
 			kx = cv.text(kx, y, k.text, mix(t.bg, k.fg, enter), false)
+			if k := keys[i-i%2].text; k != "ctrl+c" {
+				cv.tag(start, y, kx-start, "key:"+k)
+			}
 		}
 	}
 }

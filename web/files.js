@@ -10,6 +10,7 @@
   const mapView = document.getElementById('map-view')
   const mapBtn = document.getElementById('files-map')
   if (!toggle || !side || !panel) return
+  let mapCenter = null
   let view = null, map = null, data = null, version = 0, open = false, loading = null, starting = null, poll = 0
 
   const load = () => loading || (loading = new Promise((resolve, reject) => {
@@ -98,13 +99,17 @@
 
   async function openMap() {
     if (!mapView.hidden) { closePanel(); return }
+    const here = (current && current.path) || (view && view.selected && view.selected()) || null
     if (fv.pane && !fv.pane.hidden && !closeFile()) return
     await show()
     if (!window.PrismMap || !data) return
     showPanel('map')
     if (!map) map = window.PrismMap.mount(document.getElementById('map-canvas'), data, { onOpen: path => openFile(path) })
     else { map.update(data); map.start() }
-    if (current && current.path) map.focus(current.path)
+    mapCenter = map.around(here) ? here : null
+    scopeBtn.hidden = !mapCenter
+    scopeBtn.setAttribute('aria-pressed', String(!!mapCenter))
+    if (mapCenter) scopeBtn.textContent = 'around ' + mapCenter.slice(mapCenter.lastIndexOf('/') + 1)
   }
 
   async function change(op, path, to) {
@@ -388,6 +393,17 @@
   document.getElementById('files-close').addEventListener('click', hide)
   document.getElementById('files-new').addEventListener('click', e => { const r = e.currentTarget.getBoundingClientRect(); ask('new file', '', async name => { const p = await change('file', name); view.reveal(p); openFile(p, true) }, r.left, r.bottom + 4) })
   mapBtn.addEventListener('click', openMap)
+  document.getElementById('files-changed').addEventListener('click', e => {
+    const on = e.currentTarget.getAttribute('aria-pressed') !== 'true'
+    e.currentTarget.setAttribute('aria-pressed', String(on))
+    if (view) view.setMode(on ? 'changed' : 'all')
+  })
+  const scopeBtn = document.getElementById('map-scope')
+  scopeBtn.addEventListener('click', () => {
+    const local = scopeBtn.getAttribute('aria-pressed') !== 'true'
+    scopeBtn.setAttribute('aria-pressed', String(local))
+    if (map) map.around(local ? mapCenter : null)
+  })
   document.getElementById('map-close').addEventListener('click', closePanel)
   document.getElementById('map-linked').addEventListener('click', e => {
     const on = e.currentTarget.getAttribute('aria-pressed') !== 'true'
@@ -420,6 +436,12 @@
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return
     if (!menu.hidden) { closeMenu(); e.stopPropagation(); return }
+    if (side.contains(document.activeElement)) {
+      e.stopPropagation()
+      const input = document.getElementById('input')
+      if (input) input.focus()
+      return
+    }
     if (fv.pane && !fv.pane.hidden) {
       if (editing) cancelEdit(); else closePanel()
       e.stopPropagation()

@@ -348,6 +348,11 @@ func (m model) mouse(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	switch msg := msg.(type) {
 	case tea.MouseClickMsg:
+		if mouse := tea.Mouse(msg); m.chat && m.web == nil && mouse.Button == tea.MouseLeft {
+			if act := m.actAt(mouse.X, mouse.Y); act != "" {
+				return m.clickAct(act)
+			}
+		}
 		if mouse := tea.Mouse(msg); m.chat && mouse.Button == tea.MouseLeft {
 			lines, start, end, top, _ := m.visible(themes[m.theme])
 			if idx := start + mouse.Y - top; mouse.Y >= top && idx < end {
@@ -372,7 +377,7 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.chat && m.web == nil && m.editorOn() && m.es.focus && !m.menu.open && !m.fb.open && !m.closeAsk && m.pending == nil {
 		return m.editorKey(msg)
 	}
-	if m.chat && m.web == nil && m.sideOn() && m.side.focus && !m.menu.open && !m.fb.open && !m.closeAsk && m.pending == nil && k != "ctrl+c" && k != "ctrl+b" {
+	if m.chat && m.web == nil && m.sideOn() && m.side.focus && !m.menu.open && !m.fb.open && !m.closeAsk && m.pending == nil && !globalKey(k) {
 		return m.sideKey(msg)
 	}
 	if k == "ctrl+c" {
@@ -523,6 +528,80 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.sug = suggestState{}
 	}
 	return m, nil
+}
+
+// globalKeys work wherever the keyboard is, except inside Neovim, which gets
+// every key but ctrl+e.
+var globalKeys = map[string]bool{"ctrl+c": true, "ctrl+b": true, "ctrl+t": true, "ctrl+w": true, "ctrl+y": true, "ctrl+o": true,
+	"ctrl+tab": true, "ctrl+shift+tab": true, "ctrl+pgup": true, "ctrl+pgdown": true}
+
+func globalKey(k string) bool {
+	if d, ok := strings.CutPrefix(k, "alt+"); ok && len(d) == 1 && d >= "1" && d <= "9" {
+		return true
+	}
+	return globalKeys[k]
+}
+
+// actAt draws the chat as it is on screen and returns what a click at x, y
+// (chat coordinates) does: a tab, a key hint in the status bar, an answer.
+func (m model) actAt(x, y int) string {
+	chat := m
+	chat.w = m.chatW()
+	chat.es.shown, chat.side.shown = false, false
+	cv := newCanvas(chat.w, m.h, rgb{}, rgb{})
+	drawChat(cv, themes[m.theme], chat)
+	if c := cv.get(x, y); c != nil {
+		return c.act
+	}
+	return ""
+}
+
+// clickAct runs a clicked tab or key hint as if it had been chosen with the keyboard.
+func (m model) clickAct(act string) (tea.Model, tea.Cmd) {
+	if t, ok := strings.CutPrefix(act, "tab:"); ok {
+		switch t {
+		case "prev":
+			m.cycleTab(-1)
+		case "next":
+			m.cycleTab(1)
+		default:
+			if i, err := strconv.Atoi(t); err == nil {
+				m.switchTo(i)
+			}
+		}
+		m.saveTabs()
+		return m, nil
+	}
+	k, _ := strings.CutPrefix(act, "key:")
+	if k == ":w" {
+		if m.es.ed != nil {
+			m.es.ed.input("<Esc>:w<CR>")
+		}
+		return m, nil
+	}
+	if m.pending != nil && len(k) == 1 {
+		m.askedAt = -time.Hour
+	}
+	return m.key(keyPress(k))
+}
+
+// keyPress builds the key event for a name like "ctrl+b", "esc" or "y".
+func keyPress(k string) tea.KeyPressMsg {
+	var mod tea.KeyMod
+	if rest, ok := strings.CutPrefix(k, "ctrl+"); ok {
+		mod, k = tea.ModCtrl, rest
+	}
+	switch k {
+	case "esc":
+		return tea.KeyPressMsg{Code: tea.KeyEscape, Mod: mod}
+	case "enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter, Mod: mod}
+	}
+	r := []rune(k)[0]
+	if mod != 0 {
+		return tea.KeyPressMsg{Code: r, Mod: mod}
+	}
+	return tea.KeyPressMsg{Code: r, Text: k}
 }
 
 func (m *model) openChat() {

@@ -420,8 +420,8 @@ var helpGroups = []struct {
 
 // The keys line at the bottom of /help.
 const (
-	helpKeysTUI = "keys: enter send · esc stop · tab completes · ctrl+o open all steps · ctrl+y theme · ctrl+t new tab · ctrl+w close tab · ctrl+pgup/pgdown switch · alt+1..9 jump"
-	helpKeysWeb = "keys: enter send · shift+enter new line · tab completes · ↑↓ pick · esc stop or close"
+	helpKeysTUI = "keys: enter send · shift+enter new line · esc stop · tab completes · ctrl+b files · ctrl+e editor · ctrl+o open all steps · ctrl+y theme · ctrl+t new tab · ctrl+w close tab · ctrl+pgup/pgdown switch · alt+1..9 jump · pgup/pgdown/end scroll"
+	helpKeysWeb = "keys: enter send · shift+enter new line · tab completes · ↑↓ pick · ctrl+b files · esc stop or close"
 )
 
 func helpView() cmdView { return helpViewFor(false) }

@@ -149,8 +149,8 @@ func TestSidebarOpensPictures(t *testing.T) {
 		t.Fatalf("a picture opens in the viewer: %+v", m.fb)
 	}
 	next, _ := m.mediaKey(tea.KeyPressMsg{Code: tea.KeyEscape})
-	if next.(model).fb.open {
-		t.Fatal("esc closes a viewer opened from the tree completely")
+	if next.(model).fb.open || !next.(model).side.focus {
+		t.Fatal("esc closes a viewer opened from the tree and gives the keyboard back to the tree")
 	}
 }
 

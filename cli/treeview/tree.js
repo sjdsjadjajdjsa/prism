@@ -117,6 +117,7 @@
       const r = el('div', 'ptree-row' + (n.dir ? ' dir' : '') + (n.git === 'D' ? ' gone' : '') + (n.agent ? ' act-' + n.agent : '') + (n.path === selected ? ' sel' : ''))
       r.style.top = at * rowH() + 'px'
       r.style.paddingLeft = 10 + depth * 16 + 'px'
+      r.style.setProperty('--depth', depth)
       r.dataset.path = n.path
       r.setAttribute('role', 'treeitem')
       if (n.path === current) r.classList.add('current')
@@ -127,11 +128,14 @@
       const twist = el('span', 'ptree-twist' + (n.dir && (open.has(n.path) || keep) ? ' open' : ''), n.dir ? '▶' : '')
       const name = el('span', 'ptree-name'); highlight(name, base(n.path))
       r.append(twist, iconFor(n), name)
-      if (n.git) { const b = el('span', 'ptree-badge ' + (n.git === '?' ? 'Q' : n.git), n.git === '?' ? 'new' : n.git); b.title = { M: 'modified', A: 'added', D: 'deleted', '?': 'not in git yet' }[n.git] || ''; r.append(b) }
+      if (n.git && !(opts.compact && n.agent)) { const b = el('span', 'ptree-badge ' + (n.git === '?' ? 'Q' : n.git), n.git === '?' ? 'new' : n.git); b.title = { M: 'modified', A: 'added', D: 'deleted', '?': 'not in git yet' }[n.git] || ''; r.append(b) }
       if (n.agent) { const d = el('span', 'ptree-dot' + (n.agent === 'read' ? ' read' : '')); d.title = 'Prism ' + (n.agent === 'read' ? 'read' : 'changed') + ' this'; r.append(d) }
       if (n.tab) { const chip = el('span', 'ptree-tab-chip', String(n.tab)); chip.title = 'tab ' + n.tab + ' · ' + (n.tabName || 'another tab') + ' is editing this'; r.append(chip) }
       r.append(el('span', 'ptree-spacer'))
-      if (opts.compact) return r
+      if (opts.compact) {
+        if (n.dir) r.append(el('span', 'ptree-count', String(countFiles(n.path))))
+        return r
+      }
       if (n.dir) {
         const count = countFiles(n.path); r.append(el('span', 'ptree-badge n', String(count)))
       } else {
@@ -238,7 +242,7 @@
     list.addEventListener('scroll', () => requestAnimationFrame(paint), { passive: true })
     let typing
     search.addEventListener('input', () => { clearTimeout(typing); typing = setTimeout(() => { query = search.value.trim().toLowerCase(); render() }, 80) })
-    search.addEventListener('keydown', e => { if (e.key === 'Escape') { search.value = ''; query = ''; render(); list.focus() } if (e.key === 'ArrowDown') { e.preventDefault(); list.focus() } })
+    search.addEventListener('keydown', e => { if (e.key === 'Escape' && search.value) { e.stopPropagation(); search.value = ''; query = ''; render(); list.focus() } if (e.key === 'ArrowDown') { e.preventDefault(); list.focus() } })
     chips.addEventListener('click', e => { const c = e.target.closest('.ptree-chip'); if (c) { mode = c.dataset.mode; render() } })
     list.addEventListener('keydown', e => {
       const n = visible[cursor] && visible[cursor][0]
@@ -251,7 +255,7 @@
       else if (e.key === 'ArrowRight' && n && n.dir && !open.has(n.path)) toggle(n.path)
       else if (e.key === 'ArrowLeft' && n) { if (n.dir && open.has(n.path)) toggle(n.path); else if (parent(n.path)) { reveal(parent(n.path)); select(parent(n.path)) } }
     })
-    const onSlash = e => { if (e.key === '/' && document.activeElement !== search && !/input|textarea/i.test(document.activeElement.tagName) && root.isConnected) { e.preventDefault(); search.focus() } }
+    const onSlash = e => { if (e.key === '/' && document.activeElement !== search && !/input|textarea/i.test(document.activeElement.tagName) && root.isConnected && (!opts.compact || root.contains(document.activeElement))) { e.preventDefault(); search.focus() } }
     document.addEventListener('keydown', onSlash)
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => paint()).observe(list)
 
@@ -260,7 +264,7 @@
       if (!opened) {
         opened = true
         if (!opts.compact) for (const n of nodes.values()) if (n.dir && !parent(n.path)) open.add(n.path)
-        for (const n of nodes.values()) if (!n.dir && changed(n)) for (let p = parent(n.path); p; p = parent(p)) open.add(p)
+        if (!opts.compact) for (const n of nodes.values()) if (!n.dir && changed(n)) for (let p = parent(n.path); p; p = parent(p)) open.add(p)
       }
       render()
       if (selected && nodes.has(selected)) select(selected); else if (!selected) select(null)
@@ -271,6 +275,7 @@
       update,
       reveal: p => { if (nodes.has(p)) { reveal(p); select(p) } },
       setCurrent: p => { current = p || null; paint() },
+      setMode: m => { mode = m; render() },
       has: p => nodes.has(p),
       focus: () => list.focus(),
     }

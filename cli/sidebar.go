@@ -24,10 +24,11 @@ type sidebarState struct {
 	filtering    bool
 	prompt       *sidePrompt
 	note         string
-	at           time.Time // last refresh while Prism works
-	watching     bool      // a wait for the next tree change is running
-	reveal       string    // highlight this path once it appears
-	following    string    // the editor's file, last time the tree moved to it
+	at           time.Time      // last refresh while Prism works
+	watching     bool           // a wait for the next tree change is running
+	reveal       string         // highlight this path once it appears
+	following    string         // the editor's file, last time the tree moved to it
+	counts       map[string]int // files inside each folder, for the number after its name
 }
 
 // sidePrompt is a question the sidebar is asking: a name for a new file,
@@ -112,16 +113,15 @@ func (m model) sideMsg(msg sideTreeMsg) (model, tea.Cmd) {
 		m.side.err = msg.err.Error()
 		return m, nil
 	}
-	if !m.side.loaded {
-		for _, n := range msg.nodes {
-			if n.Git != "" && !n.Dir {
-				for d := path.Dir(n.Path); d != "."; d = path.Dir(d) {
-					m.side.expanded[d] = true
-				}
+	m.side.nodes, m.side.version, m.side.loaded, m.side.err = msg.nodes, msg.version, true, ""
+	m.side.counts = map[string]int{}
+	for _, n := range msg.nodes {
+		if !n.Dir {
+			for d := path.Dir(n.Path); d != "."; d = path.Dir(d) {
+				m.side.counts[d]++
 			}
 		}
 	}
-	m.side.nodes, m.side.version, m.side.loaded, m.side.err = msg.nodes, msg.version, true, ""
 	if !m.side.shown || m.side.watching {
 		return m, nil
 	}
@@ -150,7 +150,7 @@ func (m model) sideList() (top, shown, links int) {
 		top = 3
 	}
 	links = 0
-	if r, ok := m.sideSelected(); ok && !r.dir {
+	if r, ok := m.sideSelected(); ok && !r.dir && m.side.focus {
 		if n := m.sideNode(r.path); n != nil && len(n.Imports)+len(n.ImportedBy) > 0 {
 			links = 1 + min(3, len(n.Imports)) + min(3, len(n.ImportedBy))
 		}
@@ -308,7 +308,7 @@ func (m model) sideKey(msg tea.KeyPressMsg) (model, tea.Cmd) {
 		if ok {
 			m.side.prompt = &sidePrompt{op: "delete", target: r.path}
 		}
-	case "@", "m":
+	case "@":
 		if ok {
 			m.mention(r.path)
 		}
@@ -523,33 +523,38 @@ func drawSidebar(cv *canvas, t theme, m model) {
 		if len(m.side.filter) > 0 {
 			depth = 0
 		}
-		x := 1 + min(depth, max(0, (w-10)/3))*2
+		depth = min(depth, max(0, (w-10)/3))
+		guide := mix(t.panel, t.muted, 0.35)
+		for i := 0; i < depth; i++ {
+			cv.set(1+i*2, y, '│', guide, false)
+		}
+		x := 1 + depth*2
 		name := path.Base(r.path)
 		if len(m.side.filter) > 0 {
 			name = r.path
 		}
-		col, bold := t.fg, false
-		switch {
-		case r.dir:
-			icon := "▸ "
+		col, bold := mix(t.panel, t.fg, 0.78), false
+		if r.dir {
+			icon := "› "
 			if r.open {
-				icon = "▾ "
+				icon = "⌄ "
 			}
-			x = cv.text(x, y, icon, accent, false)
-			bold = true
-		case mediaKind(r.path) == "image":
-			x = cv.text(x, y, "▣ ", t.at(0.35), false)
-		case mediaKind(r.path) == "video":
-			x = cv.text(x, y, "▶ ", t.at(0.85), false)
-		default:
-			x = cv.text(x, y, "  ", t.fg, false)
+			cv.text(x, y, icon, t.muted, false)
+			col, bold = t.fg, true
+		}
+		x += 2
+		if hi {
+			col = t.fg
 		}
 		if r.path == current {
 			col, bold = accent, true
 		}
 		marks := sideMarks(t, r)
+		if r.dir && len(m.side.filter) == 0 {
+			marks = []seg{{text: fmt.Sprint(m.side.counts[r.path]), fg: t.muted}}
+		}
 		room := w - x - 1 - segsWidth(marks)
-		x = cv.text(x, y, clip(name, max(1, room)), col, bold || hi)
+		x = cv.text(x, y, clip(name, max(1, room)), col, bold)
 		mx := w - 1 - segsWidth(marks)
 		for _, s := range marks {
 			mx = cv.text(mx, y, s.text, s.fg, s.bold)
@@ -571,33 +576,33 @@ func drawSidebar(cv *canvas, t theme, m model) {
 			}
 		}
 	}
-	hint := "a new · r rename · d delete · @ chat · / find"
-	if !m.side.focus {
-		hint = "ctrl+b files · click to open"
-	}
-	if m.side.note != "" {
+	switch {
+	case m.side.note != "":
 		cv.text(1, m.h-1, clip(m.side.note, w-2), t.muted, false)
-	} else {
-		cv.text(1, m.h-1, clip(hint, w-2), mix(t.panel, t.muted, 0.8), false)
+	case m.side.focus:
+		cv.text(1, m.h-1, clip("a new · r rename · d delete · @ chat · / find", w-2), mix(t.panel, t.muted, 0.8), false)
 	}
 }
 
 // sideMarks are the little signs after a name: git status and what Prism did.
 func sideMarks(t theme, r fileRow) []seg {
 	var out []seg
-	switch r.git {
-	case "M":
-		out = append(out, seg{text: "M", fg: t.at(0.15), bold: true})
-	case "A", "?":
-		out = append(out, seg{text: "+", fg: t.green, bold: true})
-	case "D":
-		out = append(out, seg{text: "−", fg: t.red, bold: true})
-	}
 	switch r.agent {
 	case "write", "edit":
-		out = append(out, seg{text: " ●", fg: t.at(0.6)})
+		return []seg{{text: "●", fg: t.at(0.6)}}
 	case "read":
-		out = append(out, seg{text: " ◦", fg: t.muted})
+		out = append(out, seg{text: "◦", fg: t.muted})
+	}
+	switch r.git {
+	case "M":
+		out = append(out, seg{text: "•", fg: warnColor(t)})
+	case "A", "?":
+		out = append(out, seg{text: "•", fg: t.green})
+	case "D":
+		out = append(out, seg{text: "•", fg: t.red})
+	}
+	if len(out) > 1 {
+		out = out[1:]
 	}
 	return out
 }

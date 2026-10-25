@@ -1664,8 +1664,9 @@ addEventListener('keydown', (e) => {
   // y / a / n (esc for no) answer a question before a risky command.
   const ans = askKey(e);
   if (ans) { e.preventDefault(); answerAsk(ans); return; }
-  if (e.key === 'Escape' && state.busy && document.activeElement !== input && !state.ask) stop();
-  if (a !== input && !['SELECT', 'BUTTON', 'A', 'INPUT', 'TEXTAREA'].includes(a.tagName) && !a.isContentEditable && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) input.focus();
+  const inFiles = a && a.closest && a.closest('#sidebar, #files-panel, #side-menu');
+  if (e.key === 'Escape' && state.busy && document.activeElement !== input && !state.ask && !inFiles) stop();
+  if (a !== input && !inFiles && !e.defaultPrevented && !['SELECT', 'BUTTON', 'A', 'INPUT', 'TEXTAREA'].includes(a.tagName) && !a.isContentEditable && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) input.focus();
 });
 
 // Shard buddy drawing (shard.js when it is loaded)

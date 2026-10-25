@@ -13,6 +13,7 @@ type cell struct {
 	fg, bg rgb
 	bold   bool
 	url    string
+	act    string // what a click here does, see clickAct
 }
 
 type canvas struct {
@@ -89,6 +90,15 @@ func (cv *canvas) grad(x, y int, s string, t theme, phase, span float64, bold bo
 		x = cv.put(x, y, r, t.at(phase+float64(i)/span), bold)
 	}
 	return x
+}
+
+// tag marks cells x..x+n-1 on row y as clickable with act.
+func (cv *canvas) tag(x, y, n int, act string) {
+	for i := x; i < x+n; i++ {
+		if c := cv.get(i, y); c != nil {
+			c.act = act
+		}
+	}
 }
 
 func (cv *canvas) fill(x, y, w, h int, bg rgb) {

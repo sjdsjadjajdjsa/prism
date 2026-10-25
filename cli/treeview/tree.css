@@ -59,21 +59,28 @@
 .ptree-hint{color:var(--t-muted);font-size:12px}
 @media (max-width:760px){.ptree{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr) auto}.ptree-detail{max-height:42vh;margin-top:10px}}
 @media (prefers-reduced-motion:reduce){.ptree *{transition:none!important;animation:none!important}}
-.ptree.compact{grid-template-columns:minmax(0,1fr);gap:0}
-.ptree.compact .ptree-head{padding:0 0 8px;gap:6px}
-.ptree.compact .ptree-root,.ptree.compact .ptree-stats{display:none}
-.ptree.compact .ptree-search{flex-basis:100%;padding-top:5px;padding-bottom:5px}
-.ptree.compact .ptree-chip{padding:2px 9px;font-size:11px}
-.ptree.compact .ptree-list{border:0;border-radius:8px;background:transparent}
-.ptree.compact .ptree-row{padding-right:8px}
-.ptree-row.current .ptree-name{color:var(--t-accent);font-weight:700}
-.ptree-row[draggable=true]:active{cursor:grabbing}
-.ptree.compact{grid-template-columns:minmax(0,1fr);gap:0}
-.ptree.compact .ptree-head{padding:0 0 8px;gap:6px}
-.ptree.compact .ptree-root,.ptree.compact .ptree-stats{display:none}
-.ptree.compact .ptree-search{flex-basis:100%;padding-top:5px;padding-bottom:5px}
-.ptree.compact .ptree-chip{padding:2px 9px;font-size:11px}
-.ptree.compact .ptree-list{border:0;border-radius:8px;background:transparent}
-.ptree.compact .ptree-row{padding-right:8px}
+.ptree.compact{grid-template-columns:minmax(0,1fr);gap:0;font-size:13px}
+.ptree.compact .ptree-head{padding:0 0 6px;gap:6px}
+.ptree.compact .ptree-root,.ptree.compact .ptree-stats,.ptree.compact .ptree-chips{display:none}
+.ptree.compact .ptree-search{flex-basis:100%;padding:4px 8px 4px 28px;background-color:transparent;border-color:transparent;font-size:12.5px}
+.ptree.compact .ptree-search:hover{border-color:var(--t-faint)}
+.ptree.compact .ptree-list{border:0;border-radius:0;background:transparent}
+.ptree.compact .ptree-row{padding-right:10px;gap:4px;border-left:0;border-radius:6px;color:color-mix(in srgb,var(--t-fg) 78%,transparent)}
+.ptree.compact .ptree-row::before{content:'';position:absolute;left:17px;top:0;bottom:0;width:calc(var(--depth,0) * 16px);background:repeating-linear-gradient(90deg,var(--t-faint) 0 1px,transparent 1px 16px);pointer-events:none}
+.ptree.compact .ptree-row:hover{background:color-mix(in srgb,var(--t-fg) 6%,transparent);color:var(--t-fg)}
+.ptree.compact .ptree-row.sel{background:color-mix(in srgb,var(--t-fg) 9%,transparent);color:var(--t-fg)}
+.ptree.compact .ptree-row.dir{color:var(--t-fg)}
+.ptree.compact .ptree-row.dir .ptree-name{font-weight:650}
+.ptree.compact .ptree-icon:not(.dir){display:none}
+.ptree.compact .ptree-icon.dir,.ptree.compact .ptree-icon.dir svg{width:14px;height:14px}
+.ptree.compact .ptree-count{color:var(--t-muted);font-size:11px;font-variant-numeric:tabular-nums}
+.ptree.compact .ptree-twist{color:var(--t-muted);font-size:8px}
+.ptree.compact .ptree-row.act-write,.ptree.compact .ptree-row.act-edit{box-shadow:none;background:none}
+.ptree.compact .ptree-badge{font-size:0;width:6px;height:6px;padding:0;border-radius:50%}
+.ptree.compact .ptree-badge.M{background:var(--t-amber)}
+.ptree.compact .ptree-badge.A{background:var(--t-green)}
+.ptree.compact .ptree-badge.Q{background:var(--t-blue)}
+.ptree.compact .ptree-badge.D{background:var(--t-red)}
+.ptree.compact .ptree-name mark{background:none;color:var(--t-accent)}
 .ptree-row.current .ptree-name{color:var(--t-accent);font-weight:700}
 .ptree-row[draggable=true]:active{cursor:grabbing}

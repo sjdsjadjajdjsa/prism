@@ -551,6 +551,7 @@ func drawTabBar(cv *canvas, t theme, m model, x, y, w int) {
 	cx := x
 	if left {
 		cx = cv.text(cx, y, "‹ ", t.muted, false)
+		cv.tag(x, y, 2, "tab:prev")
 	}
 	for _, l := range labels {
 		status := l.t.status()
@@ -575,6 +576,7 @@ func drawTabBar(cv *canvas, t theme, m model, x, y, w int) {
 		}
 		start := cx
 		cx = cv.text(cx, y, l.text, fg, bold)
+		cv.tag(start, y, cx-start, fmt.Sprintf("tab:%d", m.tabIndex(l.t)))
 		// The dot is the third cell: " 1 ● name ".
 		if i := strings.IndexRune(l.text, '●'); i >= 0 {
 			cv.set(start+len([]rune(l.text[:i])), y, dot, dotCol, true)
@@ -583,5 +585,6 @@ func drawTabBar(cv *canvas, t theme, m model, x, y, w int) {
 	}
 	if right {
 		cv.text(x+w-1, y, "›", t.muted, false)
+		cv.tag(x+w-1, y, 1, "tab:next")
 	}
 }

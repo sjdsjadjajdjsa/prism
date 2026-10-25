@@ -360,6 +360,7 @@ func (m model) filesMouse(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fb.view = nil
 		case !inside && m.fb.only:
 			m.fb = filesState{}
+			m.side.focus = m.sideOn()
 		case !inside:
 			m.fb = filesState{}
 		case idx >= 0:
@@ -384,6 +385,7 @@ func (m model) filesKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "esc":
 			if m.fb.only {
 				m.fb = filesState{}
+				m.side.focus = m.sideOn()
 			} else {
 				m.fb.view = nil
 			}

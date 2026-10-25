@@ -478,7 +478,6 @@ body.sidebar-open { padding-left: var(--side-w); }
 .side-btn:hover, .side-btn[aria-pressed="true"] { color: var(--fg); border-color: var(--faint); background: color-mix(in srgb, var(--s6, var(--s0)) 10%, transparent); }
 .files-tree { flex: 1; min-height: 0; }
 .files-tree .ptree { --t-row: 25px; --t-panel: transparent; font-size: 13px; }
-.sidebar-foot { font-size: 11px; padding: 0 4px; }
 .side-menu { position: fixed; z-index: 60; min-width: 190px; background: var(--bg); border: 1px solid var(--faint); border-radius: 10px; padding: 5px; box-shadow: 0 14px 40px rgba(0,0,0,.45); font-size: 13px; animation: side-in .1s ease-out; }
 .side-menu[hidden] { display: none; }
 .side-menu button { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 6px; padding: 5px 10px; color: var(--fg); cursor: pointer; }

@@ -484,6 +484,7 @@ func (m model) mediaKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		if m.fb.only {
 			m.fb = filesState{}
+			m.side.focus = m.sideOn()
 		} else {
 			m.fb.view = nil
 		}
