@@ -356,20 +356,6 @@ func capGrep(lines []string, perFile int) []string {
 	return kept
 }
 
-func clipRunes(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	count := 0
-	for i := range s {
-		if count == n {
-			return s[:i] + "…"
-		}
-		count++
-	}
-	return s
-}
-
 const (
 	readDefaultLimit = 500
 	outlineMax       = 60

@@ -539,6 +539,7 @@ function setBusy(b) {
   $('busyhint').hidden = !b;
   $('key-esc-label').textContent = b ? 'stop' : 'clear';
   if (!b) { clear(liveEl); state.draft = null; state.reasoning = ''; flushText(); }
+  $('busyhint').textContent = state.abort ? 'Enter corrects · alt+enter queues · esc stops' : 'working… · esc stops';
 }
 
 // The plan picker waits until the chat box is empty so it never takes keys mid-sentence.
@@ -909,12 +910,16 @@ function handleEvent(ev) {
       finishStep(ev); setPhase('thinking'); state.reasoning = '';
       if (ev.ok === false) { setMood('surprised', 1500); say('crack', 2600); } break;
     case 'note': addNote(ev.text || ''); break;
-    case 'approve': addAsk(ev); break;
+    case 'approve': notifyHidden('Prism needs your approval'); addAsk(ev); break;
+    case 'followup': flushText(); state.textEl = null; if (!ev.steered) addUser(ev.text); break;
     case 'crew_start': state.draft = null; setPhase('tool'); setMood('working'); say('split', 3000); crewStart(ev); break;
     case 'crew_worker': crewWorker(ev); break;
     case 'crew_done': crewDone(ev); say('done', 3000); break;
     case 'usage': state.tokens = ev.tokens || 0; state.window = ev.window || 0; renderStatus(); break;
     case 'done': {
+      if (ev.restore) { input.value = [input.value, ev.restore].filter(Boolean).join('\n\n'); autosize(); }
+      if (ev.failed) break;
+      notifyHidden('Turn finished');
       if (ev.model) state.model = ev.model;
       state.plan = !!ev.plan; state.planPick = ev.pick ? { tab: state.sendTab, data: ev.pick } : null;
       addMeta({ model: ev.model, seconds: ev.seconds, source: ev.source }); renderStatus();
@@ -935,14 +940,43 @@ function handleEvent(ev) {
   }
 }
 
-async function send(message) {
-  if (state.busy) return;
+let notifyPrompted = false;
+function requestNotifications() {
+  if (state.notify === false || notifyPrompted || !('Notification' in window) || Notification.permission !== 'default') return;
+  notifyPrompted = true;
+  const box = el('div', 'note', 'Notify when Prism finishes in the background? ');
+  const yes = el('button', '', 'Enable');
+  const no = el('button', '', 'Not now');
+  yes.onclick = () => { Notification.requestPermission().catch(() => {}); box.remove(); };
+  no.onclick = () => box.remove();
+  box.append(yes, no); curTurn().appendChild(box);
+}
+function notifyHidden(text) {
+  if (!document.hidden || state.notify === false || !('Notification' in window) || Notification.permission !== 'granted') return;
+  try { new Notification('Prism', { body: text }); } catch (_) {}
+}
+async function send(message, queue = false) {
+  requestNotifications();
+  if (state.busy) {
+    if (!state.abort) { input.value = message; autosize(); return; }
+    try {
+      const res = await fetch('/api/chat' + (state.sendTab > 1 ? '?tab=' + state.sendTab : ''), { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({message, mode:queue ? 'queue' : 'steer'}) });
+      if (!res.ok) throw new Error('Correction was not accepted');
+      if (!queue) {
+        flushText(); state.textEl = null;
+        curTurn().appendChild(el('div', 'user', message));
+        addNote('sent while working');
+      } else addNote('message queued');
+    } catch (e) { input.value = message; autosize(); addError('could not send correction', e.message); }
+    return;
+  }
+
   state.planPick = null; state.sendTab = tabState.active;
   addUser(message);
   collapseOldTurns();
   scrollDown();
-  setBusy(true); setPhase('thinking'); setMood('thinking'); state.reasoning = '';
   const ac = new AbortController(); state.abort = ac;
+  setBusy(true); setPhase('thinking'); setMood('thinking'); state.reasoning = '';
   try {
     if (DEMO) { for await (const ev of demoStream(message, ac.signal)) handleEvent(ev); }
     else {
@@ -956,7 +990,7 @@ async function send(message) {
     if (e.name !== 'AbortError') { addError('connection lost', String(e.message || e)); say('crack', 3000); setMood('oops', 2400); }
     else addNote('stopped.');
   } finally {
-    setBusy(false); state.abort = null;
+    state.abort = null; setBusy(false);
     if (state.ask) { settleAsk(state.ask.box, 'stopped'); state.ask = null; }
     offerPlan();
     crewSettle();
@@ -1035,8 +1069,10 @@ function askKey(e) {
 
 async function stop() {
   if (!state.busy) return;
+  // Allow pending prompts to arrive, but release a stalled stream after 3s.
+  const ac = state.abort;
+  if (ac) setTimeout(() => { if (state.abort === ac) ac.abort(); }, 3000);
   try { await api('/api/stop', {}); } catch { /* ignore */ }
-  if (state.abort) state.abort.abort();
 }
 
 // Offline and ?demo fallback for /help. The server answers /help with a grouped view.
@@ -1388,6 +1424,11 @@ async function runCommand(line) {
       addNote(`finish beam ${beamEnabled ? 'on' : 'off'}`);
       saveSetting('/beam', beamEnabled);
       return;
+    case '/notify':
+      state.notify = rest[0] ? rest[0] !== 'off' : state.notify === false;
+      addNote(`background notifications ${state.notify ? 'on' : 'off'}`);
+      saveSetting('/notify', state.notify);
+      return;
     case '/quiet':
       quiet = rest[0] ? rest[0] !== 'off' : !quiet;
       if (quiet) hush();
@@ -1637,9 +1678,9 @@ input.addEventListener('keydown', (e) => {
     const v = input.value.trim();
     if (!v) return;
     if (v.charAt(0) === '/' && window.PrismCommands) return; // commands.js owns slash lines
-    if (state.busy) { say('fogged', 1800); return; }
+    if (state.busy && !state.abort) { addNote('wait a moment: this step takes no messages'); return; } // /compact cannot accept follow-ups
     input.value = ''; autosize();
-    runCommand(v);
+    if (state.busy) send(v, e.altKey); else runCommand(v);
   } else if (e.key === 'Escape') {
     e.preventDefault();
     if (state.ask) return; // the page's key handler answers no; with text in the box esc does nothing
@@ -1840,6 +1881,7 @@ async function boot() {
       state.modelsReady = info.models_ready; state.pinned = info.model || ''; state.pinSource = info.source || ''; state.plan = !!info.plan; renderStatus();
       if (info.beam != null) beamEnabled = !!info.beam;
       if (info.quiet != null) quiet = !!info.quiet;
+      state.notify = info.notify !== false;
       if (info.handoff) showHandoff();
       if (info.open && window.PrismFiles) window.PrismFiles.openFile(info.open);
     }

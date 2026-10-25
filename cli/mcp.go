@@ -241,14 +241,6 @@ func cutUTF8(s string, n int) string {
 	return s[:n]
 }
 
-func clipUTF8(s string, n int) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= n {
-		return s
-	}
-	return cutUTF8(s, n) + "…"
-}
-
 func (h *mcpHub) specs() []any {
 	if h == nil {
 		return nil
@@ -349,9 +341,9 @@ func (h *mcpHub) run(ctx context.Context, wire, raw string) toolResult {
 	}
 	first, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
 	if out.IsError {
-		return toolResult{output: "Error: " + text, summary: clipUTF8(first, 80)}
+		return toolResult{output: "Error: " + text, summary: clipText(first, 80)}
 	}
-	return toolResult{ok: true, output: text, summary: "→ " + clipUTF8(first, 80)}
+	return toolResult{ok: true, output: text, summary: "→ " + clipText(first, 80)}
 }
 
 func (h *mcpHub) close() {

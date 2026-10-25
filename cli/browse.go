@@ -440,7 +440,7 @@ func runBrowse(ctx context.Context, binary string, p *page, steps []browseStep, 
 	addProblem := func(text string) {
 		problemsMu.Lock()
 		defer problemsMu.Unlock()
-		text = clipLine(text, 300)
+		text = clipWords(text, 300)
 		if len(problems) < 10 && !contains(problems, text) {
 			problems = append(problems, text)
 		}
@@ -753,14 +753,6 @@ func doStep(ctx context.Context, c *cdp, s browseStep) (line string, ok, check b
 		}
 	}
 	return line, ok, check, err
-}
-
-func clipLine(s string, n int) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if r := []rune(s); len(r) > n {
-		return string(r[:n]) + "…"
-	}
-	return s
 }
 
 func contains(list []string, s string) bool {

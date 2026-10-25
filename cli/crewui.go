@@ -180,7 +180,7 @@ func crewLines(t theme, c *crewBlock, width int, n float64) []line {
 	if c.review {
 		tail += " + review"
 	}
-	tail = clip(tail, avail-6)
+	tail = clipWidth(tail, avail-6)
 	out := []line{{indent: 2, segs: []seg{
 		{text: "◆ ", grad: true, phase: 0.55 + n/9000},
 		{text: "crew", grad: true, phase: 0.55 + n/9000, bold: true},
@@ -227,14 +227,14 @@ func crewLines(t theme, c *crewBlock, width int, n float64) []line {
 		if r.Status == "queued" || r.Status == "cancelled" {
 			idCol = dim
 		}
-		task := clip(strings.Join(strings.Fields(r.Task), " "), taskW)
+		task := clipWidth(strings.Join(strings.Fields(r.Task), " "), taskW)
 		segs := []seg{
 			{text: "◆ ", fg: hue},
-			{text: pad(clip(r.ID, idW), idW), fg: idCol, bold: r.Status == "running"},
-			{text: "  " + pad(task, taskW), fg: dim},
+			{text: padBytes(clipWidth(r.ID, idW), idW), fg: idCol, bold: r.Status == "running"},
+			{text: "  " + padBytes(task, taskW), fg: dim},
 		}
 		if showModel {
-			segs = append(segs, seg{text: "  " + pad(clip(crewModel(r.Model), modelW), modelW), fg: t.muted})
+			segs = append(segs, seg{text: "  " + padBytes(clipWidth(crewModel(r.Model), modelW), modelW), fg: t.muted})
 		}
 		steps := "    "
 		if r.Steps > 0 {
@@ -243,7 +243,7 @@ func crewLines(t theme, c *crewBlock, width int, n float64) []line {
 		segs = append(segs, seg{text: "  "}, seg{text: status, fg: sc}, seg{text: steps, fg: mix(t.bg, t.muted, 0.8)})
 		out = append(out, line{indent: 2, segs: segs})
 		if r.Note != "" && (r.Status == "running" || r.Status == "failed") {
-			note := clip(strings.Join(strings.Fields(r.Note), " "), avail-6-idW)
+			note := clipWidth(strings.Join(strings.Fields(r.Note), " "), avail-6-idW)
 			out = append(out, line{indent: 2, segs: []seg{{text: strings.Repeat(" ", 4+idW) + "↳ ", fg: mix(t.bg, t.muted, 0.5)}, {text: note, fg: mix(t.bg, t.muted, 0.7)}}})
 		}
 	}
@@ -258,7 +258,7 @@ func crewLines(t theme, c *crewBlock, width int, n float64) []line {
 				}
 			}
 		}
-		out = append(out, line{indent: 2, segs: []seg{{text: mark, fg: col}, {text: clip(c.summary, avail-2), fg: t.muted}}})
+		out = append(out, line{indent: 2, segs: []seg{{text: mark, fg: col}, {text: clipWidth(c.summary, avail-2), fg: t.muted}}})
 	}
 	return out
 }

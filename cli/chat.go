@@ -56,24 +56,6 @@ func wrap(s string, width int) []string {
 	return out
 }
 
-func clip(s string, width int) string {
-	r := []rune(strings.ReplaceAll(s, "\t", "    "))
-	if width < 1 {
-		return ""
-	}
-	if len(r) > width {
-		return string(r[:width-1]) + "…"
-	}
-	return string(r)
-}
-
-func pad(s string, n int) string {
-	if len(s) >= n {
-		return s
-	}
-	return s + strings.Repeat(" ", n-len(s))
-}
-
 func modelName(route string) string {
 	if route == "" {
 		return "auto"
@@ -166,6 +148,9 @@ func (m model) transcript(t theme, width int) []line {
 		switch e.kind {
 		case "user":
 			gap()
+			if e.steered {
+				out = append(out, line{indent: 2, segs: []seg{{text: "sent while working", fg: t.muted}}})
+			}
 			for j, row := range wrapAll(e.text, width-4) {
 				prefix := seg{text: "  "}
 				if j == 0 {
@@ -195,8 +180,8 @@ func (m model) transcript(t theme, width int) []line {
 					used += len([]rune(s.text))
 				}
 			}
-			name := pad(e.tool+" ", 6)
-			segs := append([]seg{{text: glyph, fg: gc}, {text: name, fg: t.muted}, {text: clip(e.arg, max(8, width-4-len([]rune(name))-used)), fg: t.fg}}, tail...)
+			name := padBytes(e.tool+" ", 6)
+			segs := append([]seg{{text: glyph, fg: gc}, {text: name, fg: t.muted}, {text: clipWidth(e.arg, max(8, width-4-len([]rune(name))-used)), fg: t.fg}}, tail...)
 			out = append(out, line{segs: segs, indent: 2})
 			if e.done && e.res.ok && len(e.res.diff) > 0 {
 				out = append(out, line{fill: &panel, indent: 4})
@@ -211,9 +196,9 @@ func (m model) transcript(t theme, width int) []line {
 					}
 					segs := []seg{{text: fmt.Sprintf("%4d %c  ", d.num, d.kind), fg: mix(fg, t.muted, 0.4)}}
 					if d.kind == ' ' {
-						segs = append(segs, highlight(t, clip(d.text, width-18), t.fg)...)
+						segs = append(segs, highlight(t, clipWidth(d.text, width-18), t.fg)...)
 					} else {
-						segs = append(segs, tinted(highlight(t, clip(d.text, width-18), fg), fg, 0.45)...)
+						segs = append(segs, tinted(highlight(t, clipWidth(d.text, width-18), fg), fg, 0.45)...)
 					}
 					out = append(out, line{fill: fill, indent: 4, segs: segs})
 				}
@@ -255,7 +240,7 @@ func (m model) transcript(t theme, width int) []line {
 				out = append(out, line{indent: 2, segs: []seg{{text: "· " + e.text + " · try one of these:", fg: t.muted}}})
 			}
 			for k, cmd := range commands {
-				out = append(out, line{indent: 2, segs: []seg{{text: pad(cmd.name, 10), fg: t.at(0.5 + float64(k)*0.08), bold: true}, {text: cmd.help, fg: t.muted}}})
+				out = append(out, line{indent: 2, segs: []seg{{text: padBytes(cmd.name, 10), fg: t.at(0.5 + float64(k)*0.08), bold: true}, {text: cmd.help, fg: t.muted}}})
 			}
 			out = append(out, line{}, line{indent: 2, segs: []seg{{text: "something broken? tell us: ", fg: t.muted}, {text: issuesURL, fg: t.at(0.6)}}})
 		case "info":
@@ -357,8 +342,8 @@ func (m model) transcript(t theme, width int) []line {
 		out = append(out, line{indent: 2, segs: []seg{
 			{text: "◇ ", fg: mix(t.muted, t.at(toolHue[d.name]), 0.5+0.5*math.Sin(n/120))},
 			{text: verb + " ", grad: true, phase: n / 900},
-			{text: clip(d.arg, width-40), fg: t.fg},
-			{text: pad(dots, 4), fg: t.muted},
+			{text: clipWidth(d.arg, width-40), fg: t.fg},
+			{text: padBytes(dots, 4), fg: t.muted},
 			{text: short(d.chars) + " chars", fg: t.muted},
 		}})
 	}
@@ -375,7 +360,7 @@ func (m model) transcript(t theme, width int) []line {
 				hint = "  ·  big files show up when they're finished"
 			}
 		}
-		out = append(out, line{indent: 2, segs: []seg{{text: label, grad: true, phase: n / 900}, {text: pad(dots, 4), fg: t.muted}, {text: fmt.Sprintf("%.0fs", elapsed), fg: t.muted}, {text: hint, fg: t.muted}}})
+		out = append(out, line{indent: 2, segs: []seg{{text: label, grad: true, phase: n / 900}, {text: padBytes(dots, 4), fg: t.muted}, {text: fmt.Sprintf("%.0fs", elapsed), fg: t.muted}, {text: hint, fg: t.muted}}})
 		if m.reasoning != "" {
 			rows := wrapAll(strings.Join(strings.Fields(m.reasoning), " "), width-8)
 			rows = rows[max(0, len(rows)-3):]
@@ -390,15 +375,15 @@ func (m model) transcript(t theme, width int) []line {
 
 func summary(t theme, r toolResult, width int) []seg {
 	if !r.ok {
-		return []seg{{text: "  " + clip(r.summary, width+20), fg: t.red}}
+		return []seg{{text: "  " + clipWidth(r.summary, width+20), fg: t.red}}
 	}
 	if r.diff != nil || r.added+r.removed > 0 {
 		return []seg{{text: fmt.Sprintf("  +%d", r.added), fg: t.green}, {text: fmt.Sprintf(" -%d", r.removed), fg: t.red}}
 	}
 	if rest, ok := strings.CutPrefix(r.summary, "→ "); ok {
-		return []seg{{text: "  → ", fg: t.muted}, {text: clip(strings.Join(strings.Fields(rest), " "), width), fg: t.green}}
+		return []seg{{text: "  → ", fg: t.muted}, {text: clipWidth(strings.Join(strings.Fields(rest), " "), width), fg: t.green}}
 	}
-	return []seg{{text: "  " + clip(r.summary, width), fg: t.fg}}
+	return []seg{{text: "  " + clipWidth(r.summary, width), fg: t.fg}}
 }
 
 func wrapAll(s string, width int) []string {
@@ -422,7 +407,7 @@ func markdown(t theme, text string, width int) []line {
 			continue
 		}
 		if code {
-			out = append(out, line{fill: &panel, indent: 2, segs: append([]seg{{text: " "}}, highlight(t, clip(raw, width-8), t.fg)...)})
+			out = append(out, line{fill: &panel, indent: 2, segs: append([]seg{{text: " "}}, highlight(t, clipWidth(raw, width-8), t.fg)...)})
 			continue
 		}
 		if trimmed == "" {
@@ -459,7 +444,7 @@ func drawChat(cv *canvas, t theme, m model) {
 	cx := (cv.w - colW) / 2
 
 	x := cv.grad(cx, 1, "◆ prism", t, n/6000, 14, true)
-	cv.text(x, 1, "   "+clip(m.project, colW-30), mix(t.bg, t.muted, enter), false)
+	cv.text(x, 1, "   "+clipWidth(m.project, colW-30), mix(t.bg, t.muted, enter), false)
 	right := t.name
 	if text, _ := m.speaking(); text != "" && !m.buddyWide(cv.w) {
 		right = "◭ " + text
@@ -610,7 +595,15 @@ func drawStatus(cv *canvas, t theme, m model, x, y, w int, enter float64) {
 	left = append(left, seg{text: "◆ ", grad: true, phase: 0.1})
 	left = append(left, seg{text: modelName(m.route), fg: mix(t.bg, t.fg, enter)})
 	queued := ""
-	if m.route != "" && m.waited > 1500*time.Millisecond {
+	if m.agent != nil && m.agent.queuedPrompts() > 0 {
+		n := m.agent.queuedPrompts()
+		queued = fmt.Sprintf(" · +%d queued message", n)
+		if n != 1 {
+			queued += "s"
+		}
+		left = append(left, seg{text: queued, fg: muted})
+	}
+	if queued == "" && m.route != "" && m.waited > 1500*time.Millisecond {
 		queued = fmt.Sprintf(" · queued %.0fs", m.waited.Seconds())
 		left = append(left, seg{text: queued, fg: mix(t.bg, t.muted, enter*0.8)})
 	}
@@ -732,7 +725,7 @@ func drawStatus(cv *canvas, t theme, m model, x, y, w int, enter float64) {
 		rightW += gap + widthOf(keys)
 	}
 	room := w - rightW - (widthOf(left) - len([]rune(left[1].text)))
-	left[1].text = clip(left[1].text, room)
+	left[1].text = clipWidth(left[1].text, room)
 
 	fx := x
 	for _, s := range left {
@@ -797,8 +790,8 @@ func modelLines(t theme, e *entry, width int) []line {
 		}
 		out = append(out, line{indent: 2, segs: []seg{
 			{text: dot, fg: col},
-			{text: pad(clip(modelName(r.Route), width-30), nameW+2), fg: t.fg},
-			{text: pad(provider(r.Route), provW+2), fg: t.muted},
+			{text: padBytes(clipWidth(modelName(r.Route), width-30), nameW+2), fg: t.fg},
+			{text: padBytes(provider(r.Route), provW+2), fg: t.muted},
 			{text: state, fg: col},
 		}})
 	}
@@ -1092,8 +1085,8 @@ func drawSuggestions(cv *canvas, t theme, m model, x, y, w, top int) {
 		descW := max(0, inner-2-(nameW+2)-len(tag))
 		segs := []seg{
 			{text: mark, fg: accent, bold: true},
-			{text: padRunes(clip(r.name, nameW), nameW+2), fg: nameCol, bold: true},
-			{text: padRunes(clip(desc, descW), descW), fg: descCol},
+			{text: padRunes(clipWidth(r.name, nameW), nameW+2), fg: nameCol, bold: true},
+			{text: padRunes(clipWidth(desc, descW), descW), fg: descCol},
 		}
 		if tag != "" {
 			segs = append(segs, seg{text: tag, fg: mix(t.panel, t.muted, 0.8)})
@@ -1111,7 +1104,7 @@ func drawSuggestions(cv *canvas, t theme, m model, x, y, w, top int) {
 	}
 	hintW := max(0, inner-len([]rune(keys))-2)
 	lines = append(lines, pickLine{fill: t.faint, segs: []seg{
-		{text: padRunes(clip(hint, hintW), hintW+2), fg: mix(t.muted, accent, 0.5)},
+		{text: padRunes(clipWidth(hint, hintW), hintW+2), fg: mix(t.muted, accent, 0.5)},
 		{text: keys, fg: t.muted},
 	}})
 	drawPickLines(cv, t, lines, x, y, w, top)

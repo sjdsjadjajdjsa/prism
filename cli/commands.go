@@ -55,6 +55,7 @@ var commands = []command{
 	{"/theme", "switch the colour theme · /theme <name>", true},
 	{"/beam", "turn the finish beam on or off", true},
 	{"/quiet", "turn Shard's lines on or off", true},
+	{"/notify", "turn background notifications on or off", true},
 	{"/tabs", "open chats and their status", true},
 	{"/rename", "name this tab · /rename <name>", false},
 	{"/ask", "ask another tab's chat a side question · /ask <n> <question>", false},
@@ -123,6 +124,8 @@ func commandOptions(name string) []option {
 		return []option{{"simple", "the easy editor: type, ctrl+s saves (default)"}, {"nvim", "Neovim, for Vim users"}}
 	case "/beam":
 		return []option{{"on", "show the finish beam"}, {"off", "hide the finish beam"}}
+	case "/notify":
+		return []option{{"on", "enable background notifications"}, {"off", "disable background notifications"}}
 	case "/quiet":
 		return []option{{"on", "Shard stops talking"}, {"off", "Shard talks again"}}
 	case "/plan":
@@ -544,6 +547,14 @@ func (m *model) command(text string) tea.Cmd {
 		if m.beamOn {
 			m.beamAt = m.now
 		}
+	case "/notify":
+		m.notifyOff = !m.notifyOff
+		if len(fields) > 1 {
+			m.notifyOff = fields[1] == "off"
+		}
+		state := map[bool]string{true: "off", false: "on"}[m.notifyOff]
+		saveSetting("notify", state)
+		m.entries = append(m.entries, &entry{kind: "note", text: "background notifications " + state})
 	case "/quiet":
 		m.quiet = !m.quiet
 		if len(fields) > 1 {

@@ -371,10 +371,10 @@ func drawMenu(cv *canvas, t theme, m model, x, y, w, top int) {
 				}
 				segs = []seg{
 					{text: dot + " ", fg: t.tone(it.dotTone)},
-					{text: padRunes(clip(it.label, nameW), nameW+2), fg: nameCol, bold: hi},
+					{text: padRunes(clipWidth(it.label, nameW), nameW+2), fg: nameCol, bold: hi},
 				}
 				if detW > 0 {
-					segs = append(segs, seg{text: padRunes(clip(it.detail, detW), detW+2), fg: t.muted})
+					segs = append(segs, seg{text: padRunes(clipWidth(it.detail, detW), detW+2), fg: t.muted})
 				}
 				if it.state != "" {
 					segs = append(segs, seg{text: it.state, fg: t.tone(it.stateTone)})
@@ -410,15 +410,7 @@ func drawPickLines(cv *canvas, t theme, all []pickLine, x, y, w, top int) {
 			if lx >= end {
 				break
 			}
-			lx = cv.text(lx, row, clip(s.text, end-lx), s.fg, s.bold)
+			lx = cv.text(lx, row, clipWidth(s.text, end-lx), s.fg, s.bold)
 		}
 	}
-}
-
-// padRunes pads by runes, so a clipped name ending in "…" still lines up.
-func padRunes(s string, n int) string {
-	if k := len([]rune(s)); k < n {
-		return s + strings.Repeat(" ", n-k)
-	}
-	return s
 }

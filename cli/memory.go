@@ -17,7 +17,6 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-	"unicode/utf8"
 )
 
 const (
@@ -678,17 +677,6 @@ func (a *Agent) journal() string {
 		text = "…" + text[len(text)-14000:]
 	}
 	return text
-}
-
-func clipText(s string, n int) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n] + "…"
 }
 
 type memoryJob struct {

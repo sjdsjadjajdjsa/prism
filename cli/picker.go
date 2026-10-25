@@ -58,7 +58,7 @@ func modelItems(rows []routeRow, current string) []menuItem {
 		},
 	}}
 	for _, r := range rows {
-		it := menuItem{dot: "●", dotTone: toneOK, label: modelName(r.Route), detail: clip(provider(r.Route), 11),
+		it := menuItem{dot: "●", dotTone: toneOK, label: modelName(r.Route), detail: clipWidth(provider(r.Route), 11),
 			state: "ready", stateTone: toneOK, match: r.Route}
 		if !r.Ready {
 			it.dot, it.dotTone, it.state, it.stateTone = "◌", toneMuted, fmt.Sprintf("back in %ds", r.RetryIn), toneMuted

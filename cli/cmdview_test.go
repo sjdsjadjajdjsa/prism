@@ -328,14 +328,14 @@ func TestWrapWords(t *testing.T) {
 }
 
 func TestPadRune(t *testing.T) {
-	if got := padRune("hi", 5); got != "hi   " {
-		t.Errorf("padRune: got %q", got)
+	if got := padRunes("hi", 5); got != "hi   " {
+		t.Errorf("padRunes: got %q", got)
 	}
-	if got := padRune("hello", 5); got != "hello" {
-		t.Errorf("padRune exact: got %q", got)
+	if got := padRunes("hello", 5); got != "hello" {
+		t.Errorf("padRunes exact: got %q", got)
 	}
-	if got := padRune("toolong", 3); got != "toolong" {
-		t.Errorf("padRune over: got %q", got)
+	if got := padRunes("toolong", 3); got != "toolong" {
+		t.Errorf("padRunes over: got %q", got)
 	}
 }
 

@@ -83,12 +83,16 @@
     fv.pane.hidden = kind !== 'file'
     mapView.hidden = kind !== 'map'
     mapBtn.setAttribute('aria-pressed', String(kind === 'map'))
-    if (kind !== 'map' && map) map.stop()
+    if (kind !== 'map') {
+      panel.classList.remove('map-wide')
+      if (map) map.stop()
+    }
   }
 
   function closePanel() {
     if (fv.pane && !fv.pane.hidden && !closeFile()) return
     panel.hidden = true
+    panel.classList.remove('map-wide')
     document.body.classList.remove('panel-open')
     mapView.hidden = true
     mapBtn.setAttribute('aria-pressed', 'false')
@@ -218,7 +222,7 @@
 
   // A Markdown picture or link path is relative to the file it is in.
   function resolvePath(from, src) {
-    if (/^[a-z]+:|^\/\/|^#/i.test(src)) return null
+    if (!src || /^[a-z]+:|^\/\/|^#/i.test(src)) return null
     const parts = src.startsWith('/') ? [] : from.split('/').slice(0, -1)
     for (const p of src.replace(/[?#].*$/, '').split('/')) {
       if (p === '..') parts.pop()
@@ -255,6 +259,80 @@
       fv.media.append(video)
     }
   }
+  function renderPreview(el, path, text) {
+    const next = document.createElement('div'), media = []
+    // Render inert image markers first: assigning real src values to throwaway
+    // nodes would start requests even before they are inserted in the document.
+    window.renderMarkdown(next, htmlToMarkdown(text), src => {
+      const url = resolve(path, src)
+      if (!url) return null
+      media.push({ url, video: /\.(mp4|m4v|webm|mov|mkv|ogv)(?:[?#].*)?$/i.test(src) })
+      return 'data:,'
+    }, href => {
+      const target = resolvePath(path, href)
+      return target && view && view.has(target) ? () => openFile(target) : null
+    })
+    const existing = new Map()
+    for (const node of el.querySelectorAll('img, video')) {
+      const key = node.tagName + ':' + node.getAttribute('src')
+      if (!existing.has(key)) existing.set(key, [])
+      existing.get(key).push(node)
+    }
+    const reused = new Map()
+    ;[...next.querySelectorAll('img')].forEach((marker, i) => {
+      const item = media[i], tag = item.video ? 'VIDEO' : 'IMG'
+      const old = existing.get(tag + ':' + item.url)?.shift()
+      if (old) {
+        reused.set(marker, old)
+        if (item.video) old.setAttribute('aria-label', marker.alt)
+        else old.alt = marker.alt
+      } else {
+        const node = document.createElement(tag.toLowerCase())
+        if (item.video) {
+          node.controls = true; node.preload = 'metadata'
+          node.setAttribute('aria-label', marker.alt)
+        } else { node.alt = marker.alt; node.loading = 'eager' }
+        node.src = item.url
+        marker.replaceWith(node)
+      }
+    })
+    function reconcile(parent, desired) {
+      let cursor = parent.firstChild
+      for (const fresh of [...desired.childNodes]) {
+        const retained = reused.get(fresh)
+        let node
+        if (retained) node = retained
+        else if (cursor && cursor.nodeType === fresh.nodeType && cursor.nodeName === fresh.nodeName &&
+                 !['IMG', 'VIDEO', 'A'].includes(fresh.nodeName)) {
+          node = cursor
+          if (node.nodeType === Node.TEXT_NODE) node.nodeValue = fresh.nodeValue
+          else if (node.nodeType === Node.ELEMENT_NODE) {
+            for (const attr of [...node.attributes]) {
+              if (!fresh.hasAttribute(attr.name)) node.removeAttribute(attr.name)
+            }
+            for (const attr of fresh.attributes) {
+              if (node.getAttribute(attr.name) !== attr.value) node.setAttribute(attr.name, attr.value)
+            }
+            reconcile(node, fresh)
+          }
+        } else node = fresh
+        if (node !== cursor) {
+          if (parent.moveBefore && node.isConnected) parent.moveBefore(node, cursor)
+          else parent.insertBefore(node, cursor)
+        }
+        cursor = node.nextSibling
+      }
+      while (cursor) { const next = cursor.nextSibling; cursor.remove(); cursor = next }
+    }
+    reconcile(el, next)
+    // New blocks can contain retained-media markers deeper inside.
+    for (const [marker, node] of reused) {
+      if (!el.contains(marker)) continue
+      if (marker.parentNode.moveBefore && node.isConnected) marker.parentNode.moveBefore(node, marker)
+      else marker.before(node)
+      marker.remove()
+    }
+  }
   let current = null, editing = false, seq = 0
 
   const say = (text, err) => { fv.msg.textContent = text || ''; fv.msg.classList.toggle('err', !!err) }
@@ -277,13 +355,11 @@
     if (!media) fv.media.replaceChildren()
     if (md) {
       fv.md.replaceChildren()
-      window.renderMarkdown(fv.md, htmlToMarkdown(f.content), src => resolve(f.path, src), href => {
-        const target = resolvePath(f.path, href)
-        return target && view && view.has(target) ? () => openFile(target) : null
-      })
+      renderPreview(fv.md, f.path, f.content)
     }
     fv.code.hidden = !!note || editing || media || md
     fv.editor.hidden = !editing
+    window.PrismRichEdit?.sync(fv.editor, editing && f && isMarkdown(f.path) ? f.path : null)
     fv.edit.hidden = editing || media
     fv.edit.disabled = !f || !f.editable
     fv.save.hidden = fv.cancel.hidden = !editing
@@ -325,10 +401,12 @@
     if (editing && fv.editor.value !== current.content && !confirm('Discard your unsaved changes?')) return false
     seq++
     editing = false
+    window.PrismRichEdit?.sync(fv.editor, null)
     current = null
     fv.media.replaceChildren()
     fv.pane.hidden = true
     panel.hidden = true
+    panel.classList.remove('map-wide')
     document.body.classList.remove('panel-open')
     if (view) view.setCurrent(null)
     return true
@@ -352,6 +430,7 @@
 
   async function saveEdit() {
     if (fv.save.disabled || !current) return
+    if (window.PrismRichEdit?.pending()) { say('Wait for uploads to finish before saving.', true); return }
     const file = current
     const content = fv.editor.value
     fv.save.disabled = true
@@ -430,6 +509,7 @@
     map: openMap,
     openFile: (path) => { show(); return openFile(String(path).replace(/^\.?\//, '')) },
     known: p => !!(view && view.has(p)),
+    resolvePath, rawURL, renderPreview,
   }
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return

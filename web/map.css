@@ -1,0 +1,33 @@
+/* Constellation: the map view drawn as a starfield. Loaded by map.js. */
+.files-panel.map-wide { left: calc(var(--side-w, 0px) * var(--side-on, 0) + 12px); width: auto; }
+body.sidebar-open .files-panel.map-wide { --side-on: 1; }
+.map-stage { position: relative; flex: 1; min-height: 0; border-radius: 12px; overflow: hidden; background: radial-gradient(ellipse at 50% 40%, color-mix(in srgb, var(--panel) 70%, #000) 0%, color-mix(in srgb, var(--bg) 80%, #000) 70%); }
+.map-stage .map-canvas { position: absolute; inset: 0; width: 100%; height: 100%; background: transparent; border-radius: 0; }
+.map-card { position: absolute; z-index: 3; pointer-events: none; min-width: 190px; max-width: 290px; padding: 10px 12px; border-radius: 10px; font-size: 12px; line-height: 1.45; color: var(--fg);
+  background: color-mix(in srgb, var(--bg) 82%, transparent); border: 1px solid color-mix(in srgb, var(--c, var(--s6)) 45%, transparent);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.25), 0 10px 40px rgba(0,0,0,.5), 0 0 26px color-mix(in srgb, var(--c, var(--s6)) 22%, transparent); backdrop-filter: blur(8px); transition: opacity .12s; }
+.map-card[hidden] { display: none; }
+.map-card b { display: block; font-size: 13px; color: var(--c, var(--fg)); text-shadow: 0 0 12px color-mix(in srgb, var(--c, var(--s6)) 60%, transparent); }
+.map-card .dim { color: var(--muted); }
+.map-card .row { display: flex; gap: 12px; margin-top: 4px; }
+.map-card .out { color: var(--s4, #6fd3ff); }
+.map-card .in { color: var(--s1, #ffa25f); }
+.map-card code { font-size: 11px; color: var(--muted); }
+.map-tools { position: absolute; z-index: 2; top: 10px; left: 10px; right: 10px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; pointer-events: none; }
+.map-tools > * { pointer-events: auto; }
+.map-tools .spacer { flex: 1; pointer-events: none; }
+.map-btn { background: color-mix(in srgb, var(--bg) 70%, transparent); color: var(--muted); border: 1px solid var(--faint); border-radius: 999px; padding: 3px 11px; font: inherit; font-size: 12px; cursor: pointer; backdrop-filter: blur(6px); transition: color .15s, border-color .15s, box-shadow .15s; }
+.map-btn:hover { color: var(--fg); border-color: color-mix(in srgb, var(--s6) 50%, var(--faint)); }
+.map-btn[aria-pressed="true"] { color: var(--fg); border-color: var(--s6); box-shadow: 0 0 14px color-mix(in srgb, var(--s6) 35%, transparent); }
+.map-find { width: 180px; background: color-mix(in srgb, var(--bg) 80%, transparent); color: var(--fg); border: 1px solid var(--s6); border-radius: 999px; padding: 3px 12px; font: inherit; font-size: 12px; outline: none; box-shadow: 0 0 16px color-mix(in srgb, var(--s6) 30%, transparent); }
+.map-find[hidden] { display: none; }
+.map-legend { position: absolute; z-index: 2; left: 10px; bottom: 10px; display: flex; flex-direction: column; gap: 2px; max-height: 45%; overflow: auto; font-size: 11px; }
+.map-legend button { display: flex; align-items: center; gap: 7px; background: none; border: 0; padding: 1px 4px; color: var(--muted); font: inherit; cursor: pointer; text-align: left; border-radius: 5px; }
+.map-legend button:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.map-legend button.off { opacity: .35; text-decoration: line-through; }
+.map-legend i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); box-shadow: 0 0 8px var(--c); }
+.map-time { position: absolute; z-index: 2; right: 14px; bottom: 12px; font-size: 22px; font-weight: 600; letter-spacing: .04em; color: var(--fg); text-shadow: 0 0 18px color-mix(in srgb, var(--s6) 60%, transparent); pointer-events: none; }
+.map-time[hidden] { display: none; }
+.map-hint { position: absolute; z-index: 2; right: 12px; top: 44px; font-size: 11px; color: var(--muted); pointer-events: none; text-align: right; }
+@media (prefers-reduced-motion: reduce) { .map-card { transition: none; } }
+.map-stage .map-canvas:focus { outline: none; }

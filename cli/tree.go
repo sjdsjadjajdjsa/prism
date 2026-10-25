@@ -571,7 +571,7 @@ var (
 func parseSource(lang string, data []byte) (symbols, imports []string) {
 	add := func(s string) {
 		if len(symbols) < treeMaxSymbols {
-			symbols = append(symbols, clipLine(s, 70))
+			symbols = append(symbols, clipWords(s, 70))
 		}
 	}
 	inGoImport := false
@@ -802,7 +802,7 @@ func (t *projectTree) promptMap(budget int) string {
 			head := "\n\nProject map when this chat started (★ = many files use it; folders like node_modules and .gitignored files are left out):\n"
 			out := b.String()
 			if len(out) > budget {
-				out = clipUTF8(out, budget) + "\n… (map cut; use list or grep for the rest)"
+				out = clipText(out, budget) + "\n… (map cut; use list or grep for the rest)"
 			}
 			return head + strings.TrimRight(out, "\n")
 		}

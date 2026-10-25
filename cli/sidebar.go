@@ -468,12 +468,12 @@ func drawSidebar(cv *canvas, t theme, m model) {
 		cv.set(w, y, '│', div, false)
 	}
 	x := cv.grad(1, 0, "files", t, 0.1, 10, true)
-	cv.text(x+1, 0, clip(m.project, max(0, w-x-2)), t.muted, false)
+	cv.text(x+1, 0, clipWidth(m.project, max(0, w-x-2)), t.muted, false)
 
 	top, shown, links := m.sideList()
 	switch p := m.side.prompt; {
 	case p != nil && p.op == "delete":
-		cv.text(1, 2, clip("delete "+path.Base(p.target)+"? y/n", w-2), t.red, true)
+		cv.text(1, 2, clipWidth("delete "+path.Base(p.target)+"? y/n", w-2), t.red, true)
 	case p != nil:
 		label := map[string]string{"file": "new file: ", "folder": "new folder: ", "rename": "rename: "}[p.op]
 		cv.fill(0, 2, w, 1, t.faint)
@@ -496,7 +496,7 @@ func drawSidebar(cv *canvas, t theme, m model) {
 	}
 	switch {
 	case m.side.err != "":
-		cv.text(1, top, clip("✕ "+m.side.err, w-2), t.red, false)
+		cv.text(1, top, clipWidth("✕ "+m.side.err, w-2), t.red, false)
 	case !m.side.loaded:
 		cv.text(1, top, "loading…", t.muted, false)
 	case len(rows) == 0 && len(m.side.filter) > 0:
@@ -552,7 +552,7 @@ func drawSidebar(cv *canvas, t theme, m model) {
 			marks = []seg{{text: fmt.Sprint(m.side.counts[r.path]), fg: t.muted}}
 		}
 		room := w - x - 1 - segsWidth(marks)
-		x = cv.text(x, y, clip(name, max(1, room)), col, bold)
+		x = cv.text(x, y, clipWidth(name, max(1, room)), col, bold)
 		mx := w - 1 - segsWidth(marks)
 		for _, s := range marks {
 			mx = cv.text(mx, y, s.text, s.fg, s.bold)
@@ -565,20 +565,20 @@ func drawSidebar(cv *canvas, t theme, m model) {
 			cv.text(1, y, "links", t.muted, true)
 			y++
 			for _, p := range n.Imports[:min(3, len(n.Imports))] {
-				cv.text(1, y, clip("→ "+p, w-2), t.muted, false)
+				cv.text(1, y, clipWidth("→ "+p, w-2), t.muted, false)
 				y++
 			}
 			for _, p := range n.ImportedBy[:min(3, len(n.ImportedBy))] {
-				cv.text(1, y, clip("← "+p, w-2), t.muted, false)
+				cv.text(1, y, clipWidth("← "+p, w-2), t.muted, false)
 				y++
 			}
 		}
 	}
 	switch {
 	case m.side.note != "":
-		cv.text(1, m.h-1, clip(m.side.note, w-2), t.muted, false)
+		cv.text(1, m.h-1, clipWidth(m.side.note, w-2), t.muted, false)
 	case m.side.focus:
-		cv.text(1, m.h-1, clip("a new · r rename · d delete · @ chat · / find", w-2), mix(t.panel, t.muted, 0.8), false)
+		cv.text(1, m.h-1, clipWidth("a new · r rename · d delete · @ chat · / find", w-2), mix(t.panel, t.muted, 0.8), false)
 	}
 }
 

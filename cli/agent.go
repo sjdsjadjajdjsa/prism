@@ -113,36 +113,40 @@ func (e *busyError) Error() string { return fmt.Sprintf("router error %d: %s", e
 var busyWaits = []time.Duration{5 * time.Second, 15 * time.Second, 30 * time.Second}
 
 type Agent struct {
-	api        string
-	dir        string
-	window     int
-	tokens     int
-	lastPrompt int
-	sent       int
-	requests   int
-	messages   []Message
-	store      *store
-	session    string
-	memMark    int
-	quick      bool
-	light      bool
-	lastRoute  string
-	prefer     string
-	cached     int
-	lastCached int
-	preferOK   bool
-	files      string
-	mapReady   chan struct{}
-	mapShown   bool
-	crewOn     bool
-	tree       *projectTree
-	touchMu    sync.Mutex
-	touched    map[string]string
-	skills     []skill
-	mcp        *mcpHub
-	system     bool
-	approve    func(ctx context.Context, tool, arg string) bool // prism fix: a yes before every change
-	confirm    func(ctx context.Context, q approval) answer     // asks the user one question
+	steeringOpen  bool
+	steerMu       sync.Mutex
+	pendingSteers []string
+	promptQueue   []string
+	api           string
+	dir           string
+	window        int
+	tokens        int
+	lastPrompt    int
+	sent          int
+	requests      int
+	messages      []Message
+	store         *store
+	session       string
+	memMark       int
+	quick         bool
+	light         bool
+	lastRoute     string
+	prefer        string
+	cached        int
+	lastCached    int
+	preferOK      bool
+	files         string
+	mapReady      chan struct{}
+	mapShown      bool
+	crewOn        bool
+	tree          *projectTree
+	touchMu       sync.Mutex
+	touched       map[string]string
+	skills        []skill
+	mcp           *mcpHub
+	system        bool
+	approve       func(ctx context.Context, tool, arg string) bool // prism fix: a yes before every change
+	confirm       func(ctx context.Context, q approval) answer     // asks the user one question
 
 	role      string
 	model     string
@@ -409,8 +413,8 @@ func (a *Agent) rememberBrief() {
 }
 
 func (a *Agent) Run(ctx context.Context, prompt string, emit func(any)) {
-	// Release all file claims when the turn ends (idempotent).
-	defer a.hub.release(a.tabID)
+	a.openSteering()
+nextTurn:
 	a.messages = append(a.messages, Message{Role: "user", Content: prompt, Note: a.planNote()})
 	if a.undoStack != nil {
 		a.currentTurn = a.undoStack.beginTurn()
@@ -421,11 +425,20 @@ func (a *Agent) Run(ctx context.Context, prompt string, emit func(any)) {
 	a.startRules()
 	a.startLoopGuard()
 	err := a.loop(ctx, emit)
+	if err == nil {
+		err = ctx.Err()
+	}
 	a.currentTurn = nil // turn is sealed; no more recording
 	if errors.Is(err, context.Canceled) {
 		a.stopped()
 	}
 	a.saveSession()
+	if next, steered := a.finishPrompt(err == nil && ctx.Err() == nil); next != "" {
+		prompt = next
+		emit(evFollowup{text: next, steered: steered})
+		goto nextTurn
+	}
+	a.hub.release(a.tabID)
 	emit(evDone{err: err})
 }
 
@@ -488,6 +501,7 @@ func (a *Agent) loop(ctx context.Context, emit func(any)) error {
 		limit = maxSteps
 	}
 	for step := range limit {
+		a.drainSteers()
 		a.light = step == 0 && len([]rune(a.latestRequest())) <= 80
 		a.prune()
 		if a.tokens > a.window*7/10 {

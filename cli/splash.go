@@ -178,13 +178,13 @@ func drawSplash(cv *canvas, t theme, m model) {
 	statusY := cv.h - 2
 	if statusY >= 0 {
 		themeX := max(0, cv.w-len(t.name)-3)
-		themeStr := clip(t.name, cv.w)
+		themeStr := clipWidth(t.name, cv.w)
 		cv.text(themeX, statusY, themeStr, mix(t.bg, t.muted, ease((n-2200)/500)), false)
 
 		maxStatusW := themeX - 6
 		if maxStatusW > 0 {
 			cv.text(3, statusY, "●", mix(t.bg, dot, ease((n-2200)/500)), false)
-			statusStr := clip(status, maxStatusW)
+			statusStr := clipWidth(status, maxStatusW)
 			cv.text(5, statusY, statusStr, mix(t.bg, t.muted, ease((n-2200)/500)), false)
 		}
 	}

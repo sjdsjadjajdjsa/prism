@@ -4,6 +4,9 @@
 
 ### New
 
+- The map is now a constellation: stars for files, galaxies for folders, glowing beams for links. Hover lights up a file's links, click flies to it, double-click opens it, `/` finds a file. Time-lapse replays how the project grew from git history, and the trail shows the path Prism took this chat.
+- Talk to Prism while it works: Enter sends a correction it picks up before its next step, alt+enter (or ctrl+q) queues a message for after, esc still stops. `/notify on|off` for a desktop notification when it finishes or needs your yes.
+- The browser editor shows a live preview for Markdown, and you can paste or drag a picture or video straight in; it's saved next to the note in `attachments/`.
 - Commands show their choices as you type: `/editor ` lists simple and nvim, `/theme ` the themes, `/beam ` on and off, and so on, in the terminal and the browser.
 - A simple editor is now the default beside the chat: type to write, the mouse selects, ctrl+s saves, ctrl+z undoes, ctrl+c/x/v, ctrl+a, ctrl+f find. Neovim is still there with `/editor nvim`.
 - The file tree starts closed; ctrl+b opens it. Without Neovim installed, text files open in the viewer instead of failing.

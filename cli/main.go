@@ -31,23 +31,26 @@ type statusMsg struct {
 }
 
 type entry struct {
-	kind   string
-	text   string
-	id     string
-	tool   string
-	arg    string
-	done   bool
-	res    toolResult
-	open   bool
-	rows   []routeRow
-	more   int    // rows hidden by the /models cap
-	source string // kind=="meta": who answered, routeRow.Source
-	lines  []string
-	crew   *crewBlock
-	view   *cmdView // structured command output (kind=="cmd")
+	kind    string
+	text    string
+	id      string
+	tool    string
+	arg     string
+	steered bool
+	done    bool
+	res     toolResult
+	open    bool
+	rows    []routeRow
+	more    int    // rows hidden by the /models cap
+	source  string // kind=="meta": who answered, routeRow.Source
+	lines   []string
+	crew    *crewBlock
+	view    *cmdView // structured command output (kind=="cmd")
 }
 
 type model struct {
+	notifyOff      bool
+	blurred        bool
 	*tab                  // the chat on screen
 	tabs           []*tab // every open chat, in tab bar order
 	hub            *tabHub
@@ -140,6 +143,10 @@ func (m model) idle() bool {
 
 func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.FocusMsg:
+		m.blurred = false
+	case tea.BlurMsg:
+		m.blurred = true
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
 	case tickMsg:
@@ -284,7 +291,14 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tab = shown
 		}
 		m.syncTab(msg.t)
-		return m, waitTab(msg.t)
+		var notify tea.Cmd
+		switch msg.event.(type) {
+		case evDone:
+			notify = notification(m.blurred && !m.notifyOff, "Turn finished")
+		case evApprove:
+			notify = notification(m.blurred && !m.notifyOff, "Prism needs your approval")
+		}
+		return m, tea.Batch(waitTab(msg.t), notify)
 	case tea.PasteMsg:
 		if m.chat && m.editorOn() && m.es.focus && !m.menu.open && !m.fb.open {
 			m.es.ed.paste(msg.Content)
@@ -471,6 +485,10 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.syncTab(m.tab)
 		return m, nil
 	}
+	queueKey := k == "alt+enter" || k == "ctrl+q"
+	if queueKey && (m.loginWaiting != "" || !m.busy) {
+		k = "enter"
+	}
 	if cmd, ok := m.suggestKey(k); ok {
 		return m, cmd
 	}
@@ -484,6 +502,11 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+y":
 		m.theme = (m.theme + 1) % len(themes)
 		saveTheme(themes[m.theme].name)
+	case "alt+enter", "ctrl+q":
+		if m.busy && m.agent.steeringIsOpen() && m.agent.Queue(string(m.input)) {
+			m.input = nil
+		}
+		return m, nil
 	case "enter":
 		if text := strings.TrimSpace(string(m.input)); m.loginWaiting != "" && !strings.HasPrefix(text, "/") {
 			if text == "" {
@@ -605,7 +628,14 @@ func (m *model) openChat() {
 
 func (m *model) submit() tea.Cmd {
 	text := strings.TrimSpace(string(m.input))
-	if text == "" || m.busy {
+	if text == "" {
+		return nil
+	}
+	if m.busy {
+		if m.agent.steeringIsOpen() && !strings.HasPrefix(text, "/") && m.agent.Steer(text) {
+			m.entries = append(m.entries, &entry{kind: "user", text: text, steered: true})
+			m.input = nil
+		}
 		return nil
 	}
 	m.input, m.scroll, m.planAsk = nil, 0, false
@@ -617,6 +647,7 @@ func (m *model) submit() tea.Cmd {
 		return m.command(text)
 	}
 	m.entries = append(m.entries, &entry{kind: "user", text: text})
+	m.agent.openSteering()
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel, m.busy, m.thinking, m.busySince, m.thinkSince, m.reasoning = cancel, true, true, m.now, m.now, ""
 	m.turnTools, m.turnTests, m.turnFailed, m.answering = 0, false, false, false
@@ -655,6 +686,14 @@ func (m *model) keepView(change func()) {
 
 func (m *model) handle(event any) {
 	switch e := event.(type) {
+	case evFollowup:
+		m.turnTools, m.turnTests, m.turnFailed, m.answering = 0, false, false, false
+		m.busySince, m.thinkSince, m.thinking, m.reasoning = m.now, m.now, true, ""
+		m.route, m.source = "", ""
+		m.started(e.text)
+		if !e.steered {
+			m.entries = append(m.entries, &entry{kind: "user", text: e.text})
+		}
 	case evRoute:
 		m.route, m.source, m.waited, m.answering = e.route, e.source, e.wait, true
 	case evReasoning:
@@ -745,6 +784,11 @@ func (m *model) handle(event any) {
 			m.speak("noted.")
 		}
 	case evDone:
+		if m.agent != nil && e.err != nil {
+			if restored := m.agent.restorePrompts(); restored != "" {
+				m.input = []rune(strings.TrimSpace(string(m.input) + "\n\n" + restored))
+			}
+		}
 		m.busy, m.thinking, m.cancel, m.reasoning, m.draft, m.pending, m.queued = false, false, nil, "", nil, nil, nil
 		m.settleCrews()
 		m.result = "done"
@@ -849,6 +893,7 @@ func (m model) View() tea.View {
 	}
 	v := tea.NewView(cv.String())
 	v.AltScreen = true
+	v.ReportFocus = true
 	v.WindowTitle = "prism"
 	v.Cursor = cursor
 	if m.chat {
@@ -1090,7 +1135,7 @@ func main() {
 		return a
 	}
 	m := model{ticking: true, start: time.Now(), hub: newTabHub(), spawn: spawn, ready: -1, project: projectName(dir), lastTextAt: -time.Hour, theme: themeIndex(*themeName), gallery: *gallery,
-		beamOn: loadSetting("beam") != "off", quiet: loadSetting("quiet") == "on", sayAt: -time.Hour, es: editorState{split: loadEditorSplit()}, side: sidebarState{expanded: map[string]bool{}}}
+		notifyOff: loadSetting("notify") == "off", beamOn: loadSetting("beam") != "off", quiet: loadSetting("quiet") == "on", sayAt: -time.Hour, es: editorState{split: loadEditorSplit()}, side: sidebarState{expanded: map[string]bool{}}}
 	m.openTabs(agent, *resume)
 	var options []tea.ProgramOption
 	if os.Getenv("COLORTERM") == "" && os.Getenv("TERM") != "linux" {

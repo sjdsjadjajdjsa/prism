@@ -109,7 +109,9 @@ func (s *server) handler(port string) http.Handler {
 	mux.HandleFunc("GET /api/file", s.readFile)
 	mux.HandleFunc("POST /api/file", s.saveFile)
 	mux.HandleFunc("GET /api/raw", s.rawFile)
+	mux.HandleFunc("GET /api/births", s.births)
 	mux.HandleFunc("POST /api/fs", s.fileChange)
+	mux.HandleFunc("POST /api/upload", s.uploadMedia)
 	mux.HandleFunc("GET /tree.js", treeAsset("tree.js", "text/javascript"))
 	mux.HandleFunc("GET /tree.css", treeAsset("tree.css", "text/css"))
 	mux.HandleFunc("GET /api/history", s.history)
@@ -311,7 +313,7 @@ func (s *server) info(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	pinned := a.model
 	s.mu.Unlock()
-	writeJSON(w, map[string]any{"project": projectName(s.agent.dir), "theme": s.theme, "models_ready": ready, "handoff": handoff, "open": open, "model": pinned, "source": answeredBy("", pinned), "plan": a.plan.Load(), "beam": loadSetting("beam") != "off", "quiet": loadSetting("quiet") == "on"})
+	writeJSON(w, map[string]any{"project": projectName(s.agent.dir), "theme": s.theme, "models_ready": ready, "handoff": handoff, "open": open, "model": pinned, "source": answeredBy("", pinned), "plan": a.plan.Load(), "beam": loadSetting("beam") != "off", "quiet": loadSetting("quiet") == "on", "notify": loadSetting("notify") != "off"})
 }
 
 // snapshot converts the agent's messages to wire entries. Callers must hold
@@ -518,6 +520,7 @@ func (s *server) reset(w http.ResponseWriter, r *http.Request) {
 func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Message string `json:"message"`
+		Mode    string `json:"mode"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil || strings.TrimSpace(body.Message) == "" {
 		http.Error(w, "send JSON like {\"message\": \"...\"}", http.StatusBadRequest)
@@ -533,12 +536,28 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
+	if s.busy && s.busyAgent == a && a.steeringIsOpen() {
+		var accepted bool
+		if body.Mode == "queue" {
+			accepted = a.Queue(body.Message)
+		} else {
+			accepted = a.Steer(body.Message)
+		}
+		s.mu.Unlock()
+		if !accepted {
+			http.Error(w, "turn is closed or message cannot be queued", http.StatusConflict)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+		return
+	}
 	if s.busy || s.tabsWorking(r, a, false) {
 		s.mu.Unlock()
 		http.Error(w, "prism is already working on something", http.StatusConflict)
 		return
 	}
 	ctx, cancel := context.WithCancel(r.Context())
+	a.openSteering()
 	s.busy, s.cancel, s.busyAgent = true, cancel, a
 	if a == s.agent {
 		s.snap = s.snapshot()
@@ -586,12 +605,17 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		a.approve = yesNo(a.confirm)
 	}
 	defer func() { a.confirm, a.approve = confirm, approve }()
+	var turnErr error
 	a.Run(ctx, strings.TrimSpace(body.Message), func(event any) {
 		if v, ok := crewWire(event); ok {
 			send(v)
 			return
 		}
 		switch e := event.(type) {
+		case evFollowup:
+			start, route, source, tools, tests = time.Now(), "", "", 0, false
+			pending = map[string]string{}
+			send(map[string]any{"type": "followup", "text": e.text, "steered": e.steered})
 		case evRoute:
 			route, source = e.route, e.source
 			send(map[string]any{"type": "route", "route": e.route, "wait_ms": e.wait.Milliseconds(), "source": answeredBy(e.source, "")})
@@ -622,21 +646,24 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 			s.mu.Unlock()
 			send(map[string]any{"type": "usage", "tokens": e.tokens, "window": e.window})
 		case evDone:
-			switch {
-			case e.err == nil:
-				done := map[string]any{"type": "done", "seconds": time.Since(start).Seconds(), "model": modelName(route), "source": answeredBy(source, a.model), "tools": tools, "tests_passed": tests, "plan": a.plan.Load()}
-				if a.plan.Load() {
-					done["pick"] = pickWire(planMenu(), func(it menuItem) string { return "/plan " + it.match })
-				}
-				send(done)
-			case errors.Is(e.err, context.Canceled):
-				send(map[string]any{"type": "error", "headline": "stopped", "detail": ""})
-			default:
-				headline, detail := friendly(e.err)
-				send(map[string]any{"type": "error", "headline": headline, "detail": detail})
-			}
+			turnErr = e.err
 		}
 	})
+	restored := a.restorePrompts()
+	if turnErr == nil {
+		done := map[string]any{"type": "done", "restore": restored, "seconds": time.Since(start).Seconds(), "model": modelName(route), "source": answeredBy(source, a.model), "tools": tools, "tests_passed": tests, "plan": a.plan.Load()}
+		if a.plan.Load() {
+			done["pick"] = pickWire(planMenu(), func(it menuItem) string { return "/plan " + it.match })
+		}
+		send(done)
+	} else {
+		headline, detail := "stopped", ""
+		if !errors.Is(turnErr, context.Canceled) {
+			headline, detail = friendly(turnErr)
+		}
+		send(map[string]any{"type": "error", "headline": headline, "detail": detail})
+		send(map[string]any{"type": "done", "restore": restored, "failed": true})
+	}
 	if job := a.memoryJob(); job != nil {
 		s.memWG.Add(1)
 		go func() {
@@ -1088,9 +1115,9 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 	case "/tree":
 		title, lines := treeCommand(a, strings.Join(fields[1:], " "))
 		info(title, lines)
-	case "/beam", "/quiet":
+	case "/beam", "/quiet", "/notify":
 		key := strings.TrimPrefix(fields[0], "/")
-		on := loadSetting(key) == "on" || (key == "beam" && loadSetting(key) != "off")
+		on := loadSetting(key) == "on" || ((key == "beam" || key == "notify") && loadSetting(key) != "off")
 		on = !on
 		if len(fields) > 1 {
 			on = fields[1] != "off"

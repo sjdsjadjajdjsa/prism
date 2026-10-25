@@ -740,10 +740,10 @@ func (e *simpleEditor) draw(cv *canvas, x, y int) (int, int, tea.CursorShape, bo
 	}
 	b := e.cur
 	if b == nil {
-		cv.text(x+2, y+1, clip("no file open", e.w-4), t.muted, true)
-		cv.text(x+2, y+3, clip("ctrl+b, then a file · or /editor <file>", e.w-4), t.muted, false)
+		cv.text(x+2, y+1, clipWidth("no file open", e.w-4), t.muted, true)
+		cv.text(x+2, y+3, clipWidth("ctrl+b, then a file · or /editor <file>", e.w-4), t.muted, false)
 		if e.note != "" {
-			cv.text(x+2, y+5, clip(e.note, e.w-4), t.red, false)
+			cv.text(x+2, y+5, clipWidth(e.note, e.w-4), t.red, false)
 		}
 		return 0, 0, tea.CursorBar, false
 	}
@@ -816,7 +816,7 @@ func (e *simpleEditor) draw(cv *canvas, x, y int) (int, int, tea.CursorShape, bo
 	if len([]rune(left))+len([]rune(right)) > e.w {
 		right = fmt.Sprintf("%d:%d ", b.row+1, b.col+1)
 	}
-	lx := cv.text(x, sy, clip(left, max(1, e.w-len([]rune(right))-1)), t.fg, true)
+	lx := cv.text(x, sy, clipWidth(left, max(1, e.w-len([]rune(right))-1)), t.fg, true)
 	if b.dirty && !e.finding {
 		if c := cv.get(lx-1, sy); c != nil {
 			c.fg = warnColor(t)

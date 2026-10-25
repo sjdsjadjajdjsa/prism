@@ -276,11 +276,11 @@ Inside the terminal app, `/web` moves the current chat to your browser, with the
 
 <p align="center"><img src="docs/files.png" alt="The browser: the file tree docked on the left and README.md open on the right with its pictures shown" width="820"></p>
 
-**Pictures and videos.** A picture shows as a real picture in Ghostty, kitty and WezTerm, and as coloured blocks in other terminals. A video plays right in the terminal (space pauses, the arrow keys skip 5 seconds, no sound), and `o` opens either one in your browser at full quality. In the browser, clicking a picture shows it, a video plays with sound, and Markdown files show their pictures (Preview and Source switch between them).
+**Pictures and videos.** A picture shows as a real picture in Ghostty, kitty and WezTerm, and as coloured blocks in other terminals. A video plays right in the terminal (space pauses, the arrow keys skip 5 seconds, no sound), and `o` opens either one in your browser at full quality. In the browser, clicking a picture shows it, a video plays with sound, and Markdown files show their pictures (Preview and Source switch between them). When you edit a Markdown note in the browser, paste or drag a picture or video straight into the text: it's saved in an `attachments/` folder next to the note and shows in the live preview.
 
 <p align="center"><img src="docs/map.png" alt="The map: files as dots coloured by folder, lines for imports and Markdown links, with labels on the files most linked" width="820"></p>
 
-**The map.** In the browser, **map** in the file tree (or `/map`) shows how the files link, like Obsidian's graph: imports in code and links between Markdown notes, including `[[wiki links]]`. Dots are coloured by folder, files Prism is working on glow, and clicking a dot opens the file. With a file open, the map starts around that file (what it links to and what links to it, two steps out), like Obsidian's local graph; **around …** switches to the whole project, and **linked only** hides files with no links.
+**The map.** In the browser, **map** in the file tree (or `/map`) shows the project as a constellation: every file a star, sized by how many files use it, folders as galaxies, imports and Markdown links (including `[[wiki links]]`) as beams of light. Hover a star to light up what it uses and what uses it, click to fly to it, double-click to open it, and `/` finds one. **time-lapse** replays how the project grew from its git history, **trail** shows the path Prism took through the files this chat, and the legend hides folders. With a file open, the map starts around that file, like Obsidian's local graph.
 
 `/tree changed` and `/tree <text>` print a list instead, with `★` for files many others use. `prism tree --html` writes the browser tree as a page you can open anywhere. The tree respects `.gitignore`, and watching for changes costs nothing while nothing changes. Prism also gets a short version of the map (about 600 tokens), so easy tasks start in the right file.
 
@@ -317,6 +317,9 @@ Prism can search the web and read pages when it needs facts it doesn't have, lik
 | --- | --- |
 | `enter` / `shift+enter` | send / new line |
 | `esc` | stop the AI |
+| `enter` while it works | send a correction it uses before its next step |
+| `alt+enter` or `ctrl+q` while it works | queue a message for when it's done |
+| `/notify` | a desktop notification when it finishes or needs your yes (on or off) |
 | `ctrl+c` or `/quit` | close Prism |
 | `ctrl+y` or `/theme` | switch theme (prism, tokyo-night, catppuccin, rose-pine, matte-black, gruvbox, nord, everforest) |
 | `ctrl+e` or `/editor` | the editor beside the chat · `/editor <file>` opens a file · `/editor nvim` or `/editor simple` picks the editor |

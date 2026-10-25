@@ -170,7 +170,7 @@ func loadUserCommands(dir string, maxAge time.Duration) []userCommand {
 			continue
 		}
 		base := strings.TrimSuffix(filepath.Base(f.path), ".md")
-		c := userCommand{name: "/" + base, source: f.label, file: shortCmdPath(f.path, dir)}
+		c := userCommand{name: "/" + base, source: f.label, file: shortPath(f.path, dir)}
 		c.help, c.body = parseUserCommand(string(data))
 		switch {
 		case !skillName.MatchString(base) || !utf8.ValidString(base):
@@ -197,16 +197,6 @@ func loadUserCommands(dir string, maxAge time.Duration) []userCommand {
 	}
 	savedCache.dir, savedCache.sig, savedCache.list = dir, sig.String(), list
 	return list
-}
-
-func shortCmdPath(p, dir string) string {
-	if rel, err := filepath.Rel(dir, p); err == nil && !strings.HasPrefix(rel, "..") {
-		return filepath.ToSlash(rel)
-	}
-	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(p, home+string(filepath.Separator)) {
-		return "~/" + filepath.ToSlash(strings.TrimPrefix(p, home+string(filepath.Separator)))
-	}
-	return p
 }
 
 func findUserCommand(dir, name string) (userCommand, bool) {

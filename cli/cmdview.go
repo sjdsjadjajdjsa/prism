@@ -74,7 +74,7 @@ func cmdLines(t theme, v cmdView, width int) []line {
 			}
 
 			// Long names are clipped so they never push the description out of line.
-			nameSeg := seg{text: padRune(clip(it.name, nameW), nameW+2), fg: t.at(0.5), bold: true}
+			nameSeg := seg{text: padRunes(clipWidth(it.name, nameW), nameW+2), fg: t.at(0.5), bold: true}
 
 			descWidth := width - 4 - 2 - nameW - 2 // indent(4) + dot(2) + name + gap
 			if descWidth < 20 {
@@ -119,14 +119,6 @@ func cmdLines(t theme, v cmdView, width int) []line {
 	}
 
 	return out
-}
-
-func padRune(s string, n int) string {
-	r := utf8.RuneCountInString(s)
-	if r >= n {
-		return s
-	}
-	return s + strings.Repeat(" ", n-r)
 }
 
 // wrapWords keeps existing newlines and only splits a word longer than width.
@@ -414,14 +406,14 @@ var helpGroups = []struct {
 	{"chat", []string{"/new", "/clear", "/resume", "/compact", "/undo", "/plan", "/quit"}},
 	{"models & keys", []string{"/models", "/model", "/key", "/login", "/usage"}},
 	{"project", []string{"/init", "/files", "/open", "/tree", "/map", "/editor", "/skills", "/commands", "/hooks", "/rules", "/memory", "/mcp", "/web"}},
-	{"look & feel", []string{"/theme", "/beam", "/quiet", "/help"}},
+	{"look & feel", []string{"/theme", "/beam", "/quiet", "/notify", "/help"}},
 	{"tabs", []string{"/tabs", "/rename", "/ask"}},
 }
 
 // The keys line at the bottom of /help.
 const (
-	helpKeysTUI = "keys: enter send · shift+enter new line · esc stop · tab completes · ctrl+b files · ctrl+e editor · ctrl+o open all steps · ctrl+y theme · ctrl+t new tab · ctrl+w close tab · ctrl+pgup/pgdown switch · alt+1..9 jump · pgup/pgdown/end scroll"
-	helpKeysWeb = "keys: enter send · shift+enter new line · tab completes · ↑↓ pick · ctrl+b files · esc stop or close"
+	helpKeysTUI = "keys: enter send / correction while working · alt+enter or ctrl+q queue · shift+enter new line · esc stop · tab completes · ctrl+b files · ctrl+e editor · ctrl+o open all steps · ctrl+y theme · ctrl+t new tab · ctrl+w close tab · ctrl+pgup/pgdown switch · alt+1..9 jump · pgup/pgdown/end scroll"
+	helpKeysWeb = "keys: enter send / correction while working · alt+enter queue · shift+enter new line · tab completes · ↑↓ pick · ctrl+b files · esc stop or close"
 )
 
 func helpView() cmdView { return helpViewFor(false) }

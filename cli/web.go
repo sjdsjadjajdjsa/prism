@@ -68,7 +68,7 @@ func webTool(ctx context.Context, raw string) toolResult {
 		if cut > 0 {
 			text += fmt.Sprintf("\n… %d more characters cut; search for the part you need or read a more specific page.", cut)
 		}
-		return toolResult{ok: true, output: head + "\n" + text, summary: clipLine(firstNonEmpty(title, args.Read), 60)}
+		return toolResult{ok: true, output: head + "\n" + text, summary: clipWords(firstNonEmpty(title, args.Read), 60)}
 	}
 	n := args.Max
 	if n <= 0 || n > 10 {
@@ -85,9 +85,9 @@ func webTool(ctx context.Context, raw string) toolResult {
 	b.WriteString(webUntrusted)
 	fmt.Fprintf(&b, "Results for %q (%s):\n", args.Search, source)
 	for i, r := range results {
-		fmt.Fprintf(&b, "%d. %s — %s\n", i+1, clipLine(r.title, 120), r.url)
+		fmt.Fprintf(&b, "%d. %s — %s\n", i+1, clipWords(r.title, 120), r.url)
 		if r.snippet != "" {
-			b.WriteString("   " + clipLine(r.snippet, 260) + "\n")
+			b.WriteString("   " + clipWords(r.snippet, 260) + "\n")
 		}
 	}
 	b.WriteString("Read a result with {\"read\": url} before relying on it.")

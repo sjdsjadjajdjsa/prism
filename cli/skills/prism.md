@@ -9,7 +9,7 @@ Use this when the user asks how Prism works, what a command does, how to sign in
 
 ## Commands (type in the chat box; tab completes)
 
-Commands with settings (/editor, /theme, /model, /beam, /quiet, /plan, /tree, /hooks, /rules, /mcp, /memory, /skills, /commands, /login, /key) show their choices as soon as you type the name and a space, for example `/editor ` lists simple and nvim. Arrows pick, enter runs, tab fills it in.
+Commands with settings (/editor, /theme, /model, /beam, /quiet, /notify, /plan, /tree, /hooks, /rules, /mcp, /memory, /skills, /commands, /login, /key) show their choices as soon as you type the name and a space, for example `/editor ` lists simple and nvim. Arrows pick, enter runs, tab fills it in.
 
 Chat
 - `/new` fresh chat. `/clear` clears the screen and starts fresh (saves first).
@@ -40,7 +40,7 @@ Project
 - `/web` opens this chat in the browser; press enter in the terminal to come back (in web mode `o` reopens, `c` copies the link).
 
 Settings
-- `/theme` or `/theme <name>`, `/beam` finish beam on/off, `/quiet` Shard's lines on/off.
+- `/theme` or `/theme <name>`, `/beam` finish beam on/off, `/quiet` Shard's lines on/off. `/notify` toggles background notifications; `/notify on` or `/notify off` saves the choice.
 
 Safety and checks
 - Prism asks before risky commands (deleting folders, `git reset --hard`, `git push`, publishing or deploying, `curl … | sh`, `ssh`, dropping database data, `mkfs`, `shutdown`). Answer y (yes once), a (yes for this chat) or n (no).
@@ -55,7 +55,8 @@ Tabs
 
 - ctrl+t new tab, ctrl+w close tab (asks first if busy, answer y or n).
 - ctrl+pgup / ctrl+pgdown (or ctrl+shift+tab / ctrl+tab) switch tabs; alt+1..9 jump to a tab.
-- esc stops the current turn (or says no to a permission question). enter sends; shift+enter or ctrl+j adds a new line; ctrl+u clears the input.
+- enter sends; while Prism is working, enter sends a correction at the next safe point (marked “sent while working”). alt+enter or ctrl+q queues a message for after the turn finishes (use ctrl+q if your terminal captures alt+enter). Slash commands cannot be queued. esc stops the current turn (or says no to a permission question); queued text returns to the input after a stop. shift+enter or ctrl+j adds a new line; ctrl+u clears the input.
+- Background notifications are on by default: Prism sends a desktop notification when an unfocused terminal finishes or needs approval. In the browser, enable notifications from the small prompt on your first send; notifications only appear while the page is hidden.
 - ctrl+o opens or folds all steps. ctrl+y changes theme. pgup/pgdown scroll, end jumps to the latest. ctrl+c quits.
 - ctrl+b: file tree; ctrl+b again closes it from anywhere (chat, tree or the simple editor). Esc or tab moves from the tree back to the chat without closing it. ctrl+e: the editor (ctrl+e again closes it). Inside Neovim every key goes to Neovim except ctrl+e, so press ctrl+e first to use ctrl+b, ctrl+c and the other Prism keys. The tab, theme and quit keys also work while the tree has the keyboard. The bottom bar always shows the keys that matter right now.
 - When Prism asks to run something: y or enter allows, n or esc refuses.

@@ -597,7 +597,7 @@ func (a *Agent) turnEndHooks(ctx context.Context, emit func(any)) bool {
 func hooksSummary(runs []hookRun) string {
 	for _, r := range runs {
 		if !r.ok {
-			return clip(r.run, 32) + " · " + r.summary
+			return clipWidth(r.run, 32) + " · " + r.summary
 		}
 	}
 	if len(runs) == 1 {

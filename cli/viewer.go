@@ -564,7 +564,7 @@ func viewerLines(t theme, v *fileViewer, inner, avail int) []pickLine {
 	}
 	gw := len(fmt.Sprint(n))
 	for i := off; i < off+shown; i++ {
-		text := clip(v.lines[i], max(1, inner-gw-2))
+		text := clipWidth(v.lines[i], max(1, inner-gw-2))
 		all = append(all, pickLine{fill: t.faint, segs: []seg{
 			{text: fmt.Sprintf("%*d  ", gw, i+1), fg: t.muted},
 			{text: text, fg: t.fg},

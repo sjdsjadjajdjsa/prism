@@ -69,18 +69,18 @@ func (a *Agent) offLoop(call FunctionCall, emit func(any)) error {
 	a.calls.reset()
 	a.loopSwitches++
 	if a.loopSwitches > maxLoopSwitches {
-		return &loopError{what: clip(what, 80)}
+		return &loopError{what: clipWidth(what, 80)}
 	}
 	if n := len(a.messages); n > 0 && a.messages[n-1].Role == "tool" {
 		a.messages[n-1].Content += "\n\n" + loopNudge
 	}
 	if a.pinned() || a.lastRoute == "" {
-		emit(evNote{"the model is going in circles (" + clip(what, 60) + "), asking it to try another way…"})
+		emit(evNote{"the model is going in circles (" + clipWidth(what, 60) + "), asking it to try another way…"})
 		return nil
 	}
 	if !slices.Contains(a.loopAvoid, a.lastRoute) {
 		a.loopAvoid = append(a.loopAvoid, a.lastRoute)
 	}
-	emit(evNote{"the model was going in circles (" + clip(what, 60) + "), switching to another…"})
+	emit(evNote{"the model was going in circles (" + clipWidth(what, 60) + "), switching to another…"})
 	return nil
 }
