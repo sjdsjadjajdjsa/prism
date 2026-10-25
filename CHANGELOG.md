@@ -1,86 +1,89 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-25)
 
-New
-- Paste the sign-in code: when a sign-in page shows a code instead of sending you back (Grok does), paste the code or the whole link into Prism (terminal or browser), or type `/login grok <code>`. A wrong code lets you try again. Works for every browser sign-in.
-- The browser version now matches the terminal: `/model`, `/login`, `/theme`, `/resume`, `/mcp add` and `/tabs` open a list you can click or drive with the arrow keys, Enter and Esc; `/clear`, `/compact`, `/undo`, `/files`, `/open` and `/model <name>` work there; the command list comes from the terminal's own list. `/models` filters and fits a phone screen, and long links wrap.
-- `/skills` is a short grouped summary and `/skills <name>` shows one skill; `/key` lists only keys you set; `/login` rows line up.
+### New
 
-Fixed
-- Launcher: no more `loginwatch: unbound variable` after `prism install`, `status` and other short commands; a wrong folder name stops instead of building anyway; on machines where Docker's own network has no internet, the images build with the computer's network instead of failing with a misleading buildx message.
-- Install: Arch-based systems (CachyOS, Omarchy, Manjaro) get `pacman` steps, and `prism install` adds `~/.local/bin` for the fish shell.
-- Sign-ins: Copilot no longer shows an error after a sign-in that worked; browser sign-ins wait for the model list instead of saying "no models"; signing out during a sign-in really signs out; reloading the sign-in tab no longer cancels it; a sign-in left open over 10 minutes says it timed out; "1 model" instead of "1 models".
+- Plan mode: `/plan` lets Prism look around and write a plan. Nothing changes until you run it.
+- Hooks: your own checks in `.prism/hooks.json` run before commands, after edits and at the end of a turn. `/hooks` shows them.
+- Prism asks before risky commands in every mode: deleting folders, throwing away changes, `git push`, publishing, scripts piped from the internet. `/rules` shows the list and lets you add your own.
+- Loop detector: when a model keeps repeating itself or the same step, Prism moves to another model, and stops after a few tries.
+- Neovim editor beside the chat in the terminal: `/editor` or ctrl+e opens it, `/editor <file>` opens a file, and `/editor` again hides it.
+- In the editor, ctrl+e or a click moves the keyboard between chat and editor, and you drag the line between them to resize.
+- Files Prism changes reload in the editor by themselves. Neovim comes in the Docker image, so there is nothing to install.
+- `/tree` on its own opens a file tree you move through with the arrows: Enter reads a file, ctrl+e edits it. In the browser it opens the Files panel.
+- Saved commands: a prompt in `.prism/commands/<name>.md` (or in your config folder) runs as `/<name>`. `/commands` lists them and `/commands new <name>` starts one.
+- `/models` shows three groups: free models, your plans, your own keys.
+- A chat pinned to a plan model (ChatGPT, Claude, Grok, Gemini) also uses that model to look at screenshots.
+- `/login` signs in to plans you already pay for: ChatGPT, Claude, Grok, Antigravity (Google) and GitHub Copilot. Their models show up in `/models` and only answer when you pick them.
+- `/login antigravity` signs in with your Google account and lists your plan's models (Gemini, plus Claude on paid plans). It replaces the old Gemini CLI sign-in.
+- If a sign-in page shows a code instead of sending you back, paste the code or the whole link into Prism, or type `/login grok <code>`.
+- `/login rm <name>` signs out. Sign-ins are saved in `subscriptions.json`, which only you can read, and renew by themselves.
+- `/key` adds or removes a provider key from inside Prism, and a new key works without a restart. 22 paid services are ready, and Prism asks each one which models it has.
+- `prism keys` lists your keys, `prism keys add` connects a model you pay for (or one on your computer), and `prism keys remove <id>` removes it.
+- `prism update` gets the newest version and rebuilds.
+- Pick lists: `/model`, `/login`, `/key`, `/resume`, `/tabs`, `/theme` and `/mcp add` open a menu. Use the arrows, Enter and Esc, or the mouse. Typing filters it.
+- `/model <name>` picks the model for one chat, and `/model auto` lets Prism choose again. `/models <text>` filters the list.
+- Tabs: several chats in one window (`/tabs`, `/rename`, `/ask`). Also new: `/clear`, `/compact` and `/undo`.
+- `/files` browses the project and `/open <path>` shows a file. In the browser you can edit and save it.
+- Project tree: `/tree` and `prism tree` show every file with its git changes, what Prism read or changed, and which files many others use.
+- `/tree changed` or `/tree <text>` narrows the list, and `prism tree --html` writes a page you can search.
+- Prism gets a short map of the project (folders, sizes, the most used files) at the start of each chat.
+- Web search: a `web` tool searches DuckDuckGo without a key (Tavily or Brave first if you set their key) and reads public pages.
+- Browse tool: after building a web page, Prism clicks and types in it like a person, checks the result and keeps fixing until it works.
+- Screenshot tool: Prism can look at a page it built. The browser it needs (about 126 MB) downloads the first time.
+- Crew: ask for several agents and Prism runs 2 or 3 helpers at once, then a reviewer checks the work. A panel shows each one.
+- MCP setup: `/mcp add` picks a tool server from a built-in list and asks for any key it needs. `/mcp remove` and `/mcp test` manage them.
+- 11 new built-in skills (24 in total), plus a `prism` skill so Prism can answer questions about itself.
+- `/memory forget <n>` deletes one memory and `/memory forget all` clears them all.
+- You can ask for a model by job: `auto:code`, `auto:fast`, `auto:review` or `auto:vision`.
+- A weekly check tests every free model and opens an issue when some stop working.
+- Benchmarks: `bench/compare.sh` and `bench/harness/` run the same tasks through Prism and other open-source agents. `bench/perf.py` measures start time, idle use and memory.
+- Windows: tested on Windows 11 with WSL. There is a step-by-step guide in docs/WINDOWS.md.
 
-Safety
-- The router refuses requests from web pages and unknown hosts, and changing keys or sign-ins needs a secret the AI's own commands can't read. Sign-in pages only answer this computer.
+### Changed
 
-- Antigravity sign-in: `/login antigravity` signs in with your Google account the way the Antigravity IDE does, sets up your Code Assist project and lists your plan's models (Gemini, plus Claude Sonnet and Opus on paid plans). It replaces the old Gemini CLI sign-in. Gemini tool calls keep their thought signatures, so multi-step coding turns work on every Antigravity model.
-- Only models worth picking are listed for subscriptions: internal helpers, autocomplete and preview slots, and retired generations are hidden; current lower tiers (older Opus, GPT-5.6) stay.
-- Pick-one commands (`/model`, `/login`, `/key`, `/resume`, `/tabs`, `/theme`, `/mcp add`) open a menu: arrow keys or mouse to move, Enter or click to choose, Esc or a click outside to close, typing filters. Typed forms still work.
-- `/files` browses the project and `/open <path>` views a file; in the browser, click a file to view it, then Edit and Save.
-- Prism can answer questions about itself through a built-in `prism` skill that loads only when asked; `/help` is grouped by purpose.
-- Leaner per-turn prompt (the skill index is about 110 tokens smaller) and a prompt-cache fix for chats with several tabs.
-- `/model <name>` pins the model for one chat (`/model auto` lets Prism choose again); the name can be the short one the list shows. `/models <text>` filters the list, so a provider with hundreds of models stays readable (the list caps at 60 rows and says how many are hidden).
-- ChatGPT sign-in now lists your plan's real models: the Codex backend gates its model list on a `client_version` query parameter the official CLI sends, which Prism now sends too (on the model list and every request). Codex requests also carry the reasoning block the backend requires — without it it returns 200 with an empty stream.
-- `/login` signs in to plans you already pay for, the same way each vendor's own tools do it. Accounts: ChatGPT, Claude, Grok, Antigravity (Google) and GitHub Copilot. ChatGPT, Claude, Grok and Gemini sign in with your browser (Prism opens it for you; ChatGPT and Grok can also use a device code), Copilot uses a device code. Prism keeps checking, asks the service which models your plan can use, and they appear in `/models` under the account's name, answering only when picked by name. Tokens live in `subscriptions.json` (git-ignored, mode 600) and refresh themselves. `/login rm <name>` signs out. ChatGPT and Claude requests are translated to and from the Codex Responses and Anthropic Messages formats, Gemini to the Code Assist format, so the agent keeps speaking plain OpenAI chat.
-- Device-code sign-in for GitHub Copilot: run `/login copilot`, open the link, type the code.
-- `/key` inside Prism (terminal and browser) adds or removes a provider key: `/key` lists every free and paid provider with a masked key, `/key <name> <secret>` saves one, `/key rm <name>` removes it. The router watches `keys.conf`, so a new key works without a restart. Paid presets grew to 22 (OpenAI, Anthropic, DeepSeek, xAI, Mistral, Gemini, Together, Fireworks, Cerebras, SambaNova, OpenRouter, Hugging Face, Perplexity, Cohere, Moonshot, Qwen, Z.AI, DeepInfra, Novita, Lambda, Ollama, LM Studio); when a key is saved the router asks that service which models it serves and lists them automatically, falling back to known model names when it does not answer. Paid models still answer only when picked by name (or with `PRISM_USE_PAID=1`).
-- Web search: a built-in `web` tool searches DuckDuckGo (no key needed; Tavily or Brave first when `TAVILY_API_KEY` or `BRAVE_API_KEY` is set) and reads public pages as clean text. It never reaches your computer, local network or the router, follows at most 5 redirects, and marks everything it returns as untrusted.
-- Project tree: `/tree` (terminal and browser) and `prism tree` show every project file with git status, what Prism read or changed in this chat, and which files many others depend on; `/tree changed` or `/tree <text>` narrows it. `prism tree --html` writes an interactive page (search, filters, imports and imported-by), and the browser version has a live Files panel that updates as files change. It respects .gitignore and uses inotify, so it costs nothing while nothing changes.
-- The AI gets a compact project map in its instructions: folders, file sizes, the most depended-on files and their main functions, within about 600 tokens.
-- Browse tool: after building or changing a web page, Prism uses it like a person in a headless browser. It finds buttons, fields and checkboxes by their role and accessible name (worked out in the page, not from pixels), clicks and types with real input events, reloads, checks what should and should not be on the page, and reports page errors. It keeps fixing until the steps pass, and saves a screenshot of the end state under `.prism/checks`.
-- Crew: when you ask for several agents or parallel work, Prism runs 2 or 3 helper agents at once, each editing its own files, then a read-only reviewer checks the result. A live panel shows each worker in the terminal and in the browser.
-- Screenshot tool: Prism can look at a page it built. The headless browser (about 126 MB) is downloaded once on first use, and a free model that can see images describes the picture. Public URLs need your approval.
-- `prism keys`: lists your keys; `prism keys add` connects a model you pay for (OpenAI, Anthropic, DeepSeek, OpenRouter, Ollama on this computer, or any OpenAI-compatible URL); `prism keys remove <id>` removes it. These models only answer when you pick them by name, never for the free `auto`.
-- `prism update` pulls the newest version and rebuilds.
-- MCP setup: `/mcp add` picks a server from a built-in list (fetch, context7, deepwiki, github, tavily, git, memory, thinking, files) and asks for any key it needs; `/mcp remove <name>` and `/mcp test <name>` manage them. Missing keys and failed servers now say what to fix. Docs updated in docs/MCP.md.
-- 11 new built-in skills (24 in total): prove-it, retry-ladder and handoff-note shape how Prism works by default; plus test-my-app, security-review, accessibility-review, release-check, docker-help, use-an-api, clean-data and game-rewrite.
-- Delete single memories: `/memory` lists numbered memories, `/memory forget <n>` deletes one (or several: `forget 2 5`), `/memory forget all` clears everything. A numbered forget is refused if the memory changed since the list was shown.
-- Router: `auto:code`, `auto:fast`, `auto:review` and `auto:vision` pick models by role, and at most 2 requests run per provider at a time.
-- Weekly free-model check: `router/check.mjs` tests every free model and a weekly workflow opens an issue when some stop working. Kilo dropped free MiniMax M3.1 Flash; free Nemotron Lightning replaces it.
-- Benchmarks: `bench/compare.sh` and `bench/harness/` run the same tasks through Prism, Aider and other open-source agents on the same free models, with new charts.
-
-Windows
-- Tested on Windows 11 with WSL (Debian). New step-by-step guide in docs/WINDOWS.md.
-- `/web` opens your normal browser on Windows.
-- Clearer Docker errors: a broken Windows link in WSL, broken Docker login settings, and Docker Hub download limits each say how to fix them. The installer's Docker message in WSL points to Docker Desktop's WSL integration.
-
-Faster
-- `prism` opens in about a quarter of a second instead of 11: it no longer rebuilds the Docker images on every start (a cached build still cost ~10s) and only checks the router with one quick request. Images rebuild by themselves when Prism's own files change.
-- An idle Prism costs nothing: the screen stops redrawing 3 seconds after the last key or event (before, the chat screen sent ~47 KB a second to the terminal forever) and hands unused memory back. Each extra session needs about 9 MB of private memory (was 11).
-- The project map is built in the background, so the first screen does not wait for it.
-- The crew tool and its instructions (~450 tokens) are only sent once a chat asks for several agents.
-- `bench/perf.py` measures first-screen time, idle CPU, idle terminal output and memory per session.
-- The start of every request (tools, instructions, project files) stays byte-for-byte the same for the whole chat, so providers can reuse their cached copy: automatic memory updates and coming back from the browser no longer rewrite the instructions mid-chat (only commands you run, like `/memory forget`, do), and old tool output is only trimmed in one batch once a chat passes a quarter of the context window.
-- Prism asks the router for the model that answered last (`prism_prefer`), whose cache still holds the conversation; slow answers are still raced as before. It only does this when the router says it understands the hint, so an older router keeps working.
-- The project's file list (taken once when a chat starts) is part of the instructions, so easy tasks start with read or edit instead of a list call.
-- The AI sends all the edits it already knows in one reply and stops once the real check passes, without re-reading files.
-- `prism run` and `/usage` show how many prompt tokens the provider served from its cache.
-
-Fixed
-- When free models are rate-limited (HTTP 429), Prism waits 5, 15 then 30 seconds and asks again instead of ending the task. The note says "free models are busy, trying again in Ns…".
-- Retry notes say what happened: "the model stopped mid-reply, trying another…" or "that model failed, trying another…" instead of "reply dropped, asking again…".
-- `prism` prints "starting prism…" while Docker starts, instead of a blank terminal.
-- Tool lines no longer run into their argument (`screenshotindex.html` → `screenshot index.html`).
-- `bench/compare.sh` re-runs a task the provider rate-limited instead of counting it as a fail.
-
-Changed
-- New demo video and GIF: a real screen recording of Prism building an app on a Linux desktop, replacing the old setup video and GIF.
-- Benchmarks in the README now compare Prism with opencode, Aider and mini-swe-agent (60 runs) and with Aider on one pinned model.
-- The AI is told to run the real check once, skip re-reading what a command already showed, and batch independent tool calls; it no longer opens a browser to check its work.
-- The browser handoff screen can open the page again (`o`) or copy the link (`c`), and the link is clickable in supporting terminals.
-- When several approvals arrive at once they queue instead of replacing each other.
+- Each answer's line and the status bar say who answered: free, plan or yours. `/usage` counts plan and key requests apart.
+- The chat follows the answer as it streams. If you scroll up, it stays where you are.
+- Typing commands: the exact match comes first, close spellings work (`/mdl` finds `/model`), and what you typed is kept while Prism is busy.
+- The browser version matches the terminal: the same commands and pick lists. It fits a phone screen and long links wrap.
+- `prism` opens in about a quarter of a second instead of 11 seconds. It only rebuilds when Prism's own files change.
+- An idle Prism uses no CPU, and each extra session needs about 9 MB of memory.
+- Replies are quicker and cheaper: each request starts the same way during a chat, so providers can reuse their saved copy. Prism also asks for the model that answered last.
+- `prism run` and `/usage` show how many tokens the provider had saved.
+- Prism makes all the edits it already knows at once and runs the real check once.
+- Plans only list models worth picking. Old and internal ones are hidden.
+- `/skills` is a short grouped list, `/skills <name>` shows one skill, and `/help` is grouped too.
+- When a plan's usage runs out, Prism says so in plain words.
+- Retry notes say what happened, like "the model stopped mid-reply, trying another".
+- Several questions at once wait in line instead of replacing each other.
+- The browser handoff screen can open the page again (`o`) or copy the link (`c`).
 - `prism run` prints the answer first, then waits up to 15 seconds for the memory update.
-- The terminal size is passed into the container so the layout fits at start.
-- Hints like "Run: prism status" show a command that works even before `prism` is on your PATH.
-- Browser: `/web` explains you're already there, unknown commands point to `/help`, closing the terminal says how to pick the chat back up, and the input box focus shows as the rainbow border.
-- `/help` and error messages link to the GitHub issues page.
-- README: "Try it in 2 minutes" box, setup video, Ubuntu in the platform table, new benchmark charts and skill list.
+- Clearer Docker errors, each with the fix. On Windows, `/web` opens your normal browser.
+- The router only answers this computer, and changing keys or sign-ins needs a secret the AI's commands can't read.
+- Grok sign-in uses a device code by default, and the terminal shows numbered steps.
+- Free Nemotron Lightning replaces MiniMax M3.1 Flash, which Kilo stopped offering for free.
+- New demo video and GIF, and README benchmarks against opencode, Aider and mini-swe-agent.
 
-Fixes
-- Memory updates from two Prism windows can no longer overwrite each other or bring back a forgotten memory.
-- `web/app.js.bak` removed from the repo.
+### Fixed
+
+- Prism works from a folder with a space in its name.
+- Phones show "tap to start" instead of "press any key".
+- Screen readers now name the files, tabs and pick lists.
+- In the browser, `/beam` and `/quiet` are saved when you reload.
+- Images now reach the plan models.
+- ChatGPT sign-in lists your plan's real models, and its replies no longer come back empty.
+- Grok plans can chat again, and old Grok sign-ins are asked to sign in once more.
+- When free models are busy, Prism waits 5, 15 then 30 seconds and tries again instead of stopping.
+- Sign-ins: Copilot no longer shows an error after it worked, signing out really signs out, reloading the page doesn't cancel it, and one left open over 10 minutes says it timed out.
+- Launcher: no more `loginwatch: unbound variable`, a wrong folder name stops instead of building, and builds work when Docker's own network has no internet.
+- Install: Arch-based systems (CachyOS, Omarchy, Manjaro) get `pacman` steps, and the fish shell finds `prism`.
+- `prism` says "starting prism…" while Docker starts, instead of a blank screen.
+- The layout fits the terminal from the start.
+- Hints like "Run: prism status" work even before `prism` is on your PATH.
+- Tool lines no longer run into their file name.
+- Two Prism windows can't overwrite each other's memory or bring back a forgotten one.
+- `bench/compare.sh` runs a rate-limited task again instead of counting it as failed.
 
 ## 0.2.0
 

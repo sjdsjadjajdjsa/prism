@@ -1377,6 +1377,9 @@ async function runCommand(line) {
       addNote(quiet ? 'shard is quiet' : 'shard can talk again');
       saveSetting('/quiet', quiet);
       return;
+    case '/tree':
+      if (rest.length) break;
+    // fall through: a bare /tree opens the Files panel
     case '/files':
       if (window.PrismFiles) window.PrismFiles.show(); else addNote('the file viewer did not load');
       return;

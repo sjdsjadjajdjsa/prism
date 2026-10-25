@@ -10,7 +10,7 @@ You'll copy commands into a **terminal**: the window where you type commands.
 - **Mac:** press `Cmd + Space`, type "Terminal", press Enter.
 - **Windows:** you'll use the "Ubuntu" app, which step 1 installs.
 
-**You'll need your computer's admin password** to install Docker, and about 3 GB of free disk space. On a school or work computer where you don't have the password, this won't work.
+**You'll need your computer's admin password** to install Docker, and about 4 GB of free disk space. On a school or work computer where you don't have the password, this won't work.
 
 To paste into a terminal, use `Ctrl + Shift + V` on Linux, `Cmd + V` on Mac, or right-click on Windows.
 

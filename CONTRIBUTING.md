@@ -45,3 +45,5 @@ Add an entry to router/providers.json with shape {name, baseURL, models: [], req
 ## Pull requests
 
 Keep PRs small and focused. Include a clear description of what changed and why. Reference any related issues.
+
+Please follow the [code of conduct](CODE_OF_CONDUCT.md).

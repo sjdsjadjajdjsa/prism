@@ -1195,6 +1195,8 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 		}
 		on, text, message := planSwitch(a, commandArg(body.Text, fields[0]))
 		writeJSON(w, map[string]any{"kind": "plan", "plan": on, "text": text, "message": message})
+	case "/editor":
+		note("/editor works in the terminal · here, click a file in Files, then Edit")
 	case "/rename":
 		note("/rename works in the terminal · the tab names it sets show here")
 	case "/ask":

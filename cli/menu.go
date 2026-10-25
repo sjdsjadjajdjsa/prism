@@ -132,7 +132,7 @@ func (m model) overlayArea() (x, y, w, top int) {
 	if w-6 > 0 {
 		boxH = m.boxHeight()
 	}
-	return (m.w - w) / 2, m.h - 3 - boxH, w, 4 + m.tabRows()
+	return (m.chatW() - w) / 2, m.h - 3 - boxH, w, 4 + m.tabRows()
 }
 
 // openMenu shows p. Reopening the same kind keeps the filter and highlight.

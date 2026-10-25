@@ -358,6 +358,10 @@ func (m model) filesKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if v := m.fb.view; v != nil {
 		page := m.viewerPage()
 		switch msg.String() {
+		case "e", "ctrl+e":
+			if v.note == "" || v.note == "empty file" {
+				return m, m.showEditor(v.path)
+			}
 		case "esc":
 			m.fb.view = nil
 		case "up":
@@ -412,6 +416,11 @@ func (m model) filesKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			v = &fileViewer{path: r.path, note: "✕ " + err.Error()}
 		}
 		m.fb.view = v
+	case "ctrl+e":
+		if len(rows) > 0 && !rows[clamp(m.fb.sel, 0, len(rows)-1)].dir {
+			return m, m.showEditor(rows[clamp(m.fb.sel, 0, len(rows)-1)].path)
+		}
+		return m, m.showEditor("")
 	case "backspace":
 		if len(m.fb.filter) > 0 {
 			m.fb.filter = m.fb.filter[:len(m.fb.filter)-1]
@@ -447,7 +456,7 @@ func drawFiles(cv *canvas, t theme, m model, x, y, w, top int) {
 func browserLines(t theme, f filesState, inner, avail int) []pickLine {
 	accent := t.at(0.5)
 	all := []pickLine{
-		{fill: t.panel, segs: []seg{{text: "files", fg: t.fg, bold: true}, {text: "  ↑↓ move · enter open · esc close", fg: t.muted}}},
+		{fill: t.panel, segs: []seg{{text: "files", fg: t.fg, bold: true}, {text: "  ↑↓ move · enter read · ctrl+e edit · esc close", fg: t.muted}}},
 	}
 	filter := []seg{{text: "› ", fg: accent, bold: true}}
 	if len(f.filter) == 0 {
@@ -511,7 +520,7 @@ func viewerLines(t theme, v *fileViewer, inner, avail int) []pickLine {
 		where = fmt.Sprintf("  %d–%d of %d", off+1, off+shown, n)
 	}
 	all := []pickLine{
-		{fill: t.panel, segs: []seg{{text: v.path, fg: accent, bold: true}, {text: where, fg: t.muted}, {text: "  ↑↓ pgup pgdn home end · esc back", fg: t.muted}}},
+		{fill: t.panel, segs: []seg{{text: v.path, fg: accent, bold: true}, {text: where, fg: t.muted}, {text: "  ↑↓ pgup pgdn · e edit · esc back", fg: t.muted}}},
 	}
 	if v.note != "" {
 		return append(all, pickLine{fill: t.faint, segs: []seg{{text: v.note, fg: t.muted}}})

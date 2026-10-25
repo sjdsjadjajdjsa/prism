@@ -87,7 +87,7 @@ func modelName(route string) string {
 
 var toolHue = map[string]float64{"list": 0.5, "grep": 0.45, "read": 0.55, "edit": 0.7, "write": 0.75, "bash": 0.85, "browse": 0.6, "screenshot": 0.65}
 
-func (m model) column() int { return min(m.w-6, 100) }
+func (m model) column() int { return min(m.chatW()-6, 100) }
 
 func (m model) inputRows(width int) []string {
 	var rows []string
@@ -628,6 +628,11 @@ func drawStatus(cv *canvas, t theme, m model, x, y, w int, enter float64) {
 	meterShown := true
 
 	keys := []seg{{text: "ctrl+t", fg: t.fg}, {text: " new tab   ", fg: t.muted}, {text: "ctrl+c", fg: t.fg}, {text: " quit", fg: t.muted}}
+	if m.es.ed != nil && m.es.focus {
+		keys[0].text, keys[1].text = "ctrl+e", " back to chat   "
+	} else if m.es.ed != nil || m.editorFits() {
+		keys[0].text, keys[1].text = "ctrl+e", " editor   "
+	}
 	if m.busy {
 		keys[0].text, keys[1].text = "esc", " stop   "
 	}

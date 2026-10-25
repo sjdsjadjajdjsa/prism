@@ -30,8 +30,8 @@ Project
 - `/skills` lists playbooks; `/skills new <name>` writes your own (kept in ~/.config/prism/skills/ or .prism/skills/).
 - `/commands` lists saved commands: a prompt saved as `.prism/commands/<name>.md` (or ~/.config/prism/commands/) becomes `/<name>`. `/<name> some words` sends the file's text with `$ARGUMENTS` replaced by the words (`$1`, `$2` single words; with no placeholder the words go at the end). Optional front matter `description:` is the one-line help. `/commands new <name>` writes a starter file. Built-in names always win; edits take effect right away.
 - `/mcp` shows connected tools; `/mcp add`, `/mcp remove <name>`, `/mcp test <name>`.
-- `/tree` project files; `/tree changed`; `/tree <text>` filters.
-- `/files` browse the project and open a file read-only (arrows, enter, type to filter, esc); `/open <path>` opens one file. In the browser, click a file in Files to view it, then Edit and Save.
+- `/tree` (or `/files`) browses the project: arrows move, enter reads a file, ctrl+e opens it in the editor, typing filters, esc closes. `/tree changed` and `/tree <text>` print a list instead. `/open <path>` reads one file. In the browser, `/tree` opens the Files panel: click a file to view it, then Edit and Save.
+- `/editor` or ctrl+e opens Neovim beside the chat; `/editor <file>` opens a file in it. ctrl+e switches the keyboard between the chat and the editor, a click does too, `/editor` again hides it (open files stay), `:q` closes it. Drag the line between them to resize. Files Prism changes reload in the editor by themselves. Neovim comes with Prism; nothing to install.
 - `/web` opens this chat in the browser; press enter in the terminal to come back (in web mode `o` reopens, `c` copies the link).
 
 Settings

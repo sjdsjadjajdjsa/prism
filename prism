@@ -70,10 +70,11 @@ Prism: free AI that codes, beautifully. Runs inside Docker.
   prism                 code in the current folder
   prism <folder>        code in that folder
   prism continue        pick up the last chat in the current folder
-  prism tree            the project's files, changes and links (--html for a page)
   prism web [folder]    the same, in your browser at http://127.0.0.1:4849
+  prism tree            the project's files, changes and links (--html for a page)
   prism fix             computer help: looks at THIS computer, asks before every change
   prism setup           add free keys for more models (optional, never a card)
+  prism keys            list your keys · keys add: a model you pay for · keys remove <id>
   prism status          see which free AI models are ready
   prism logs            watch which model answers each message
   prism stop            stop the background AI router

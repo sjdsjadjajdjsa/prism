@@ -5,37 +5,28 @@
 
 <p align="center"><img src="docs/prism-demo.gif" alt="Prism builds a todo app with free AI, then the app is used in Firefox" width="820"></p>
 
-Prism is a coding assistant for your terminal that runs on **free AI**, or on the AI plan you already pay for. It reads your code, edits files, runs commands and checks its own work. When it builds a web page, it opens it in a headless browser and clicks through it like a person (add, tick, filter, reload) before calling it done.
+Prism is a coding assistant for your terminal. It runs on **free AI**, or on the AI plan you already pay for. It reads your code, edits files, runs commands and checks its own work. When it builds a web page, it opens it in a hidden browser and clicks through it like a person (add, tick, filter, reload) before it calls it done.
 
 It runs inside Docker, so it can only touch the one folder you give it.
 
-> **Try it in 2 minutes**
-> 1. Install Docker ([guide](docs/SETUP.md)), then run the install command below.
-> 2. Open a new terminal, `cd` into any folder, and type `prism`.
-> 3. Press any key and type: `make a snake game I can play in the browser`
->
-> Something broken? [Tell us here](https://github.com/sjdsjadjajdjsa/prism/issues/new/choose).
+## Get started
 
-## Quick start
+You only need **Docker** (free). New to Docker? Follow the [step-by-step setup guide](docs/SETUP.md) for Linux, Mac or Windows. It takes about 10 minutes on Linux and a bit longer on Mac or Windows. Each step shows what you should see.
 
-> **New to Docker?** Follow the [step-by-step setup guide](docs/SETUP.md) for Linux, Mac or Windows. It takes about 10 minutes on Linux, a bit longer on Mac or Windows, and each step shows what you should see.
-
-You only need **Docker** (free). Then one command. It runs [install.sh](install.sh), a short script you can read first:
+Then run one command. It runs [install.sh](install.sh), a short script you can read first:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sjdsjadjajdjsa/prism/main/install.sh | bash
 ```
 
-Windows: open the Ubuntu app first (see the Windows steps in [docs/SETUP.md](docs/SETUP.md)) and paste the command there. Mac or Linux: paste it into Terminal.
-
-It checks Docker, downloads Prism to `~/.prism` and adds the `prism` command. Then open a new terminal:
+On Windows, open the Ubuntu app first (see the Windows steps in [docs/SETUP.md](docs/SETUP.md)) and paste the command there. On Mac or Linux, paste it into Terminal. It checks Docker, downloads Prism to `~/.prism` and adds the `prism` command. Then open a new terminal:
 
 ```bash
 cd ~/my-project
 prism
 ```
 
-The first start takes a few minutes while Docker builds Prism; later starts take a few seconds.
+The first start takes a few minutes while Docker builds Prism. Later starts take a few seconds. Then type what you want: `make a snake game I can play in the browser`, `fix the bug in app.py` or `explain this code`.
 
 | System | Status |
 | --- | --- |
@@ -44,13 +35,11 @@ The first start takes a few minutes while Docker builds Prism; later starts take
 | macOS | should work with Docker Desktop, not tested yet |
 | Windows | tested on Windows 11 inside WSL (Debian) with Docker Desktop |
 
-New to Docker on Windows? See the [Windows beginner guide](docs/WINDOWS.md).
+New to Docker on Windows? See the [Windows beginner guide](docs/WINDOWS.md). Tried it on a Mac? Please open an issue with how it went. Something broken? [Tell us here](https://github.com/sjdsjadjajdjsa/prism/issues/new/choose).
 
 Prefer to watch? The [demo video](docs/prism-demo.mp4) (51s, no sound) is a real screen recording on Linux: start Prism, ask for an app, then use it in the browser. The two waits are sped up.
 
 [![Prism demo video](docs/prism-demo.png)](docs/prism-demo.mp4)
-
-Tried it on a Mac? Please open an issue with how it went.
 
 <details><summary>Install by hand</summary>
 
@@ -61,15 +50,11 @@ cd prism
 ```
 </details>
 
-Then just type what you want: `fix the bug in app.py`, `make me a to-do list website`, `explain this code`.
-
 ## Free AI, no setup
 
-A **router** is a small helper that picks a free AI for each step, and a **key** is a secret code you get free from an AI company's website, pasted in with `prism setup`; you don't need a key to start.
+You don't need a key to start. Out of the box Prism uses free models from Kilo Gateway, BlockRun and LLM7. A small router picks a free model for each step and hides most of the slowness.
 
-Prism works with **no keys at all**. Out of the box it uses free models from Kilo Gateway, BlockRun and LLM7; the router below hides most of the slowness.
-
-Want it faster and smarter? `prism setup` walks you through free keys, about a minute each. None of them ask for a card.
+Want it faster and smarter? `prism setup` walks you through free keys from AI companies, about a minute each. None of them ask for a card.
 
 | Provider | What you get | Key |
 | --- | --- | --- |
@@ -84,9 +69,11 @@ Want it faster and smarter? `prism setup` walks you through free keys, about a m
 | Z.ai | GLM-4.7 Flash | free |
 | Ollama | any model on your own computer | none |
 
+Local models on your own computer (Ollama, LM Studio) cost you nothing, so `auto` can use them too.
+
 ## Use the plan you already pay for
 
-Prism works with every major AI subscription. Type `/login`, pick your plan with the arrow keys or the mouse, press Enter and sign in in your browser. Your plan's real models appear in `/models`, and `/model` picks one for the chat (`/model auto` goes back to free models). They only answer when you pick them, so free `auto` never spends your plan.
+Prism works with ChatGPT, Claude, Grok, Gemini and Copilot plans. Type `/login`, pick your plan with the arrow keys or the mouse, press Enter and sign in in your browser. `/model` picks one of your plan's models for the chat, and `/model auto` goes back to free models. Plan models only answer when you pick them, so free `auto` never spends your plan. A chat pinned to a plan model also uses it to look at screenshots (ChatGPT, Claude, Grok, Gemini).
 
 | Plan | Models you get | How you sign in |
 | --- | --- | --- |
@@ -98,13 +85,15 @@ Prism works with every major AI subscription. Type `/login`, pick your plan with
 
 If the sign-in page shows a code instead of sending you back, paste the code (or the whole link) into Prism and press Enter. `/login` shows who you're signed in to; `/login rm <name>` signs out. Sign-ins are saved on your computer only (`subscriptions.json`, readable only by you) and renew themselves.
 
-Pay per use instead? `/key <name> <secret>` adds a key for 22 services (OpenAI, Anthropic, DeepSeek, xAI, Mistral, Gemini, OpenRouter and more), and `prism keys add` connects any OpenAI-compatible service. Like plans, they only answer when you pick them.
+Pay per use instead? `/key <name> <secret>` adds a key for 22 services (OpenAI, Anthropic, DeepSeek, xAI, Mistral, Gemini, OpenRouter and more), and `prism keys add` connects any OpenAI-compatible service. Paid keys also only answer when you pick them. `/models` shows three groups: free models, your plans and your own keys. Each answer's line and the status bar say whether it came from free, plan or yours.
 
 > These sign-ins use the same app IDs as each company's own tools, so a company can change or block them at any time, and using them may go against its terms.
 
+## Speed and benchmarks
+
 ### How it stays fast
 
-A small router picks the model for every step:
+The router picks the model for every step:
 
 - **Races free models.** If the first one hasn't started answering in a few seconds, the next joins the race, and the first to answer wins.
 - **Learns which models are quick** and remembers it between runs.
@@ -137,7 +126,7 @@ Free models are shared, so the same run can be 30% faster or slower on another d
 
 ## Skills
 
-Skills are short playbooks Prism follows for common jobs. It picks the right one by itself. `/skills new <name>` creates a new one.
+Skills are short playbooks Prism follows for common jobs. It picks the right one by itself. `/skills` lists them and `/skills new <name>` creates a new one.
 
 | Skill | For |
 | --- | --- |
@@ -147,7 +136,7 @@ Skills are short playbooks Prism follows for common jobs. It picks the right one
 | `web-app-node` | a small Node app with npm scripts |
 | `explain-code` | a plain-words tour of a codebase, no changes |
 | `git-basics` | safe git: .gitignore, small commits, no secrets |
-| `refactor` | restructure without changing behaviour |
+| `refactor` | restructure without changing behavior |
 | `computer-help` | troubleshooting a Linux computer, asking before changes |
 | `browser-game` | a small canvas game with a game loop and input |
 | `discord-bot` | a Python discord.py bot skeleton with a slash command |
@@ -166,18 +155,14 @@ Skills are short playbooks Prism follows for common jobs. It picks the right one
 | `clean-data` | clean a CSV, JSON or Excel file into a new file |
 | `game-rewrite` | plan and check a game port or rewrite you are allowed to make |
 
-`/skills` lists them. Add your own as `.prism/skills/<name>.md` in a project or `~/.config/prism/skills/<name>.md`. See [cli/skills/README.md](cli/skills/README.md) for the format.
+Add your own as `.prism/skills/<name>.md` in a project or `~/.config/prism/skills/<name>.md`. See [cli/skills/README.md](cli/skills/README.md) for the format.
 
 ## Crew mode (helper agents)
 
-**Subagents? Why didn't you say so?**
-
-There's no command for them, and you don't need one. Just tell Prism what you want done and that you'd like helpers:
+**Ask for helpers.** There's no command for them. Just tell Prism what you want done and that you'd like helpers:
 
 ```
 use a few helpers: one builds the page, one writes the tests
-```
-```
 do these in parallel: fix the login bug and add a dark theme
 ```
 
@@ -195,11 +180,7 @@ Press `esc` at any time to stop the whole crew.
 
 Type `/plan` (or `/plan add a login page`) and Prism looks around before it touches anything. It can read files and search the web, but it can't edit, write or run commands. It answers with a short plan: the goal, the steps and files, and how it will check the work.
 
-When the plan is ready you pick:
-
-- **run this plan**: plan mode turns off and Prism starts
-- **keep planning**: type what to change
-- **leave plan mode**: nothing runs
+When the plan is ready you pick **run this plan** (plan mode turns off and Prism starts), **keep planning** (type what to change) or **leave plan mode** (nothing runs).
 
 The status bar says `plan mode` while it's on. `/plan` again (or `/plan off`) turns it off. Works the same in the terminal and the browser.
 
@@ -207,13 +188,10 @@ The status bar says `plan mode` while it's on. `/plan` again (or `/plan off`) tu
 
 Prism runs most commands on its own, inside the Docker box. It stops and asks first when a command could do real damage or reach other people:
 
-- deleting folders (`rm -rf src`; clearing `node_modules`, `dist`, `build` and other cache folders doesn't ask)
-- throwing away changes (`git reset --hard`, `git checkout -- .`)
-- `git push`, and force pushes
+- deleting folders (`rm -rf src`; clearing `node_modules`, `dist`, `build` and other cache folders doesn't ask) or database data (`DROP TABLE`, `dropdb`, …)
+- throwing away changes (`git reset --hard`, `git checkout -- .`), `git push` and force pushes
 - publishing or deploying (`npm publish`, `docker push`, `gh pr create`, `vercel --prod`, …)
-- running a script straight from the internet (`curl … | sh`)
-- connecting to another computer (`ssh`, `scp`)
-- deleting database data (`DROP TABLE`, `dropdb`, …)
+- running a script straight from the internet (`curl … | sh`) or connecting to another computer (`ssh`, `scp`)
 - commands that can break the system (`mkfs`, `shutdown`, …)
 
 You answer **yes, once**, **yes for this chat** (the same kind of command won't ask again until `/new`) or **no** (Prism is told not to try another way). In the terminal press `y`, `a` or `n`; in the browser click or press the same keys. `prism fix` still asks before every command, and `prism run` without a terminal answers no.
@@ -252,9 +230,9 @@ A hook is a command, or `{ "run", "match", "must_pass", "timeout" }` (timeout in
 
 **Hooks stay off until you trust them.** `/hooks` lists them, `/hooks trust` turns them on and `/hooks off` turns them off. If the file changes, even when the AI edits it, they're off again until you trust them again. A folder you cloned can't run anything on its own.
 
-## Tools and plugins (MCP)
+## Tool servers (MCP)
 
-Prism can connect MCP servers to give the AI extra tools such as file access, web pages, library docs, git or GitHub. Add a `.prism/mcp.json` like this to connect the filesystem server:
+Prism can connect tool servers (MCP) that give the AI extra tools such as file access, web pages, library docs, git or GitHub. Add a `.prism/mcp.json` like this to connect the filesystem server:
 
 ```json
 {
@@ -267,13 +245,9 @@ Prism can connect MCP servers to give the AI extra tools such as file access, we
 }
 ```
 
-Type `/mcp` to see what is connected. Put the same file in `~/.config/prism/mcp.json` to use a server in every project. See [docs/MCP.md](docs/MCP.md) for more.
+Type `/mcp` to see what is connected, or `/mcp add` to pick a free one. Put the same file in `~/.config/prism/mcp.json` to use a server in every project. See [docs/MCP.md](docs/MCP.md) for more.
 
 ## Computer help
-
-```bash
-prism fix
-```
 
 Prism normally lives in a Docker box and can't see your computer. `prism fix` runs it on your computer instead, so it can find out why the Wi-Fi drops, the disk is full or an app won't start. It looks around with read-only commands, explains what it finds in plain words, and **asks you before every command or file change** (`y` allow, `n` no). Tested on Linux; Mac should work but hasn't been tried yet.
 
@@ -281,21 +255,21 @@ Prism normally lives in a Docker box and can't see your computer. `prism fix` ru
 
 ## In your browser
 
-```bash
-prism web
-```
-
-The same Prism, Shard and beam included, in your browser. It opens by itself; the address is printed in the terminal (usually http://127.0.0.1:4849; if that port is taken it uses the next free one up to 4899, and the terminal shows the exact address). It only listens on your own computer.
+`prism web` opens the same Prism, Shard and beam included, in your browser. It opens by itself; the address is printed in the terminal (usually http://127.0.0.1:4849; if that port is taken it uses the next free one up to 4899, and the terminal shows the exact address). It only listens on your own computer.
 
 <p align="center"><img src="docs/web.png" alt="Prism in the browser, firing the Last Prism beam" width="820"></p>
 
-Inside the terminal app, `/web` moves the current chat to your browser (same history and memory). Close the tab or press enter in the terminal to come back, and everything done in the browser is there. The browser version understands the same slash commands, with the same suggestion list. Commands that need a choice (`/model`, `/login`, `/theme`, `/resume`, `/mcp add`, `/tabs`) open a list you can click or drive with the arrow keys, Enter and Esc, and it fits a phone screen too.
+Inside the terminal app, `/web` moves the current chat to your browser, with the same history and memory. Close the tab or press enter in the terminal to come back, and everything done in the browser is there. The browser understands the same slash commands. Commands that need a choice (`/model`, `/login`, `/theme`, `/resume`, `/mcp add`, `/tabs`) open a list you can click or drive with the arrow keys, Enter and Esc. It fits a phone screen too.
 
-## Project tree
+## Files and the editor
 
 <p align="center"><img src="docs/tree.png" alt="The project tree in the browser: files with change marks on the left, the selected file's functions and importers on the right" width="820"></p>
 
-`/tree` shows every file with what changed: `M` changed, `?` new, `●` Prism edited it, `◦` Prism read it, `★` many files use it. `/tree changed` or `/tree <text>` narrows it. In the browser, the **Files** button opens a live, searchable tree that updates as files change, with each file's functions and which files it imports or is imported by. `prism tree --html` writes the same view as a page you can open anywhere.
+`/tree` (or `/files`) opens a tree of your project that you move through with the arrow keys. Enter reads a file, and ctrl+e opens it in Neovim beside the chat.
+
+`/editor` or ctrl+e opens Neovim next to the chat, and `/editor <file>` opens a file in it. ctrl+e moves the keyboard between the chat and the editor, and so does a click. `/editor` again hides it, `:q` closes it, and you can drag the line between them to resize. Files Prism changes reload in the editor by themselves. Neovim comes inside Prism's Docker box, so there is nothing to install.
+
+`/tree changed` and `/tree <text>` print a list with what changed: `M` changed, `?` new, `●` Prism edited it, `◦` Prism read it, `★` many files use it. In the browser, `/tree` or the **Files** button opens a live, searchable tree that updates as files change, with each file's functions and which files it imports or is imported by. `prism tree --html` writes the same view as a page you can open anywhere.
 
 It respects `.gitignore`, and watching for changes costs nothing while nothing changes. Prism also gets a short version of the map (about 600 tokens), so easy tasks start in the right file.
 
@@ -314,12 +288,14 @@ Prism can search the web and read pages when it needs facts it doesn't have, lik
 
 | In the terminal | |
 | --- | --- |
-| `prism` | start in the current folder |
-| `prism <folder>` | start in that folder |
-| `prism continue` | reopen the last chat here |
-| `prism web [folder]` | open Prism in your browser |
-| `prism fix` | computer help mode, asks before every change |
+| `prism` | code in the current folder |
+| `prism <folder>` | code in that folder |
+| `prism continue` | pick up the last chat in the current folder |
+| `prism web [folder]` | the same, in your browser |
+| `prism tree` | the project's files, changes and links (`--html` for a page) |
+| `prism fix` | computer help, asks before every change |
 | `prism setup` | add free keys (optional) |
+| `prism keys` | list your keys · `keys add`: a model you pay for · `keys remove <id>` |
 | `prism status` | which free models are ready |
 | `prism logs` | watch which model answers each step |
 | `prism stop` | stop the background router |
@@ -332,19 +308,22 @@ Prism can search the web and read pages when it needs facts it doesn't have, lik
 | `esc` | stop the AI |
 | `ctrl+c` or `/quit` | close Prism |
 | `ctrl+y` or `/theme` | switch theme (prism, tokyo-night, catppuccin, rose-pine, matte-black, gruvbox, nord, everforest) |
+| `ctrl+e` or `/editor` | Neovim beside the chat · `/editor <file>` opens a file |
 | `pgup` `pgdown`, mouse wheel | scroll (smooth, with a scrollbar) |
 | click a `▸ N steps` line | open folded steps from an earlier turn (`ctrl+o` opens all of them) |
-| `/` | list every command, `tab` completes |
+| `/` `/help` | list every command, `tab` completes |
 | `/model` `/models` | pick the model for this chat · see every model |
 | `/login` `/key` | sign in to a plan you pay for · add a provider key |
-| `/new` `/clear` `/compact` `/undo` `/resume` | fresh chat · clear · shorten the chat · undo the last changes · reopen a chat |
-| `/skills` `/init` `/memory` `/mcp` | playbooks · write PRISM.md · what Prism remembers · connected tools |
+| `/new` `/clear` | fresh chat · clear the screen and start fresh |
+| `/compact` `/undo` `/resume` | summarize the chat to free up room · undo Prism's last file changes · reopen a chat |
+| `/skills` `/init` `/memory` `/mcp` | playbooks · write PRISM.md · what Prism remembers · connected tool servers |
 | `/plan` | plan first, nothing changes until you pick run (see [Plan first](#plan-first)) |
 | `/rules` | which commands Prism asks about first (see [Asks before risky commands](#asks-before-risky-commands)) |
 | `/commands` `/hooks` | your saved prompts, run as `/<name>` (see below) · your own checks (see [Hooks](#hooks-your-own-checks)) |
-| `/files` `/open` `/tree` | browse and read project files |
-| `/tabs` `/rename` `/ask` | several chats at once |
-| `/web` `/usage` `/theme` `/beam` `/quiet` `/help` `/quit` | |
+| `/tree` `/files` `/open` | browse the project files · read a file with `/open <path>` |
+| `/tabs` `/rename` `/ask` | open chats · name this tab · ask another tab a side question |
+| `/web` `/usage` | open this chat in your browser · free AI used today |
+| `/beam` `/quiet` | turn the finish beam on or off · turn Shard's lines on or off |
 
 **Saved commands.** Save a prompt you type often as `.prism/commands/<name>.md` in a project (or `~/.config/prism/commands/<name>.md` for every project; the project's wins) and it becomes `/<name>`, in the terminal and the browser:
 
@@ -361,11 +340,9 @@ Review the uncommitted changes. Focus on $ARGUMENTS. List real bugs first, then 
 
 <p align="center"><img src="docs/shard.png" alt="Shard's moods" width="820"></p>
 
-Shard is Prism's mascot. He reacts to what the AI is doing: thinking, working, done, or waiting when every free model is busy. When a task with real steps finishes, he fires the Last Prism beam:
+Shard is Prism's mascot. He reacts to what the AI is doing: thinking, working, done, or waiting when every free model is busy. When a task with real steps finishes, he fires the Last Prism beam (`/beam` turns it off, `/quiet` hides Shard's one-line comments):
 
 <p align="center"><img src="docs/beam.png" alt="The Last Prism beam" width="820"></p>
-
-`/beam` turns the beam on or off, and `/quiet` hides Shard's one-line comments.
 
 ## Safety and privacy
 
@@ -395,7 +372,7 @@ Prism was built with [Empryo](https://empryo.com), whose live map of the code in
 
 Its look is built on [Charm](https://charm.land)'s [Bubble Tea](https://github.com/charmbracelet/bubbletea) and inspired by [Omarchy](https://omarchy.org). It runs in [Docker](https://www.docker.com), searches with [DuckDuckGo](https://duckduckgo.com) and checks web pages in [Chromium](https://www.chromium.org).
 
-It is free because of the free plans from [NVIDIA](https://build.nvidia.com), [Groq](https://groq.com), [Mistral](https://mistral.ai), [Google Gemini](https://ai.google.dev), [OpenRouter](https://openrouter.ai), [Kilo](https://kilo.ai), [LLM7](https://llm7.io) and [Z.ai](https://z.ai), and local models through [Ollama](https://ollama.com).
+It is free because of the free plans from [NVIDIA](https://build.nvidia.com), [Groq](https://groq.com), [Mistral](https://mistral.ai), [Google Gemini](https://ai.google.dev), [OpenRouter](https://openrouter.ai), [Kilo](https://kilo.ai), [BlockRun](https://blockrun.ai), [LLM7](https://llm7.io) and [Z.ai](https://z.ai), and local models through [Ollama](https://ollama.com).
 
 The beam is named after the [Last Prism](https://terraria.wiki.gg/wiki/Last_Prism) from [Terraria](https://terraria.org); the art and lines are original.
 

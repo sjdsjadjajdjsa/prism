@@ -82,6 +82,7 @@ type model struct {
 	loginTab       *tab         // only the tab that started the browser poll captures codes
 	loginWaiting   string       // browser sign-in using the main input for pasted codes
 	loginFinished  string       // suppress a late poll after paste completion or cancellation
+	es             editorState  // the Neovim panel
 }
 
 // idleAfter is how long the screen keeps animating after the last key, event or resize.
@@ -114,6 +115,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	nm.now = time.Since(nm.start)
 	nm.active = nm.now
+	nm.syncEditor()
 	if nm.planAsk && nm.chat && nm.agent != nil && nm.agent.plan.Load() && !nm.busy && !nm.menu.open && !nm.fb.open && len(nm.input) == 0 && nm.loginWaiting == "" {
 		nm.planAsk = false
 		nm.openPlanMenu()
@@ -275,10 +277,14 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncTab(msg.t)
 		return m, waitTab(msg.t)
 	case tea.PasteMsg:
-		if m.chat {
+		if m.chat && m.editorOn() && m.es.focus && !m.menu.open && !m.fb.open {
+			m.es.ed.paste(msg.Content)
+		} else if m.chat {
 			m.input = append(m.input, []rune(strings.ReplaceAll(msg.Content, "\r\n", "\n"))...)
 		}
-	case tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg:
+	case editorFlushMsg, editorExitMsg:
+		return m.editorMsg(msg)
+	case tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
 		return m.mouse(msg)
 	case tea.KeyPressMsg:
 		return m.key(msg)
@@ -289,6 +295,13 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // mouse sends the pointer to the open overlay, or else to the chat: a click
 // opens or closes a step, the wheel scrolls.
 func (m model) mouse(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.chat && m.web == nil && m.gallery == "" && m.editorOn() && !m.menu.open && !m.fb.open {
+		next, done := m.editorMouse(msg)
+		if done {
+			return next, nil
+		}
+		m = next
+	}
 	if m.chat && m.web == nil && m.gallery == "" {
 		if m.menu.open {
 			return m.menuMouse(msg)
@@ -323,9 +336,20 @@ func (m model) mouse(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	k := msg.String()
+	if m.chat && m.web == nil && m.editorOn() && m.es.focus && !m.menu.open && !m.fb.open && !m.closeAsk && m.pending == nil {
+		return m.editorKey(msg)
+	}
 	if k == "ctrl+c" {
+		if m.es.ed != nil && !m.es.quitOK && m.es.ed.unsaved() {
+			m.es.quitOK = true
+			m.note("unsaved changes in the editor · save them there, or ctrl+c again to quit")
+			return m, nil
+		}
 		if m.cancel != nil {
 			m.cancel()
+		}
+		if m.es.ed != nil {
+			m.es.ed.close()
 		}
 		m.endWeb()
 		return m, tea.Quit
@@ -365,6 +389,8 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.filesKey(msg)
 	}
 	switch k {
+	case "ctrl+e":
+		return m, m.showEditor("")
 	case "ctrl+t":
 		return m, m.newChatTab()
 	case "ctrl+w":
@@ -676,6 +702,7 @@ func (m model) View() tea.View {
 	}
 	t := themes[m.theme]
 	cv := newCanvas(m.w, m.h, t.bg, t.fg)
+	var cursor *tea.Cursor
 	switch {
 	case m.web != nil:
 		drawHandoff(cv, t, m)
@@ -693,6 +720,8 @@ func (m model) View() tea.View {
 		drawChat(cv, t, m)
 	case m.gallery != "":
 		drawShardGallery(cv, t, ms(m.now), m.gallery == "beam")
+	case m.chat && m.editorOn():
+		cursor = drawWithEditor(cv, t, m)
 	case m.chat:
 		drawChat(cv, t, m)
 	default:
@@ -701,6 +730,7 @@ func (m model) View() tea.View {
 	v := tea.NewView(cv.String())
 	v.AltScreen = true
 	v.WindowTitle = "prism"
+	v.Cursor = cursor
 	if m.chat {
 		v.MouseMode = tea.MouseModeCellMotion
 		if m.menu.open || m.fb.open || len(m.suggesting().rows) > 0 {
@@ -940,7 +970,7 @@ func main() {
 		return a
 	}
 	m := model{ticking: true, start: time.Now(), hub: newTabHub(), spawn: spawn, ready: -1, project: projectName(dir), lastTextAt: -time.Hour, theme: themeIndex(*themeName), gallery: *gallery,
-		beamOn: loadSetting("beam") != "off", quiet: loadSetting("quiet") == "on", sayAt: -time.Hour}
+		beamOn: loadSetting("beam") != "off", quiet: loadSetting("quiet") == "on", sayAt: -time.Hour, es: editorState{split: loadEditorSplit()}}
 	m.openTabs(agent, *resume)
 	var options []tea.ProgramOption
 	if os.Getenv("COLORTERM") == "" && os.Getenv("TERM") != "linux" {
