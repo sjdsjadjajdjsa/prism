@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Guide
+    url: https://github.com/sjdsjadjajdjsa/prism/blob/main/docs/GUIDE.md
+    about: Every feature and command, explained.
+  - name: Security problem
+    url: https://github.com/sjdsjadjajdjsa/prism/security/advisories/new
+    about: Please report security problems privately.
