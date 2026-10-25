@@ -109,6 +109,7 @@ func (s *server) handler(port string) http.Handler {
 	mux.HandleFunc("GET /api/file", s.readFile)
 	mux.HandleFunc("POST /api/file", s.saveFile)
 	mux.HandleFunc("GET /api/raw", s.rawFile)
+	mux.HandleFunc("POST /api/fs", s.fileChange)
 	mux.HandleFunc("GET /tree.js", treeAsset("tree.js", "text/javascript"))
 	mux.HandleFunc("GET /tree.css", treeAsset("tree.css", "text/css"))
 	mux.HandleFunc("GET /api/history", s.history)

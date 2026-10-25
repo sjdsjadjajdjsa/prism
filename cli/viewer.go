@@ -157,6 +157,7 @@ type filesState struct {
 	sel, off int // highlighted row and first row shown
 	filter   []rune
 	view     *fileViewer
+	only     bool // opened from the sidebar: closing the viewer closes it all
 }
 
 type filesMsg struct {
@@ -170,6 +171,7 @@ type fileRow struct {
 	depth int
 	open  bool
 	git   string
+	agent string
 }
 
 // rows is the visible tree (folders first, expanded ones walked) or, while
@@ -180,7 +182,7 @@ func (f filesState) rows() []fileRow {
 		q := strings.ToLower(string(f.filter))
 		for _, n := range f.nodes {
 			if !n.Dir && strings.Contains(strings.ToLower(n.Path), q) {
-				out = append(out, fileRow{path: n.Path, git: n.Git})
+				out = append(out, fileRow{path: n.Path, git: n.Git, agent: n.Agent})
 			}
 		}
 		sort.Slice(out, func(i, j int) bool { return out[i].path < out[j].path })
@@ -203,7 +205,7 @@ func (f filesState) rows() []fileRow {
 	walk = func(dir string, depth int) {
 		for _, n := range kids[dir] {
 			open := n.Dir && f.expanded[n.Path]
-			out = append(out, fileRow{path: n.Path, dir: n.Dir, depth: depth, open: open, git: n.Git})
+			out = append(out, fileRow{path: n.Path, dir: n.Dir, depth: depth, open: open, git: n.Git, agent: n.Agent})
 			if open {
 				walk(n.Path, depth+1)
 			}
@@ -354,8 +356,10 @@ func (m model) filesMouse(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		idx, inside := m.filesHit(mo.X, mo.Y)
 		switch {
-		case !inside && m.fb.view != nil:
+		case !inside && m.fb.view != nil && !m.fb.only:
 			m.fb.view = nil
+		case !inside && m.fb.only:
+			m.fb = filesState{}
 		case !inside:
 			m.fb = filesState{}
 		case idx >= 0:
@@ -378,7 +382,11 @@ func (m model) filesKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 				return m, m.showEditor(v.path)
 			}
 		case "esc":
-			m.fb.view = nil
+			if m.fb.only {
+				m.fb = filesState{}
+			} else {
+				m.fb.view = nil
+			}
 		case "up":
 			v.scroll(-1, page)
 		case "down":

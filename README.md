@@ -105,7 +105,7 @@ The router picks the model for every step:
 
 Each row is one run of the same tasks on the same computer. A task only counts if a script confirms the result works.
 
-<p align="center"><img src="docs/bench-coding.png" alt="Coding benchmark: 465s at first, 115s now with a free NVIDIA key, 168s with no keys" width="820"></p>
+<p align="center"><img src="docs/bench-coding.png" alt="Coding benchmark, 5 tasks: 465s at first, 115s now, 168s with no keys" width="820"></p>
 <p align="center"><img src="docs/bench-chat.png" alt="Simple questions: 10.7s to 0.4s" width="820"></p>
 <p align="center"><img src="docs/bench-website.png" alt="One website task: 1171s to 24s" width="820"></p>
 <p align="center"><img src="docs/bench-light.png" alt="prism starts in 0.27s instead of 11s, idles at 0.2% CPU and 0 KB/s, and uses 9.1 MB per extra session instead of 10.9" width="820"></p>
@@ -116,7 +116,7 @@ Same five tasks, same free models, only the agent changes. Every agent went thro
 
 <p align="center"><img src="docs/bench-harness.png" alt="Prism, opencode, Aider and mini-swe-agent on five tasks: Prism passes 15 of 15 but opencode and Aider are faster on most tasks" width="820"></p>
 
-Prism passed every run, but it is not the fastest: opencode was quicker on 4 of 5 tasks and Aider on 3. Prism runs and checks its work, which costs time. Method, versions and every run: [bench/harness](bench/harness/README.md).
+Prism passed every run, but it is not the fastest: opencode was quicker on 4 of 5 tasks, and Aider was quicker on 4 but failed one refactor run. Prism runs and checks its work, which costs time. Method, versions and every run: [bench/harness](bench/harness/README.md).
 
 With one model pinned (no router), Prism against Aider:
 
@@ -257,23 +257,32 @@ Prism normally lives in a Docker box and can't see your computer. `prism fix` ru
 
 `prism web` opens the same Prism, Shard and beam included, in your browser. It opens by itself; the address is printed in the terminal (usually http://127.0.0.1:4849; if that port is taken it uses the next free one up to 4899, and the terminal shows the exact address). It only listens on your own computer.
 
-<p align="center"><img src="docs/web.png" alt="Prism in the browser, firing the Last Prism beam" width="820"></p>
+<p align="center"><img src="docs/web.png" alt="Prism in the browser, fixing a bug in shop.py" width="820"></p>
 
 Inside the terminal app, `/web` moves the current chat to your browser, with the same history and memory. Close the tab or press enter in the terminal to come back, and everything done in the browser is there. The browser understands the same slash commands. Commands that need a choice (`/model`, `/login`, `/theme`, `/resume`, `/mcp add`, `/tabs`) open a list you can click or drive with the arrow keys, Enter and Esc. It fits a phone screen too.
 
 ## Files and the editor
 
-<p align="center"><img src="docs/tree.png" alt="The project tree in the browser: files with change marks on the left, the selected file's functions and importers on the right" width="820"></p>
+<p align="center"><img src="docs/editor-and-tree.png" alt="Prism in the terminal: the file tree on the left, the chat in the middle and Neovim on the right, with the open file highlighted in the tree" width="820"></p>
 
-`/tree` (or `/files`) opens a tree of your project that you move through with the arrow keys. Enter reads a file, and ctrl+e opens it in Neovim beside the chat.
+**The file tree.** ctrl+b (or `/tree`) opens the project's files on the left, in the terminal and in the browser, and it stays open while you work. Click a folder to open it and a file to open it: text goes to Neovim in the terminal and to the viewer in the browser, pictures and videos to the media viewer. The file you have open is highlighted, and the tree follows it. Changes show as you work: `M` changed, `+` new, `●` Prism edited it, `◦` Prism read it.
 
-`/editor` or ctrl+e opens Neovim next to the chat, and `/editor <file>` opens a file in it. ctrl+e moves the keyboard between the chat and the editor, and so does a click. `/editor` again hides it, `:q` closes it, and you can drag the line between them to resize. Files Prism changes reload in the editor by themselves. Neovim comes inside Prism's Docker box, so there is nothing to install.
+- New file, new folder, rename, delete: right-click in the browser, or `a`, `A`, `r`, `d` in the terminal (delete asks first).
+- Mention a file to the AI: drag it into the chat box in the browser, or press `@` in the terminal.
+- A file path in the chat opens the file when you click it (browser).
+- `/` finds a file by name. `/files` is a quick search box for the same thing.
 
-Pictures and videos open from the tree too. A picture shows as a real picture in Ghostty, kitty and WezTerm, and as coloured blocks in other terminals. A video plays right in the terminal (space pauses, the arrow keys skip 5 seconds, no sound), and `o` opens either one in your browser at full quality. In the browser, clicking a picture shows it, a video plays with sound, and Markdown files show their pictures (Preview and Source switch between them).
+**Neovim beside the chat.** `/editor` or ctrl+e opens Neovim next to the chat, and `/editor <file>` opens a file in it. ctrl+e moves the keyboard between the chat and the editor, and so does a click. `/editor` again hides it, `:q` closes it, and you can drag the line between them to resize. Files Prism changes reload in the editor by themselves. Neovim comes inside Prism's Docker box, so there is nothing to install.
 
-`/tree changed` and `/tree <text>` print a list with what changed: `M` changed, `?` new, `●` Prism edited it, `◦` Prism read it, `★` many files use it. In the browser, `/tree` or the **Files** button opens a live, searchable tree that updates as files change, with each file's functions and which files it imports or is imported by. `prism tree --html` writes the same view as a page you can open anywhere.
+<p align="center"><img src="docs/files.png" alt="The browser: the file tree docked on the left and README.md open on the right with its pictures shown" width="820"></p>
 
-It respects `.gitignore`, and watching for changes costs nothing while nothing changes. Prism also gets a short version of the map (about 600 tokens), so easy tasks start in the right file.
+**Pictures and videos.** A picture shows as a real picture in Ghostty, kitty and WezTerm, and as coloured blocks in other terminals. A video plays right in the terminal (space pauses, the arrow keys skip 5 seconds, no sound), and `o` opens either one in your browser at full quality. In the browser, clicking a picture shows it, a video plays with sound, and Markdown files show their pictures (Preview and Source switch between them).
+
+<p align="center"><img src="docs/map.png" alt="The map: files as dots coloured by folder, lines for imports and Markdown links, with labels on the files most linked" width="820"></p>
+
+**The map.** In the browser, **map** in the file tree (or `/map`) shows how the files link, like Obsidian's graph: imports in code and links between Markdown notes, including `[[wiki links]]`. Dots are coloured by folder, files Prism is working on glow, and clicking a dot opens the file. **linked only** hides files with no links.
+
+`/tree changed` and `/tree <text>` print a list instead, with `★` for files many others use. `prism tree --html` writes the browser tree as a page you can open anywhere. The tree respects `.gitignore`, and watching for changes costs nothing while nothing changes. Prism also gets a short version of the map (about 600 tokens), so easy tasks start in the right file.
 
 ## Web search
 
@@ -311,6 +320,8 @@ Prism can search the web and read pages when it needs facts it doesn't have, lik
 | `ctrl+c` or `/quit` | close Prism |
 | `ctrl+y` or `/theme` | switch theme (prism, tokyo-night, catppuccin, rose-pine, matte-black, gruvbox, nord, everforest) |
 | `ctrl+e` or `/editor` | Neovim beside the chat · `/editor <file>` opens a file |
+| `ctrl+b` or `/tree` | the file tree on the left · `/tree changed` lists what changed |
+| `/map` | a map of how the files link (browser) |
 | `pgup` `pgdown`, mouse wheel | scroll (smooth, with a scrollbar) |
 | click a `▸ N steps` line | open folded steps from an earlier turn (`ctrl+o` opens all of them) |
 | `/` `/help` | list every command, `tab` completes |
@@ -322,7 +333,7 @@ Prism can search the web and read pages when it needs facts it doesn't have, lik
 | `/plan` | plan first, nothing changes until you pick run (see [Plan first](#plan-first)) |
 | `/rules` | which commands Prism asks about first (see [Asks before risky commands](#asks-before-risky-commands)) |
 | `/commands` `/hooks` | your saved prompts, run as `/<name>` (see below) · your own checks (see [Hooks](#hooks-your-own-checks)) |
-| `/tree` `/files` `/open` | browse the project files · read a file with `/open <path>` |
+| `/files` `/open` | find a file by name · read one with `/open <path>` |
 | `/tabs` `/rename` `/ask` | open chats · name this tab · ask another tab a side question |
 | `/web` `/usage` | open this chat in your browser · free AI used today |
 | `/beam` `/quiet` | turn the finish beam on or off · turn Shard's lines on or off |

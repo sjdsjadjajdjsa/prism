@@ -85,6 +85,7 @@ type model struct {
 	es             editorState  // the Neovim panel
 	playing        *videoPlayer // the video the viewer is playing
 	kittyShown     string       // the real picture on screen, as path|x,y,w,h
+	side           sidebarState // the file tree on the left
 }
 
 // idleAfter is how long the screen keeps animating after the last key, event or resize.
@@ -99,6 +100,9 @@ func (m model) Init() tea.Cmd {
 	cmds := []tea.Cmd{tick(fastFrame), fetchStatus(m.agent.api)}
 	for _, t := range m.tabs {
 		cmds = append(cmds, waitTab(t))
+	}
+	if m.side.shown {
+		cmds = append(cmds, sideTree(m.agent, 0, false))
 	}
 	return tea.Batch(cmds...)
 }
@@ -149,11 +153,16 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.scrollPos = float64(m.scroll)
 		}
 		m.checkWeb()
+		var refresh tea.Cmd
+		if m.sideOn() && m.anyBusy() && time.Since(m.side.at) > time.Second {
+			m.side.at = time.Now()
+			refresh = sideTree(m.agent, 0, false)
+		}
 		if m.idle() {
 			m.ticking = false
 			// Nothing will draw until the next key or event: hand freed memory back to the system.
 			go debug.FreeOSMemory()
-			return m, nil
+			return m, refresh
 		}
 		frame := slowFrame
 		if m.gallery != "" || (!m.chat && m.now < 4*time.Second) || m.busy || m.now-m.chatAt < time.Second || m.animating() {
@@ -161,7 +170,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if !m.chat {
 			frame = 50 * time.Millisecond
 		}
-		return m, tick(frame)
+		return m, tea.Batch(tick(frame), refresh)
 	case statusMsg:
 		m.ready, m.offline = msg.ready, msg.err != nil
 	case pickerMsg:
@@ -287,6 +296,10 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case editorFlushMsg, editorExitMsg:
 		return m.editorMsg(msg)
+	case sideTreeMsg:
+		m, cmd := m.sideMsg(msg)
+		m.sideReveal()
+		return m, cmd
 	case videoFrameMsg:
 		if msg.p == m.playing {
 			return m, waitVideo(msg.p)
@@ -304,6 +317,16 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // mouse sends the pointer to the open overlay, or else to the chat: a click
 // opens or closes a step, the wheel scrolls.
 func (m model) mouse(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.chat && m.web == nil && m.gallery == "" && m.sideOn() {
+		mouse := msg.(interface{ Mouse() tea.Mouse }).Mouse()
+		if mouse.X < m.sideW() && !m.es.drag {
+			next, cmd := m.sideMouse(msg)
+			return next, cmd
+		}
+		if _, click := msg.(tea.MouseClickMsg); click {
+			m.side.focus = false
+		}
+	}
 	if m.chat && m.web == nil && m.gallery == "" && m.editorOn() && !m.menu.open && !m.fb.open {
 		next, done := m.editorMouse(msg)
 		if done {
@@ -311,6 +334,7 @@ func (m model) mouse(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m = next
 	}
+	msg = shiftMouse(msg, -m.chatX())
 	if m.chat && m.web == nil && m.gallery == "" {
 		if m.menu.open {
 			return m.menuMouse(msg)
@@ -347,6 +371,9 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	k := msg.String()
 	if m.chat && m.web == nil && m.editorOn() && m.es.focus && !m.menu.open && !m.fb.open && !m.closeAsk && m.pending == nil {
 		return m.editorKey(msg)
+	}
+	if m.chat && m.web == nil && m.sideOn() && m.side.focus && !m.menu.open && !m.fb.open && !m.closeAsk && m.pending == nil && k != "ctrl+c" && k != "ctrl+b" {
+		return m.sideKey(msg)
 	}
 	if k == "ctrl+c" {
 		if m.es.ed != nil && !m.es.quitOK && m.es.ed.unsaved() {
@@ -406,6 +433,12 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch k {
 	case "ctrl+e":
 		return m, m.showEditor("")
+	case "ctrl+b":
+		if m.sideOn() && !m.side.focus {
+			m.side.focus, m.es.focus = true, false
+			return m, nil
+		}
+		return m, m.toggleSidebar()
 	case "ctrl+t":
 		return m, m.newChatTab()
 	case "ctrl+w":
@@ -735,8 +768,8 @@ func (m model) View() tea.View {
 		drawChat(cv, t, m)
 	case m.gallery != "":
 		drawShardGallery(cv, t, ms(m.now), m.gallery == "beam")
-	case m.chat && m.editorOn():
-		cursor = drawWithEditor(cv, t, m)
+	case m.chat && (m.editorOn() || m.sideOn()):
+		cursor = drawLayout(cv, t, m)
 	case m.chat:
 		drawChat(cv, t, m)
 	default:
@@ -985,7 +1018,7 @@ func main() {
 		return a
 	}
 	m := model{ticking: true, start: time.Now(), hub: newTabHub(), spawn: spawn, ready: -1, project: projectName(dir), lastTextAt: -time.Hour, theme: themeIndex(*themeName), gallery: *gallery,
-		beamOn: loadSetting("beam") != "off", quiet: loadSetting("quiet") == "on", sayAt: -time.Hour, es: editorState{split: loadEditorSplit()}}
+		beamOn: loadSetting("beam") != "off", quiet: loadSetting("quiet") == "on", sayAt: -time.Hour, es: editorState{split: loadEditorSplit()}, side: sidebarState{shown: loadSetting("sidebar") == "on", expanded: map[string]bool{}}}
 	m.openTabs(agent, *resume)
 	var options []tea.ProgramOption
 	if os.Getenv("COLORTERM") == "" && os.Getenv("TERM") != "linux" {

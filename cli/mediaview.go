@@ -482,7 +482,11 @@ func (m model) mediaKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	_, _, w, h := mv.box(0, 0, cols, rows)
 	switch msg.String() {
 	case "esc", "q":
-		m.fb.view = nil
+		if m.fb.only {
+			m.fb = filesState{}
+		} else {
+			m.fb.view = nil
+		}
 	case "space", "k":
 		if mv.video != nil {
 			mv.video.togglePause(w, h)
@@ -549,7 +553,7 @@ func (m *model) syncMedia() tea.Cmd {
 	want := ""
 	if mv != nil && mv.img != nil && kittyGraphics() && !m.menu.open && m.web == nil {
 		x, y, cols, rows := m.mediaArea()
-		bx, by, w, h := mv.box(x, y, cols, rows)
+		bx, by, w, h := mv.box(x+m.chatX(), y, cols, rows)
 		want = fmt.Sprintf("%s|%d,%d,%d,%d", mv.abs, bx, by, w, h)
 	}
 	switch {
@@ -570,7 +574,7 @@ func (m *model) kittyShow(msg kittyMsg) tea.Cmd {
 		return nil
 	}
 	x, y, cols, rows := m.mediaArea()
-	bx, by, w, h := v.media.box(x, y, cols, rows)
+	bx, by, w, h := v.media.box(x+m.chatX(), y, cols, rows)
 	if fmt.Sprintf("%s|%d,%d,%d,%d", v.media.abs, bx, by, w, h) != msg.key {
 		return nil
 	}

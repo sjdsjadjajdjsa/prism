@@ -460,7 +460,7 @@ func TestSuggestRanking(t *testing.T) {
 	}{
 		{"/model", []string{"/model", "/models"}},
 		{"/mo", []string{"/model", "/models", "~/memory"}},
-		{"/m", []string{"/mcp", "/model", "/models", "/memory", "/mreview"}},
+		{"/m", []string{"/mcp", "/map", "/model", "/models", "/memory", "/mreview"}},
 		{"/mdl", []string{"~/model", "~/models"}},
 		{"/odel", []string{"~/model", "~/models"}},
 		{"/MODEL", []string{"/model", "/models"}},

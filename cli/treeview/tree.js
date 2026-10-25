@@ -17,13 +17,14 @@
   function mount(root, data, opts) {
     opts = opts || {}
     root.classList.add('ptree')
+    root.classList.toggle('compact', !!opts.compact)
     root.innerHTML = ''
     const head = el('div', 'ptree-head')
     const title = el('span', 'ptree-root')
     const stats = el('span', 'ptree-stats')
-    const search = el('input', 'ptree-search'); search.type = 'search'; search.placeholder = 'Search files and symbols   /'; search.setAttribute('aria-label', 'Search files')
+    const search = el('input', 'ptree-search'); search.type = 'search'; search.placeholder = opts.compact ? 'Find a file   /' : 'Search files and symbols   /'; search.setAttribute('aria-label', 'Search files')
     const chips = el('div', 'ptree-chips')
-    const modes = [['all', 'All'], ['changed', 'Changed'], ['touched', 'Touched by Prism'], ['claimed', 'Claimed']]
+    const modes = [['all', 'All'], ['changed', 'Changed'], ['touched', opts.compact ? 'Prism' : 'Touched by Prism'], ['claimed', 'Claimed']]
     const chipEls = modes.map(([id, label]) => { const b = el('button', 'ptree-chip', label); b.type = 'button'; b.dataset.mode = id; chips.append(b); return b })
     // Hide the Claimed chip until at least one node has a tab claim.
     const claimedChip = chipEls[3]
@@ -31,8 +32,10 @@
     const list = el('div', 'ptree-list'); list.tabIndex = 0; list.setAttribute('role', 'tree'); list.setAttribute('aria-label', 'Project files')
     const rows = el('div', 'ptree-rows'); list.append(rows)
     const detail = el('aside', 'ptree-detail')
-    root.append(head, list, detail)
+    root.append(head, list)
+    if (!opts.compact) root.append(detail)
 
+    let current = null, opened = false
     let keep = null, nodes = new Map(), kids = new Map(), mode = 'all', query = '', selected = null, cursor = 0, visible = []
     const open = new Set(), flashing = new Map()
     const rowH = () => parseFloat(getComputedStyle(root).getPropertyValue('--t-row')) || 26
@@ -116,6 +119,8 @@
       r.style.paddingLeft = 10 + depth * 16 + 'px'
       r.dataset.path = n.path
       r.setAttribute('role', 'treeitem')
+      if (n.path === current) r.classList.add('current')
+      if (opts.compact) { r.draggable = true; r.title = n.path }
       if (n.dir) r.setAttribute('aria-expanded', String(open.has(n.path) || !!keep))
       const t = flashing.get(n.path)
       if (t && Date.now() - t < 1400) r.classList.add('flash')
@@ -126,6 +131,7 @@
       if (n.agent) { const d = el('span', 'ptree-dot' + (n.agent === 'read' ? ' read' : '')); d.title = 'Prism ' + (n.agent === 'read' ? 'read' : 'changed') + ' this'; r.append(d) }
       if (n.tab) { const chip = el('span', 'ptree-tab-chip', String(n.tab)); chip.title = 'tab ' + n.tab + ' · ' + (n.tabName || 'another tab') + ' is editing this'; r.append(chip) }
       r.append(el('span', 'ptree-spacer'))
+      if (opts.compact) return r
       if (n.dir) {
         const count = countFiles(n.path); r.append(el('span', 'ptree-badge n', String(count)))
       } else {
@@ -211,6 +217,23 @@
       cursor = visible.findIndex(([v]) => v.path === p)
       if (n && n.dir && !keep) toggle(p)
       select(p)
+      if (n && !n.dir && opts.onOpen) opts.onOpen(p)
+    })
+    rows.addEventListener('contextmenu', e => {
+      const r = e.target.closest('.ptree-row'); if (!r || !opts.onMenu) return
+      e.preventDefault()
+      const n = nodes.get(r.dataset.path)
+      select(r.dataset.path)
+      opts.onMenu(r.dataset.path, !!(n && n.dir), e.clientX, e.clientY)
+    })
+    list.addEventListener('contextmenu', e => {
+      if (e.target.closest('.ptree-row') || !opts.onMenu) return
+      e.preventDefault(); opts.onMenu('', true, e.clientX, e.clientY)
+    })
+    rows.addEventListener('dragstart', e => {
+      const r = e.target.closest('.ptree-row'); if (!r) return
+      e.dataTransfer.setData('text/plain', '`' + r.dataset.path + '` ')
+      e.dataTransfer.effectAllowed = 'copy'
     })
     list.addEventListener('scroll', () => requestAnimationFrame(paint), { passive: true })
     let typing
@@ -223,7 +246,8 @@
         e.preventDefault(); cursor = Math.max(0, Math.min(visible.length - 1, cursor + (e.key === 'ArrowDown' ? 1 : -1)))
         const p = visible[cursor] && visible[cursor][0].path
         if (p) { const y = cursor * rowH(); if (y < list.scrollTop) list.scrollTop = y; else if (y + rowH() > list.scrollTop + list.clientHeight) list.scrollTop = y + rowH() - list.clientHeight; select(p) }
-      } else if ((e.key === 'Enter' || e.key === ' ') && n) { e.preventDefault(); if (n.dir) toggle(n.path); select(n.path) }
+      } else if ((e.key === 'Enter' || e.key === ' ') && n) { e.preventDefault(); if (n.dir) toggle(n.path); select(n.path); if (!n.dir && opts.onOpen) opts.onOpen(n.path) }
+      else if ((e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) && n && opts.onMenu) { e.preventDefault(); const r = rows.querySelector('.ptree-row.sel'); const b = r ? r.getBoundingClientRect() : list.getBoundingClientRect(); opts.onMenu(n.path, !!n.dir, b.left + 40, b.bottom) }
       else if (e.key === 'ArrowRight' && n && n.dir && !open.has(n.path)) toggle(n.path)
       else if (e.key === 'ArrowLeft' && n) { if (n.dir && open.has(n.path)) toggle(n.path); else if (parent(n.path)) { reveal(parent(n.path)); select(parent(n.path)) } }
     })
@@ -233,8 +257,9 @@
 
     function update(d) {
       index(d)
-      if (!open.size) {
-        for (const n of nodes.values()) if (n.dir && !parent(n.path)) open.add(n.path)
+      if (!opened) {
+        opened = true
+        if (!opts.compact) for (const n of nodes.values()) if (n.dir && !parent(n.path)) open.add(n.path)
         for (const n of nodes.values()) if (!n.dir && changed(n)) for (let p = parent(n.path); p; p = parent(p)) open.add(p)
       }
       render()
@@ -242,7 +267,13 @@
       if (flashing.size) setTimeout(() => { for (const [p, t] of flashing) if (Date.now() - t > 1400) flashing.delete(p); paint() }, 1500)
     }
     update(data)
-    return { update }
+    return {
+      update,
+      reveal: p => { if (nodes.has(p)) { reveal(p); select(p) } },
+      setCurrent: p => { current = p || null; paint() },
+      has: p => nodes.has(p),
+      focus: () => list.focus(),
+    }
   }
 
   window.PrismTree = { mount }

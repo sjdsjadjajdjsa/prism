@@ -226,7 +226,13 @@ func (m model) transcript(t theme, width int) []line {
 			out = append(out, crewLines(t, e.crew, width, n)...)
 		case "note":
 			gap()
-			out = append(out, line{indent: 2, segs: []seg{{text: "· ", fg: t.muted}, {text: e.text, fg: t.fg}}})
+			for j, row := range wrapAll(e.text, width-6) {
+				mark := "  "
+				if j == 0 {
+					mark = "· "
+				}
+				out = append(out, line{indent: 2, segs: []seg{{text: mark, fg: t.muted}, {text: row, fg: t.fg}}})
+			}
 		case "error":
 			gap()
 			for j, row := range wrapAll(e.text, width-6) {

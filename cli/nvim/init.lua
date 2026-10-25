@@ -22,3 +22,10 @@ o.autoread = true
 vim.fn.timer_start(1000, function()
   if vim.fn.mode() ~= 'c' then vim.cmd('silent! checktime') end
 end, { ['repeat'] = -1 })
+
+-- Tell Prism which file is open, so the file tree can mark it.
+vim.api.nvim_create_autocmd({ 'BufEnter', 'BufFilePost' }, {
+  callback = function()
+    if vim.bo.buftype == '' then vim.rpcnotify(0, 'prism_buf', vim.fn.expand('%:.')) end
+  end,
+})

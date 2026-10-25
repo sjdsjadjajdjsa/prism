@@ -47,9 +47,10 @@ var commands = []command{
 	{"/mcp", "connected tools · /mcp add picks a free one", true},
 	{"/memory", "what prism remembers · /memory forget <n>", true},
 	{"/usage", "free AI used today", true},
-	{"/tree", "browse the project files · /tree changed · /tree <text> lists them", true},
+	{"/tree", "the file tree on the left (ctrl+b) · /tree changed lists changes", true},
 	{"/editor", "Neovim beside the chat · /editor <file>", false},
-	{"/files", "browse the project and read any file", true},
+	{"/files", "find a file by name and read it", true},
+	{"/map", "a map of how the files link, in the browser", true},
 	{"/open", "read a file in the viewer · /open <path>", true},
 	{"/theme", "switch the colour theme · /theme <name>", true},
 	{"/beam", "turn the finish beam on or off", true},
@@ -394,9 +395,11 @@ func (m *model) command(text string) tea.Cmd {
 		} else {
 			return m.showEditor(rel)
 		}
+	case "/map":
+		m.note("the map of how files link is in the browser · /web, then map in the file tree")
 	case "/tree":
 		if len(fields) == 1 {
-			return m.openFiles()
+			return m.toggleSidebar()
 		}
 		title, lines := treeCommand(m.agent, strings.Join(fields[1:], " "))
 		m.entries = append(m.entries, &entry{kind: "info", text: title, lines: lines})

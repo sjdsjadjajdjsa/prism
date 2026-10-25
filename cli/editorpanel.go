@@ -35,14 +35,15 @@ func (m model) editorOn() bool { return m.es.shown && m.es.ed != nil }
 
 func (m model) chatW() int {
 	if !m.editorOn() {
-		return m.w
+		return m.w - m.sideW()
 	}
-	return m.dividerX()
+	return m.dividerX() - m.sideW()
 }
 
 func (m model) dividerX() int {
+	least := m.sideW() + minChatW
 	x := int(math.Round(float64(m.w) * (1 - m.es.split)))
-	return clamp(x, minChatW, max(minChatW, m.w-minEditorW-1))
+	return clamp(x, least, max(least, m.w-minEditorW-1))
 }
 
 // editorRect is where the editor is drawn: right of the divider, full height.
@@ -51,7 +52,7 @@ func (m model) editorRect() (x, w int) {
 	return x, m.w - x
 }
 
-func (m model) editorFits() bool { return m.w >= minChatW+minEditorW+1 }
+func (m model) editorFits() bool { return m.w >= m.sideW()+minChatW+minEditorW+1 }
 
 func (m *model) showEditor(path string) tea.Cmd {
 	if !m.editorFits() {
@@ -111,6 +112,10 @@ func (m model) editorMsg(msg tea.Msg) (model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case editorFlushMsg:
 		if msg.e == m.es.ed {
+			if f := msg.e.file(); f != m.side.following {
+				m.side.following = f
+				m.revealInSide(f)
+			}
 			return m, waitEditor(msg.e)
 		}
 	case editorExitMsg:
@@ -142,12 +147,13 @@ func (m model) editorMouse(msg tea.Msg) (model, bool) {
 	switch msg.(type) {
 	case tea.MouseClickMsg:
 		if mouse.X == div && mouse.Button == tea.MouseLeft {
+			m.side.focus = false
 			m.es.drag = true
 			return m, true
 		}
 	case tea.MouseMotionMsg:
 		if m.es.drag {
-			m.es.split = math.Max(0.2, math.Min(0.8, 1-float64(mouse.X)/float64(max(1, m.w))))
+			m.es.split = math.Max(0.15, math.Min(0.8, 1-float64(mouse.X)/float64(max(1, m.w))))
 			m.syncEditor()
 			return m, true
 		}
@@ -178,7 +184,7 @@ func (m model) editorMouse(msg tea.Msg) (model, bool) {
 	button := map[tea.MouseButton]string{tea.MouseLeft: "left", tea.MouseRight: "right", tea.MouseMiddle: "middle"}[mouse.Button]
 	switch msg.(type) {
 	case tea.MouseClickMsg:
-		m.es.focus = true
+		m.es.focus, m.side.focus = true, false
 		if button != "" {
 			m.es.ed.mouse(button, "press", mods, row, col)
 		}
@@ -199,23 +205,30 @@ func (m model) editorMouse(msg tea.Msg) (model, bool) {
 	return m, true
 }
 
-// drawWithEditor draws the chat into the left part of the window and the
-// editor into the right, and says where the terminal cursor belongs.
-func drawWithEditor(cv *canvas, t theme, m model) *tea.Cursor {
+// drawLayout draws the file tree, the chat and the editor side by side, and
+// says where the terminal cursor belongs.
+func drawLayout(cv *canvas, t theme, m model) *tea.Cursor {
+	cx, cw := m.chatX(), m.chatW()
 	chat := m
-	chat.w = m.dividerX()
-	chat.es.shown = false
-	sub := newCanvas(chat.w, m.h, t.bg, t.fg)
+	chat.w = cw
+	chat.es.shown, chat.side.shown = false, false
+	sub := newCanvas(cw, m.h, t.bg, t.fg)
 	drawChat(sub, t, chat)
 	for y := 0; y < m.h; y++ {
-		copy(cv.cells[y*cv.w:y*cv.w+chat.w], sub.cells[y*sub.w:(y+1)*sub.w])
+		copy(cv.cells[y*cv.w+cx:y*cv.w+cx+cw], sub.cells[y*sub.w:(y+1)*sub.w])
+	}
+	if m.sideOn() {
+		drawSidebar(cv, t, m)
+	}
+	if !m.editorOn() {
+		return nil
 	}
 	div := t.faint
 	if m.es.focus || m.es.drag {
 		div = t.at(0.5)
 	}
 	for y := 0; y < m.h; y++ {
-		cv.set(chat.w, y, '│', div, false)
+		cv.set(m.dividerX(), y, '│', div, false)
 	}
 	ex, _ := m.editorRect()
 	x, y, shape, show := m.es.ed.draw(cv, ex, 0)

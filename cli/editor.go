@@ -34,7 +34,8 @@ type editor struct {
 	fg, bg  rgb
 	cx, cy  int
 	mode    string
-	visible bool // false while Neovim is busy and hides the cursor
+	visible bool   // false while Neovim is busy and hides the cursor
+	current string // the file in the editor, relative to the project
 }
 
 type gridCell struct {
@@ -80,6 +81,15 @@ func startEditor(dir string, w, h int, t theme) (*editor, error) {
 		hl: map[int]hlAttr{}, fg: t.fg, bg: t.bg, mode: "normal", visible: true,
 	}
 	e.resizeGrid(w, h)
+	nv.RegisterHandler("prism_buf", func(name string) {
+		e.mu.Lock()
+		e.current = name
+		e.mu.Unlock()
+		select {
+		case e.flushed <- struct{}{}:
+		default:
+		}
+	})
 	if err := nv.RegisterHandler("redraw", e.redraw); err != nil {
 		nv.Close()
 		return nil, err
@@ -154,6 +164,12 @@ func escapeVimPath(p string) string {
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+func (e *editor) file() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.current
 }
 
 func (e *editor) resize(w, h int) {

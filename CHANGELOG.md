@@ -4,6 +4,9 @@
 
 ### New
 
+- A file tree that stays open on the left, in the terminal (ctrl+b or `/tree`) and the browser. Click to open, files Prism is working on light up, the open file is highlighted. New file, new folder, rename and delete from the tree; mention a file in the chat with `@` or by dragging it.
+- The map (browser, `/map`): how files link through imports and Markdown links, including `[[wiki links]]`, like Obsidian's graph.
+- File paths in the browser chat open the file when clicked. Markdown previews show HTML pictures and follow links to other files.
 - Pictures and videos open from `/tree`. In Ghostty, kitty and WezTerm pictures are real pictures; other terminals get coloured blocks. Videos play in the terminal (space pauses, arrows skip 5 seconds) and `o` opens them in the browser.
 - Browser Files panel: pictures show, videos play, and Markdown files show their pictures with a Preview button.
 - ffmpeg (a 76 MB static build, checked against its SHA-256) is in Prism's box for videos.

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"math"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -264,6 +265,11 @@ func (t *projectTree) link() {
 		if !n.Dir && n.Lang == "go" {
 			byDir[path.Dir(p)] = append(byDir[path.Dir(p)], p)
 		}
+		// [[wiki links]] name a note without its folder, like Obsidian.
+		if !n.Dir && n.Lang == "md" {
+			key := "[[" + strings.ToLower(strings.TrimSuffix(path.Base(p), ".md"))
+			byDir[key] = append(byDir[key], p)
+		}
 	}
 	for _, n := range t.nodes {
 		n.Imports, n.ImportedBy, n.Rank = nil, nil, 0
@@ -371,6 +377,19 @@ func (t *projectTree) resolve(from, lang, raw string, byDir map[string][]string)
 			if p := path.Clean(base + ext); t.nodes[p] != nil && !t.nodes[p].Dir {
 				return []string{p}
 			}
+		}
+	case "md":
+		if name, ok := strings.CutPrefix(raw, "[["); ok {
+			return byDir["[["+strings.ToLower(strings.TrimSuffix(name, ".md"))]
+		}
+		if strings.Contains(raw, "://") || strings.HasPrefix(raw, "mailto:") {
+			return nil
+		}
+		if unescaped, err := url.PathUnescape(raw); err == nil {
+			raw = unescaped
+		}
+		if p := path.Clean(path.Join(dir, raw)); t.nodes[p] != nil && !t.nodes[p].Dir {
+			return []string{p}
 		}
 	case "go":
 		if t.module != "" && (raw == t.module || strings.HasPrefix(raw, t.module+"/")) {
@@ -543,6 +562,7 @@ var (
 	impPy   = regexp.MustCompile(`^\s*(?:from\s+([.\w]+)\s+import|import\s+([\w.]+))`)
 	impJS   = regexp.MustCompile(`(?:import\s+(?:[^'"]*?\s+from\s+)?|export\s+[^'"]*?\s+from\s+|require\(\s*|import\(\s*)['"]([^'"]+)['"]`)
 	impHTML = regexp.MustCompile(`(?i)(?:src|href)\s*=\s*["']([^"'#?]+)`)
+	impMd   = regexp.MustCompile(`\]\(([^)\s#?]+)|\[\[([^\]|#]+)`)
 	impCSS  = regexp.MustCompile(`@import\s+(?:url\()?['"]?([^'")\s]+)`)
 	impGo   = regexp.MustCompile(`^\s*(?:import\s+)?(?:[A-Za-z_.]+\s+)?"([^"]+)"`)
 )
@@ -613,6 +633,13 @@ func parseSource(lang string, data []byte) (symbols, imports []string) {
 		case "md":
 			if m := symMd.FindStringSubmatch(line); m != nil {
 				add(m[1] + " " + m[2])
+			}
+			for _, m := range impMd.FindAllStringSubmatch(line, -1) {
+				if m[2] != "" {
+					imports = append(imports, "[["+strings.TrimSpace(m[2]))
+				} else {
+					imports = append(imports, m[1])
+				}
 			}
 		case "html":
 			if m := symHTML.FindStringSubmatch(line); m != nil {

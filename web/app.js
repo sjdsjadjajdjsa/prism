@@ -389,11 +389,12 @@ jumpBtn.addEventListener('click', () => { scrollDown(); if (!matchMedia('(pointe
 // Markdown, built with DOM calls so it is escaped by construction
 // image(src) turns a Markdown picture path into a URL, or null to leave it as text. Chat
 // messages pass none, so a reply can't make the page load pictures from anywhere.
-function renderMarkdown(root, src, image) {
-  mdImage = image || null;
-  try { renderBlocks(root, src); } finally { mdImage = null; }
+// link(href) handles a relative link the same way: a click handler, or null for plain text.
+function renderMarkdown(root, src, image, link) {
+  mdImage = image || null; mdLink = link || null;
+  try { renderBlocks(root, src); } finally { mdImage = null; mdLink = null; }
 }
-let mdImage = null;
+let mdImage = null, mdLink = null;
 function renderBlocks(root, src) {
   clear(root);
   const lines = src.split('\n');
@@ -453,7 +454,7 @@ function renderBlocks(root, src) {
 
 function inline(parent, text) {
   // tokens: `code`, **bold**, *em*, [text](url), ![alt](picture)
-  const re = /(!\[([^\]\n]*)\]\(([^)\s]+)\))|(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|((?<![\w*])\*(?=[A-Za-z])[^*\n]*?[^\s\d*]\*(?![\w*]))|(\[[^\]\n]+\]\((https?:\/\/[^)\s]+)\))/g;
+  const re = /(!\[([^\]\n]*)\]\(([^)\s]+)\))|(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|((?<![\w*])\*(?=[A-Za-z])[^*\n]*?[^\s\d*]\*(?![\w*]))|(\[[^\]\n]+\]\(([^)\s]+)\))/g;
   let last = 0, m;
   while ((m = re.exec(text))) {
     if (m.index > last) parent.appendChild(document.createTextNode(text.slice(last, m.index)));
@@ -463,6 +464,12 @@ function inline(parent, text) {
     else if (m[4]) parent.appendChild(el('code', '', m[4].slice(1, -1)));
     else if (m[5]) parent.appendChild(el('strong', '', m[5].slice(2, -2)));
     else if (m[6]) parent.appendChild(el('em', '', m[6].slice(1, -1)));
+    else if (m[7] && !/^https?:\/\//.test(m[8])) {
+      const label = m[7].slice(1, m[7].indexOf(']'));
+      const go = mdLink ? mdLink(m[8]) : null;
+      if (go) { const a = el('a', '', label); a.href = '#'; a.addEventListener('click', e => { e.preventDefault(); go(); }); parent.appendChild(a); }
+      else parent.appendChild(document.createTextNode(label));
+    }
     else if (m[7]) { const a = el('a', '', m[7].slice(1, m[7].indexOf(']'))); a.href = m[8]; a.target = '_blank'; a.rel = 'noopener'; parent.appendChild(a); }
     last = re.lastIndex;
   }
@@ -1389,9 +1396,13 @@ async function runCommand(line) {
       return;
     case '/tree':
       if (rest.length) break;
-    // fall through: a bare /tree opens the Files panel
+      if (window.PrismFiles) window.PrismFiles.toggle(); else addNote('the file tree did not load');
+      return;
     case '/files':
-      if (window.PrismFiles) window.PrismFiles.show(); else addNote('the file viewer did not load');
+      if (window.PrismFiles) window.PrismFiles.show(); else addNote('the file tree did not load');
+      return;
+    case '/map':
+      if (window.PrismFiles) window.PrismFiles.map(); else addNote('the file tree did not load');
       return;
     case '/open':
       if (!window.PrismFiles) { addNote('the file viewer did not load'); return; }
@@ -1641,6 +1652,9 @@ $('composer').addEventListener('submit', (e) => e.preventDefault());
 $('theme').addEventListener('change', (e) => setTheme(e.target.value));
 addEventListener('keydown', (e) => {
   const a = document.activeElement;
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'b' && window.PrismFiles) {
+    e.preventDefault(); window.PrismFiles.toggle(); return;
+  }
   // an open picker owns the keys: esc closes it, a typed letter goes to its filter, not the chat box
   const PC = window.PrismCommands;
   if (PC && PC.pickerOpen && PC.pickerOpen() && !(a && a.closest && a.closest('.pick'))) {

@@ -413,7 +413,7 @@ var helpGroups = []struct {
 }{
 	{"chat", []string{"/new", "/clear", "/resume", "/compact", "/undo", "/plan", "/quit"}},
 	{"models & keys", []string{"/models", "/model", "/key", "/login", "/usage"}},
-	{"project", []string{"/init", "/files", "/open", "/tree", "/editor", "/skills", "/commands", "/hooks", "/rules", "/memory", "/mcp", "/web"}},
+	{"project", []string{"/init", "/files", "/open", "/tree", "/map", "/editor", "/skills", "/commands", "/hooks", "/rules", "/memory", "/mcp", "/web"}},
 	{"look & feel", []string{"/theme", "/beam", "/quiet", "/help"}},
 	{"tabs", []string{"/tabs", "/rename", "/ask"}},
 }
