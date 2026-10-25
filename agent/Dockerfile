@@ -8,6 +8,20 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /prism . \
       CGO_ENABLED=0 GOOS=${target%/*} GOARCH=${target#*/} go build -trimpath -ldflags="-s -w" -o /hosts/prism-${target%/*}-${target#*/} . ; \
     done
 
+# ffmpeg plays videos in the /tree viewer. The static build is one 76 MB file, where
+# Debian's package pulls in over 600 MB. Pinned and checked against its SHA-256.
+FROM debian:bookworm-slim AS ffmpeg
+ARG FFMPEG_VERSION=6.0.1
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates xz-utils \
+ && case "$(dpkg --print-architecture)" in \
+      arm64) arch=arm64 sum=7dbd8e2f47bd83de591b9d6ea70e67d32d9aa97e7d47ae402b60c2fe3fd4d0ab ;; \
+      *) arch=amd64 sum=28268bf402f1083833ea269331587f60a242848880073be8016501d864bd07a5 ;; \
+    esac \
+ && curl -fsSL -o /tmp/ff.txz "https://johnvansickle.com/ffmpeg/old-releases/ffmpeg-${FFMPEG_VERSION}-${arch}-static.tar.xz" \
+ && echo "${sum}  /tmp/ff.txz" | sha256sum -c - \
+ && tar xJf /tmp/ff.txz -C /tmp --strip-components=1 --wildcards '*/ffmpeg' \
+ && install -m 755 /tmp/ffmpeg /usr/local/bin/ffmpeg
+
 FROM node:24-bookworm-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ripgrep curl ca-certificates python3 python3-venv python-is-python3 build-essential \
@@ -29,6 +43,7 @@ RUN case "$(dpkg --print-architecture)" in \
 # screenshot into the persistent config volume. Only the shared libraries and a font it needs are installed.
 RUN mkdir -p /home/prism/.config/prism && chmod -R 777 /home/prism
 COPY --from=build /prism /usr/local/bin/prism
+COPY --from=ffmpeg /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
 COPY --from=build /hosts /opt/prism/hosts
 COPY web /usr/share/prism/web
 ENV HOME=/home/prism

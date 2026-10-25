@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### New
+
+- Pictures and videos open from `/tree`. In Ghostty, kitty and WezTerm pictures are real pictures; other terminals get coloured blocks. Videos play in the terminal (space pauses, arrows skip 5 seconds) and `o` opens them in the browser.
+- Browser Files panel: pictures show, videos play, and Markdown files show their pictures with a Preview button.
+- ffmpeg (a 76 MB static build, checked against its SHA-256) is in Prism's box for videos.
+
 ## 0.3.0 (2026-10-25)
 
 ### New

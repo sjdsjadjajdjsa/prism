@@ -128,6 +128,7 @@ type fileViewer struct {
 	lines []string
 	note  string
 	top   int
+	media *mediaView
 }
 
 func newViewer(fc fileContent) *fileViewer {
@@ -247,6 +248,14 @@ func (m *model) filesLoaded(msg filesMsg) {
 // openFile runs /open <path>: the viewer opens straight away and the browser
 // loads behind it, so esc lands there.
 func (m *model) openFile(p string) tea.Cmd {
+	if mediaKind(p) != "" {
+		var cmd tea.Cmd
+		if !m.fb.open {
+			cmd = m.openFiles()
+		}
+		m.fb.view = newMediaViewer(m.agent.dir, p)
+		return cmd
+	}
 	fc, err := readProjectFile(m.agent.dir, p)
 	if err != nil {
 		m.entries = append(m.entries, &entry{kind: "note", text: "✕ " + err.Error()})
@@ -275,6 +284,9 @@ func (m model) filesLayout() (lines, head, shown, off int) {
 	_, y, _, top := m.overlayArea()
 	avail := y - top
 	if v := m.fb.view; v != nil {
+		if v.media != nil {
+			return 1 + max(3, avail-1), 1, 0, 0
+		}
 		if v.note != "" {
 			return 2, 1, 0, 0
 		}
@@ -355,6 +367,9 @@ func (m model) filesMouse(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) filesKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if v := m.fb.view; v != nil && v.media != nil {
+		return m.mediaKey(msg)
+	}
 	if v := m.fb.view; v != nil {
 		page := m.viewerPage()
 		switch msg.String() {
@@ -410,6 +425,10 @@ func (m model) filesKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if msg.String() != "enter" {
 			return m, nil
 		}
+		if mediaKind(r.path) != "" {
+			m.fb.view = newMediaViewer(m.agent.dir, r.path)
+			return m, nil
+		}
 		fc, err := readProjectFile(m.agent.dir, r.path)
 		v := newViewer(fc)
 		if err != nil {
@@ -445,6 +464,14 @@ func (m model) filesKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func drawFiles(cv *canvas, t theme, m model, x, y, w, top int) {
 	f := m.fb
 	var all []pickLine
+	if v := f.view; v != nil && v.media != nil {
+		lines, _, _, _ := m.filesLayout()
+		all = mediaLines(t, v, lines)
+		drawPickLines(cv, t, all, x, y, w, top)
+		mx, my, cols, rows := m.mediaArea()
+		drawMedia(cv, t, v.media, mx, my, cols, rows)
+		return
+	}
 	if v := f.view; v != nil {
 		all = viewerLines(t, v, w-6, y-top)
 	} else {

@@ -269,6 +269,8 @@ Inside the terminal app, `/web` moves the current chat to your browser, with the
 
 `/editor` or ctrl+e opens Neovim next to the chat, and `/editor <file>` opens a file in it. ctrl+e moves the keyboard between the chat and the editor, and so does a click. `/editor` again hides it, `:q` closes it, and you can drag the line between them to resize. Files Prism changes reload in the editor by themselves. Neovim comes inside Prism's Docker box, so there is nothing to install.
 
+Pictures and videos open from the tree too. A picture shows as a real picture in Ghostty, kitty and WezTerm, and as coloured blocks in other terminals. A video plays right in the terminal (space pauses, the arrow keys skip 5 seconds, no sound), and `o` opens either one in your browser at full quality. In the browser, clicking a picture shows it, a video plays with sound, and Markdown files show their pictures (Preview and Source switch between them).
+
 `/tree changed` and `/tree <text>` print a list with what changed: `M` changed, `?` new, `●` Prism edited it, `◦` Prism read it, `★` many files use it. In the browser, `/tree` or the **Files** button opens a live, searchable tree that updates as files change, with each file's functions and which files it imports or is imported by. `prism tree --html` writes the same view as a page you can open anywhere.
 
 It respects `.gitignore`, and watching for changes costs nothing while nothing changes. Prism also gets a short version of the map (about 600 tokens), so easy tasks start in the right file.

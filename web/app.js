@@ -387,7 +387,14 @@ document.addEventListener('visibilitychange', pin);
 jumpBtn.addEventListener('click', () => { scrollDown(); if (!matchMedia('(pointer: coarse)').matches) input.focus({ preventScroll: true }); });
 
 // Markdown, built with DOM calls so it is escaped by construction
-function renderMarkdown(root, src) {
+// image(src) turns a Markdown picture path into a URL, or null to leave it as text. Chat
+// messages pass none, so a reply can't make the page load pictures from anywhere.
+function renderMarkdown(root, src, image) {
+  mdImage = image || null;
+  try { renderBlocks(root, src); } finally { mdImage = null; }
+}
+let mdImage = null;
+function renderBlocks(root, src) {
   clear(root);
   const lines = src.split('\n');
   let i = 0, para = [];
@@ -445,15 +452,18 @@ function renderMarkdown(root, src) {
 }
 
 function inline(parent, text) {
-  // tokens: `code`, **bold**, *em*, [text](url)
-  const re = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|((?<![\w*])\*(?=[A-Za-z])[^*\n]*?[^\s\d*]\*(?![\w*]))|(\[[^\]\n]+\]\((https?:\/\/[^)\s]+)\))/g;
+  // tokens: `code`, **bold**, *em*, [text](url), ![alt](picture)
+  const re = /(!\[([^\]\n]*)\]\(([^)\s]+)\))|(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|((?<![\w*])\*(?=[A-Za-z])[^*\n]*?[^\s\d*]\*(?![\w*]))|(\[[^\]\n]+\]\((https?:\/\/[^)\s]+)\))/g;
   let last = 0, m;
   while ((m = re.exec(text))) {
     if (m.index > last) parent.appendChild(document.createTextNode(text.slice(last, m.index)));
-    if (m[1]) parent.appendChild(el('code', '', m[1].slice(1, -1)));
-    else if (m[2]) parent.appendChild(el('strong', '', m[2].slice(2, -2)));
-    else if (m[3]) parent.appendChild(el('em', '', m[3].slice(1, -1)));
-    else if (m[4]) { const a = el('a', '', m[4].slice(1, m[4].indexOf(']'))); a.href = m[5]; a.target = '_blank'; a.rel = 'noopener'; parent.appendChild(a); }
+    const url = m[1] && mdImage ? mdImage(m[3]) : null;
+    if (m[1] && url) { const img = el('img'); img.src = url; img.alt = m[2]; img.loading = 'lazy'; parent.appendChild(img); }
+    else if (m[1]) parent.appendChild(document.createTextNode(m[1]));
+    else if (m[4]) parent.appendChild(el('code', '', m[4].slice(1, -1)));
+    else if (m[5]) parent.appendChild(el('strong', '', m[5].slice(2, -2)));
+    else if (m[6]) parent.appendChild(el('em', '', m[6].slice(1, -1)));
+    else if (m[7]) { const a = el('a', '', m[7].slice(1, m[7].indexOf(']'))); a.href = m[8]; a.target = '_blank'; a.rel = 'noopener'; parent.appendChild(a); }
     last = re.lastIndex;
   }
   if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
@@ -1816,6 +1826,7 @@ async function boot() {
       if (info.beam != null) beamEnabled = !!info.beam;
       if (info.quiet != null) quiet = !!info.quiet;
       if (info.handoff) showHandoff();
+      if (info.open && window.PrismFiles) window.PrismFiles.openFile(info.open);
     }
     const hist = await api('/api/history');
     if (hist) loadHistory(hist.entries);

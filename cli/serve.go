@@ -34,6 +34,7 @@ type server struct {
 	askSeq int
 
 	handoff  bool
+	openPath string // a picture or video the terminal asked the browser to show
 	lastSeen time.Time
 	requests int
 	sent     int
@@ -107,6 +108,7 @@ func (s *server) handler(port string) http.Handler {
 	mux.HandleFunc("GET /api/tree", s.tree)
 	mux.HandleFunc("GET /api/file", s.readFile)
 	mux.HandleFunc("POST /api/file", s.saveFile)
+	mux.HandleFunc("GET /api/raw", s.rawFile)
 	mux.HandleFunc("GET /tree.js", treeAsset("tree.js", "text/javascript"))
 	mux.HandleFunc("GET /tree.css", treeAsset("tree.css", "text/css"))
 	mux.HandleFunc("GET /api/history", s.history)
@@ -236,7 +238,9 @@ func (s *server) readFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := map[string]any{"path": fc.rel, "size": fc.size, "editable": fc.note == ""}
-	if fc.note != "" {
+	if kind := mediaKind(fc.rel); kind != "" {
+		out["kind"], out["editable"] = kind, false
+	} else if fc.note != "" {
 		out["note"] = fc.note
 	} else {
 		out["content"] = fc.text
@@ -296,7 +300,8 @@ func (s *server) info(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.mu.Lock()
-	handoff := s.handoff
+	handoff, open := s.handoff, s.openPath
+	s.openPath = ""
 	s.mu.Unlock()
 	a, err := s.agentTab(r)
 	if err != nil {
@@ -305,7 +310,7 @@ func (s *server) info(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	pinned := a.model
 	s.mu.Unlock()
-	writeJSON(w, map[string]any{"project": projectName(s.agent.dir), "theme": s.theme, "models_ready": ready, "handoff": handoff, "model": pinned, "source": answeredBy("", pinned), "plan": a.plan.Load(), "beam": loadSetting("beam") != "off", "quiet": loadSetting("quiet") == "on"})
+	writeJSON(w, map[string]any{"project": projectName(s.agent.dir), "theme": s.theme, "models_ready": ready, "handoff": handoff, "open": open, "model": pinned, "source": answeredBy("", pinned), "plan": a.plan.Load(), "beam": loadSetting("beam") != "off", "quiet": loadSetting("quiet") == "on"})
 }
 
 // snapshot converts the agent's messages to wire entries. Callers must hold

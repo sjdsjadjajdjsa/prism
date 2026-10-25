@@ -61,6 +61,37 @@
     text: document.getElementById('file-text'), editor: document.getElementById('file-editor'),
     edit: document.getElementById('file-edit'), save: document.getElementById('file-save'),
     cancel: document.getElementById('file-cancel'), back: document.getElementById('file-back'),
+    media: document.getElementById('file-media'), md: document.getElementById('file-md'),
+    preview: document.getElementById('file-preview'),
+  }
+  const rawURL = path => '/api/raw?path=' + encodeURIComponent(path)
+  const isMarkdown = path => /\.(md|markdown)$/i.test(path)
+  let previewing = false
+
+  // A Markdown picture's path is relative to the file it is in.
+  function resolve(from, src) {
+    if (/^[a-z]+:|^\/\//i.test(src)) return null
+    const parts = src.startsWith('/') ? [] : from.split('/').slice(0, -1)
+    for (const p of src.replace(/[?#].*$/, '').split('/')) {
+      if (p === '..') parts.pop()
+      else if (p && p !== '.') parts.push(p)
+    }
+    return rawURL(decodeURIComponent(parts.join('/')))
+  }
+
+  function showMedia(f) {
+    fv.media.replaceChildren()
+    if (f.kind === 'image') {
+      const img = document.createElement('img')
+      img.src = rawURL(f.path); img.alt = f.path
+      img.onerror = () => { fv.media.textContent = "couldn't show this picture" }
+      fv.media.append(img)
+    } else {
+      const video = document.createElement('video')
+      video.src = rawURL(f.path); video.controls = true; video.preload = 'metadata'
+      video.onerror = () => { fv.media.textContent = "this browser can't play this video · try an .mp4 or .webm" }
+      fv.media.append(video)
+    }
   }
   let current = null, editing = false, seq = 0
 
@@ -70,12 +101,25 @@
     const f = current
     fv.path.textContent = f ? f.path : ''
     fv.path.title = fv.path.textContent
-    const note = f && (f.error || f.note)
+    const media = !!(f && !f.error && f.kind)
+    const md = !!(f && previewing && !editing && !media && isMarkdown(f.path))
+    const note = f && !media && (f.error || f.note)
     fv.note.hidden = !note
     fv.note.textContent = note || ''
-    fv.code.hidden = !!note || editing
+    fv.media.hidden = !media
+    fv.md.hidden = !md
+    fv.preview.hidden = !f || media || editing || !isMarkdown(f.path)
+    fv.preview.setAttribute('aria-pressed', String(previewing))
+    fv.preview.textContent = previewing ? 'Source' : 'Preview'
+    if (media && !fv.media.firstChild) showMedia(f)
+    if (!media) fv.media.replaceChildren()
+    if (md) {
+      fv.md.replaceChildren()
+      window.renderMarkdown(fv.md, f.content, src => resolve(f.path, src))
+    }
+    fv.code.hidden = !!note || editing || media || md
     fv.editor.hidden = !editing
-    fv.edit.hidden = editing
+    fv.edit.hidden = editing || media
     fv.edit.disabled = !f || !f.editable
     fv.save.hidden = fv.cancel.hidden = !editing
     if (!note && !editing && f) {
@@ -99,7 +143,8 @@
       if (id !== seq) return
       if (!res.ok) throw new Error((await res.text()).trim() || res.status)
       const data = await res.json()
-      current = { path: data.path, editable: !!data.editable, content: data.content || '', note: data.note }
+      current = { path: data.path, editable: !!data.editable, content: data.content || '', note: data.note, kind: data.kind }
+      previewing = isMarkdown(data.path) && /!\[[^\]]*\]\(/.test(current.content)
       say('')
     } catch (e) {
       if (id !== seq) return
@@ -115,6 +160,7 @@
     seq++
     editing = false
     current = null
+    fv.media.replaceChildren()
     fv.pane.hidden = true
     panel.classList.remove('viewing')
     const row = box.querySelector('.ptree-row.sel') || box.querySelector('.ptree-row')
@@ -171,6 +217,7 @@
     box.addEventListener('click', e => { const p = fileRow(e); if (p) openFile(p) })
     box.addEventListener('keydown', e => { if (e.key === 'Enter') { const p = fileRow(e); if (p) openFile(p) } })
     fv.back.addEventListener('click', closeFile)
+    fv.preview.addEventListener('click', () => { previewing = !previewing; render() })
     fv.edit.addEventListener('click', startEdit)
     fv.cancel.addEventListener('click', cancelEdit)
     fv.save.addEventListener('click', saveEdit)

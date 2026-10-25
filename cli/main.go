@@ -83,6 +83,8 @@ type model struct {
 	loginWaiting   string       // browser sign-in using the main input for pasted codes
 	loginFinished  string       // suppress a late poll after paste completion or cancellation
 	es             editorState  // the Neovim panel
+	playing        *videoPlayer // the video the viewer is playing
+	kittyShown     string       // the real picture on screen, as path|x,y,w,h
 }
 
 // idleAfter is how long the screen keeps animating after the last key, event or resize.
@@ -116,6 +118,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	nm.now = time.Since(nm.start)
 	nm.active = nm.now
 	nm.syncEditor()
+	cmd = tea.Batch(cmd, nm.syncMedia())
 	if nm.planAsk && nm.chat && nm.agent != nil && nm.agent.plan.Load() && !nm.busy && !nm.menu.open && !nm.fb.open && len(nm.input) == 0 && nm.loginWaiting == "" {
 		nm.planAsk = false
 		nm.openPlanMenu()
@@ -284,6 +287,12 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case editorFlushMsg, editorExitMsg:
 		return m.editorMsg(msg)
+	case videoFrameMsg:
+		if msg.p == m.playing {
+			return m, waitVideo(msg.p)
+		}
+	case kittyMsg:
+		return m, m.kittyShow(msg)
 	case tea.MouseClickMsg, tea.MouseWheelMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg:
 		return m.mouse(msg)
 	case tea.KeyPressMsg:
@@ -351,7 +360,13 @@ func (m model) key(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.es.ed != nil {
 			m.es.ed.close()
 		}
+		if m.playing != nil {
+			m.playing.stop()
+		}
 		m.endWeb()
+		if m.kittyShown != "" {
+			return m, tea.Sequence(tea.Raw(kittyClear()), tea.Quit)
+		}
 		return m, tea.Quit
 	}
 	if m.gallery != "" {
