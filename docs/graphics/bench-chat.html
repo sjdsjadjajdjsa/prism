@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8">
+<title>Simple questions, time to the full answer</title>
+<style>
+* { box-sizing: border-box; margin: 0; }
+html { background: #0b0b10; }
+body { width: 1280px; height: var(--h); overflow: hidden; padding: 56px 64px 0;
+  background: radial-gradient(1200px 520px at 20% -10%, #1a1730, #0b0b10 70%);
+  color: #ece9f6; font: 500 24px/1.2 'JetBrains Mono', 'JetBrainsMono Nerd Font', 'JetBrainsMono NF', ui-monospace, monospace; }
+h1 { font-size: 44px; font-weight: 800; letter-spacing: -.01em; height: 56px; white-space: nowrap; }
+.sub { margin-top: 12px; font-size: 22px; line-height: 30px; color: #b4b0c8; max-width: 1100px; }
+.rule { margin-top: 22px; width: 160px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px 56px; margin-top: 30px; }
+.legend div { display: flex; align-items: center; gap: 12px; font-size: 22px; color: #b4b0c8; }
+.legend b { color: #ece9f6; font-weight: 700; }
+.legend i, .key i { width: 22px; height: 22px; border-radius: 6px; display: inline-block; }
+.group { margin-top: 34px; }
+.group h2 { font-size: 28px; font-weight: 700; height: 40px; }
+.row { display: flex; align-items: center; height: 46px; }
+.row .name { width: 250px; font-size: 23px; font-weight: 700; flex: none; white-space: nowrap; }
+.row .bar { height: 28px; border-radius: 8px; flex: none; }
+.row .val { margin-left: 16px; font-size: 24px; font-weight: 700; white-space: nowrap; }
+.row .val span { color: #b4b0c8; font-weight: 500; margin-left: 14px; }
+.row .val span.warn { color: #f9e27d; font-weight: 700; }
+.wide { display: flex; align-items: center; height: 84px; }
+.wide .what { width: 560px; flex: none; padding-right: 24px; }
+.wide .what b { display: block; font-size: 24px; font-weight: 700; }
+.wide .what span { display: block; margin-top: 6px; font-size: 19px; color: #b4b0c8; }
+.wide .bar { height: 30px; border-radius: 8px; flex: none; }
+.wide .val { margin-left: 16px; font-size: 26px; font-weight: 700; }
+.pair .name { width: 150px; font-size: 21px; color: #b4b0c8; font-weight: 500; }
+.key { display: flex; gap: 36px; margin-top: 26px; font-size: 22px; color: #b4b0c8; }
+.key span { display: flex; align-items: center; gap: 10px; }
+</style>
+<body style="--h:1036px">
+<h1>Simple questions, time to the full answer</h1>
+<p class="sub">the same five questions, before the fast lane and now</p>
+<div class="rule"></div>
+<div class="key"><span><i style="background:rgba(138,155,255,.55)"></i>before</span><span><i style="background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></i>now</span></div>
+<div class="group" style="margin-top:22px"><h2 style="height:36px;font-size:26px">hi</h2>
+<div class="row pair"><div class="name">before</div><div class="bar" style="width:530.3px;background:rgba(138,155,255,.55)"></div><div class="val">10.7s</div></div>
+<div class="row pair"><div class="name">now</div><div class="bar" style="width:19.8px;background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></div><div class="val">0.4s</div></div>
+</div>
+<div class="group" style="margin-top:22px"><h2 style="height:36px;font-size:26px">explain a python list</h2>
+<div class="row pair"><div class="name">before</div><div class="bar" style="width:287.4px;background:rgba(138,155,255,.55)"></div><div class="val">5.8s</div></div>
+<div class="row pair"><div class="name">now</div><div class="bar" style="width:29.7px;background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></div><div class="val">0.6s</div></div>
+</div>
+<div class="group" style="margin-top:22px"><h2 style="height:36px;font-size:26px">what is 17 times 23?</h2>
+<div class="row pair"><div class="name">before</div><div class="bar" style="width:54.5px;background:rgba(138,155,255,.55)"></div><div class="val">1.1s</div></div>
+<div class="row pair"><div class="name">now</div><div class="bar" style="width:24.8px;background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></div><div class="val">0.5s</div></div>
+</div>
+<div class="group" style="margin-top:22px"><h2 style="height:36px;font-size:26px">three quick focus tips</h2>
+<div class="row pair"><div class="name">before</div><div class="bar" style="width:89.2px;background:rgba(138,155,255,.55)"></div><div class="val">1.8s</div></div>
+<div class="row pair"><div class="name">now</div><div class="bar" style="width:24.8px;background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></div><div class="val">0.5s</div></div>
+</div>
+<div class="group" style="margin-top:22px"><h2 style="height:36px;font-size:26px">what do you remember?</h2>
+<div class="row pair"><div class="name">before</div><div class="bar" style="width:560.0px;background:rgba(138,155,255,.55)"></div><div class="val">11.3s</div></div>
+<div class="row pair"><div class="name">now</div><div class="bar" style="width:391.5px;background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></div><div class="val">7.9s</div></div>
+</div>
+</body></html>

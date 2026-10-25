@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8">
+<title>Prism and Aider on one pinned model</title>
+<style>
+* { box-sizing: border-box; margin: 0; }
+html { background: #0b0b10; }
+body { width: 1280px; height: var(--h); overflow: hidden; padding: 56px 64px 0;
+  background: radial-gradient(1200px 520px at 20% -10%, #1a1730, #0b0b10 70%);
+  color: #ece9f6; font: 500 24px/1.2 'JetBrains Mono', 'JetBrainsMono Nerd Font', 'JetBrainsMono NF', ui-monospace, monospace; }
+h1 { font-size: 44px; font-weight: 800; letter-spacing: -.01em; height: 56px; white-space: nowrap; }
+.sub { margin-top: 12px; font-size: 22px; line-height: 30px; color: #b4b0c8; max-width: 1100px; }
+.rule { margin-top: 22px; width: 160px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px 56px; margin-top: 30px; }
+.legend div { display: flex; align-items: center; gap: 12px; font-size: 22px; color: #b4b0c8; }
+.legend b { color: #ece9f6; font-weight: 700; }
+.legend i, .key i { width: 22px; height: 22px; border-radius: 6px; display: inline-block; }
+.group { margin-top: 34px; }
+.group h2 { font-size: 28px; font-weight: 700; height: 40px; }
+.row { display: flex; align-items: center; height: 46px; }
+.row .name { width: 250px; font-size: 23px; font-weight: 700; flex: none; white-space: nowrap; }
+.row .bar { height: 28px; border-radius: 8px; flex: none; }
+.row .val { margin-left: 16px; font-size: 24px; font-weight: 700; white-space: nowrap; }
+.row .val span { color: #b4b0c8; font-weight: 500; margin-left: 14px; }
+.row .val span.warn { color: #f9e27d; font-weight: 700; }
+.wide { display: flex; align-items: center; height: 84px; }
+.wide .what { width: 560px; flex: none; padding-right: 24px; }
+.wide .what b { display: block; font-size: 24px; font-weight: 700; }
+.wide .what span { display: block; margin-top: 6px; font-size: 19px; color: #b4b0c8; }
+.wide .bar { height: 30px; border-radius: 8px; flex: none; }
+.wide .val { margin-left: 16px; font-size: 26px; font-weight: 700; }
+.pair .name { width: 150px; font-size: 21px; color: #b4b0c8; font-weight: 500; }
+.key { display: flex; gap: 36px; margin-top: 26px; font-size: 22px; color: #b4b0c8; }
+.key span { display: flex; align-items: center; gap: 10px; }
+</style>
+<body style="--h:1128px">
+<h1>Prism and Aider on one pinned model</h1>
+<p class="sub">nemotron-3-ultra via NVIDIA only · one run per task · 2 re-run after rate limits</p>
+<div class="rule"></div>
+<div class="legend"><div><i style="background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></i><span><b>Prism</b> 5/5 passed · 374s total</span></div><div><i style="background:#8a9bff"></i><span><b>Aider</b> 4/5 passed · 199s total</span></div></div>
+<div class="group"><h2>bugfix</h2>
+<div class="row"><div class="name" style="color:#ece9f6">Prism</div><div class="bar" style="width:117.4px;background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></div><div class="val">40s<span class="">passed</span></div></div>
+<div class="row"><div class="name" style="color:#8a9bff">Aider</div><div class="bar" style="width:234.9px;background:#8a9bff"></div><div class="val">80s<span class="">passed</span></div></div>
+</div>
+<div class="group"><h2>website</h2>
+<div class="row"><div class="name" style="color:#ece9f6">Prism</div><div class="bar" style="width:640.0px;background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></div><div class="val">218s<span class="">passed</span></div></div>
+<div class="row"><div class="name" style="color:#8a9bff">Aider</div><div class="bar" style="width:249.5px;background:#8a9bff"></div><div class="val">85s<span class="warn">did not pass</span></div></div>
+</div>
+<div class="group"><h2>refactor</h2>
+<div class="row"><div class="name" style="color:#ece9f6">Prism</div><div class="bar" style="width:67.5px;background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></div><div class="val">23s<span class="">passed</span></div></div>
+<div class="row"><div class="name" style="color:#8a9bff">Aider</div><div class="bar" style="width:29.4px;background:#8a9bff"></div><div class="val">10s<span class="">passed</span></div></div>
+</div>
+<div class="group"><h2>explain</h2>
+<div class="row"><div class="name" style="color:#ece9f6">Prism</div><div class="bar" style="width:179.1px;background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></div><div class="val">61s<span class="">passed</span></div></div>
+<div class="row"><div class="name" style="color:#8a9bff">Aider</div><div class="bar" style="width:29.4px;background:#8a9bff"></div><div class="val">10s<span class="">passed</span></div></div>
+</div>
+<div class="group"><h2>multifile</h2>
+<div class="row"><div class="name" style="color:#ece9f6">Prism</div><div class="bar" style="width:93.9px;background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></div><div class="val">32s<span class="">passed</span></div></div>
+<div class="row"><div class="name" style="color:#8a9bff">Aider</div><div class="bar" style="width:41.1px;background:#8a9bff"></div><div class="val">14s<span class="">passed</span></div></div>
+</div>
+</body></html>

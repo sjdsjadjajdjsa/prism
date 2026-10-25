@@ -38,8 +38,7 @@ jobs:
       - name: Scripts
         run: |
           bash -n prism install.sh bench/run.sh bench/chat.sh bench/compare.sh bench/harness/run.sh
-          python3 -m pip install --quiet pillow
-          python3 bench/chart.py
-          git diff --exit-code docs/*.svg
+          python3 bench/charts.py --html-only
+          git diff --exit-code docs/graphics
       - name: Images
         run: docker build -q router && docker build -q -f agent/Dockerfile .

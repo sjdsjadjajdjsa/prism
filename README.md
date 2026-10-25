@@ -99,9 +99,9 @@ cd prism
 
 ## Benchmarks
 
-Every task counts only if a script confirms the result works. On five coding tasks Prism passed 15 of 15 runs; opencode and Aider were faster on most tasks, and Aider failed one. Free models are shared, so results vary from day to day.
+Four coding agents ran the same five tasks on the same free models, and a task only counts if a script confirms the result works. Prism, opencode and mini-swe-agent passed all 15 runs; Aider passed 14. Free models are shared, so times vary from day to day.
 
-<p align="center"><img src="docs/bench-harness.png" alt="Prism, opencode, Aider and mini-swe-agent on five tasks: Prism passes 15 of 15 but opencode and Aider are faster on most tasks" width="820"></p>
+<p align="center"><img src="docs/bench-harness.png" alt="Four coding agents on five tasks: median seconds and passes for each" width="820"></p>
 
 Method, every run and more charts: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 

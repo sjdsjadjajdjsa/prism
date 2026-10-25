@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8">
+<title>Four coding agents, five tasks</title>
+<style>
+* { box-sizing: border-box; margin: 0; }
+html { background: #0b0b10; }
+body { width: 1280px; height: var(--h); overflow: hidden; padding: 56px 64px 0;
+  background: radial-gradient(1200px 520px at 20% -10%, #1a1730, #0b0b10 70%);
+  color: #ece9f6; font: 500 24px/1.2 'JetBrains Mono', 'JetBrainsMono Nerd Font', 'JetBrainsMono NF', ui-monospace, monospace; }
+h1 { font-size: 44px; font-weight: 800; letter-spacing: -.01em; height: 56px; white-space: nowrap; }
+.sub { margin-top: 12px; font-size: 22px; line-height: 30px; color: #b4b0c8; max-width: 1100px; }
+.rule { margin-top: 22px; width: 160px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px 56px; margin-top: 30px; }
+.legend div { display: flex; align-items: center; gap: 12px; font-size: 22px; color: #b4b0c8; }
+.legend b { color: #ece9f6; font-weight: 700; }
+.legend i, .key i { width: 22px; height: 22px; border-radius: 6px; display: inline-block; }
+.group { margin-top: 34px; }
+.group h2 { font-size: 28px; font-weight: 700; height: 40px; }
+.row { display: flex; align-items: center; height: 46px; }
+.row .name { width: 250px; font-size: 23px; font-weight: 700; flex: none; white-space: nowrap; }
+.row .bar { height: 28px; border-radius: 8px; flex: none; }
+.row .val { margin-left: 16px; font-size: 24px; font-weight: 700; white-space: nowrap; }
+.row .val span { color: #b4b0c8; font-weight: 500; margin-left: 14px; }
+.row .val span.warn { color: #f9e27d; font-weight: 700; }
+.wide { display: flex; align-items: center; height: 84px; }
+.wide .what { width: 560px; flex: none; padding-right: 24px; }
+.wide .what b { display: block; font-size: 24px; font-weight: 700; }
+.wide .what span { display: block; margin-top: 6px; font-size: 19px; color: #b4b0c8; }
+.wide .bar { height: 30px; border-radius: 8px; flex: none; }
+.wide .val { margin-left: 16px; font-size: 26px; font-weight: 700; }
+.pair .name { width: 150px; font-size: 21px; color: #b4b0c8; font-weight: 500; }
+.key { display: flex; gap: 36px; margin-top: 26px; font-size: 22px; color: #b4b0c8; }
+.key span { display: flex; align-items: center; gap: 10px; }
+</style>
+<body style="--h:1632px">
+<h1>Four coding agents, five tasks</h1>
+<p class="sub">Same free models, same router · 3 runs per task · median seconds</p>
+<div class="rule"></div>
+<div class="legend"><div><i style="background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></i><span><b>Prism</b> 15/15 passed · 160.8s total</span></div><div><i style="background:#6fd3ff"></i><span><b>opencode</b> 15/15 passed · 97.4s total</span></div><div><i style="background:#8a9bff"></i><span><b>Aider</b> 14/15 passed · 113.8s total</span></div><div><i style="background:#c69bff"></i><span><b>mini-swe-agent</b> 15/15 passed · 157.6s total</span></div></div>
+<div class="group"><h2>bugfix</h2>
+<div class="row"><div class="name" style="color:#ece9f6">Prism</div><div class="bar" style="width:640.0px;background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></div><div class="val">51.4s<span class="">3/3 passed</span></div></div>
+<div class="row"><div class="name" style="color:#6fd3ff">opencode</div><div class="bar" style="width:229.1px;background:#6fd3ff"></div><div class="val">18.4s<span class="">3/3 passed</span></div></div>
+<div class="row"><div class="name" style="color:#8a9bff">Aider</div><div class="bar" style="width:297.6px;background:#8a9bff"></div><div class="val">23.9s<span class="">3/3 passed</span></div></div>
+<div class="row"><div class="name" style="color:#c69bff">mini-swe-agent</div><div class="bar" style="width:447.0px;background:#c69bff"></div><div class="val">35.9s<span class="">3/3 passed</span></div></div>
+</div>
+<div class="group"><h2>website</h2>
+<div class="row"><div class="name" style="color:#ece9f6">Prism</div><div class="bar" style="width:414.6px;background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></div><div class="val">33.3s<span class="">3/3 passed</span></div></div>
+<div class="row"><div class="name" style="color:#6fd3ff">opencode</div><div class="bar" style="width:261.5px;background:#6fd3ff"></div><div class="val">21s<span class="">3/3 passed</span></div></div>
+<div class="row"><div class="name" style="color:#8a9bff">Aider</div><div class="bar" style="width:520.5px;background:#8a9bff"></div><div class="val">41.8s<span class="">3/3 passed</span></div></div>
+<div class="row"><div class="name" style="color:#c69bff">mini-swe-agent</div><div class="bar" style="width:582.7px;background:#c69bff"></div><div class="val">46.8s<span class="">3/3 passed</span></div></div>
+</div>
+<div class="group"><h2>refactor</h2>
+<div class="row"><div class="name" style="color:#ece9f6">Prism</div><div class="bar" style="width:280.2px;background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></div><div class="val">22.5s<span class="">3/3 passed</span></div></div>
+<div class="row"><div class="name" style="color:#6fd3ff">opencode</div><div class="bar" style="width:383.5px;background:#6fd3ff"></div><div class="val">30.8s<span class="">3/3 passed</span></div></div>
+<div class="row"><div class="name" style="color:#8a9bff">Aider</div><div class="bar" style="width:193.0px;background:#8a9bff"></div><div class="val">15.5s<span class="warn">2/3 passed</span></div></div>
+<div class="row"><div class="name" style="color:#c69bff">mini-swe-agent</div><div class="bar" style="width:325.0px;background:#c69bff"></div><div class="val">26.1s<span class="">3/3 passed</span></div></div>
+</div>
+<div class="group"><h2>explain</h2>
+<div class="row"><div class="name" style="color:#ece9f6">Prism</div><div class="bar" style="width:361.1px;background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></div><div class="val">29s<span class="">3/3 passed</span></div></div>
+<div class="row"><div class="name" style="color:#6fd3ff">opencode</div><div class="bar" style="width:139.5px;background:#6fd3ff"></div><div class="val">11.2s<span class="">3/3 passed</span></div></div>
+<div class="row"><div class="name" style="color:#8a9bff">Aider</div><div class="bar" style="width:154.4px;background:#8a9bff"></div><div class="val">12.4s<span class="">3/3 passed</span></div></div>
+<div class="row"><div class="name" style="color:#c69bff">mini-swe-agent</div><div class="bar" style="width:235.3px;background:#c69bff"></div><div class="val">18.9s<span class="">3/3 passed</span></div></div>
+</div>
+<div class="group"><h2>multifile</h2>
+<div class="row"><div class="name" style="color:#ece9f6">Prism</div><div class="bar" style="width:306.3px;background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></div><div class="val">24.6s<span class="">3/3 passed</span></div></div>
+<div class="row"><div class="name" style="color:#6fd3ff">opencode</div><div class="bar" style="width:199.2px;background:#6fd3ff"></div><div class="val">16s<span class="">3/3 passed</span></div></div>
+<div class="row"><div class="name" style="color:#8a9bff">Aider</div><div class="bar" style="width:251.5px;background:#8a9bff"></div><div class="val">20.2s<span class="">3/3 passed</span></div></div>
+<div class="row"><div class="name" style="color:#c69bff">mini-swe-agent</div><div class="bar" style="width:372.3px;background:#c69bff"></div><div class="val">29.9s<span class="">3/3 passed</span></div></div>
+</div>
+</body></html>

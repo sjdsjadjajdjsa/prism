@@ -48,7 +48,7 @@
   },
   "chat": {
     "title": "Simple questions, time to the full answer",
-    "subtitle": "same five questions, before the fast lane vs now",
+    "subtitle": "the same five questions, before the fast lane and now",
     "rows": [
       {
         "label": "hi",
@@ -79,7 +79,7 @@
   },
   "website": {
     "title": "One task: build a to-do website",
-    "subtitle": "the very first router vs racing free models",
+    "subtitle": "the first router, then racing free models",
     "rows": [
       {
         "label": "before racing, run 1",
@@ -101,8 +101,8 @@
     ]
   },
   "compare": {
-    "title": "Prism vs Aider, one pinned model",
-    "subtitle": "nemotron-3-ultra via NVIDIA only · one run each · 2 tasks re-run after 429s",
+    "title": "Prism and Aider on one pinned model",
+    "subtitle": "nemotron-3-ultra via NVIDIA only · one run per task · 2 re-run after rate limits",
     "rows": [
       {
         "harness": "prism",
@@ -187,8 +187,8 @@
     ]
   },
   "harness": {
-    "title": "Prism vs other coding agents, same free models",
-    "subtitle": "5 tasks × 3 runs each · all through the same router · median seconds · bench/harness (22 Oct 2026)",
+    "title": "Four coding agents, five tasks",
+    "subtitle": "Same free models, same router · 3 runs per task · median seconds",
     "rows": [
       {
         "harness": "prism",
@@ -354,7 +354,7 @@
   },
   "light": {
     "title": "Lighter and quicker to start",
-    "subtitle": "bench/perf.py, real program in a terminal, 5 sessions open, same machine. Each row has its own scale.",
+    "subtitle": "real program in a terminal, 5 sessions open, same machine · each row has its own scale",
     "rows": [
       {
         "label": "prism to first screen",

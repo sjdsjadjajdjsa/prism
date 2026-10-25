@@ -145,7 +145,7 @@ Providers that cache prompts reuse work only for a byte-identical prefix, so eac
 | `bench/run.sh` | Five coding tasks run through `prism run` in the agent container; writes `bench/results-<label>.txt` |
 | `bench/chat.sh` | Simple questions; time to first word and total |
 | `bench/compare.sh` | Runs the `run.sh` tasks through another harness (aider, claude-code, …) via a pinning proxy |
-| `bench/chart.py` | Renders the benchmark charts in `docs/` from `bench/history.json` |
+| `bench/charts.py` | Builds each chart and the social preview as an HTML page in `docs/graphics/`, then screenshots it to a PNG in `docs/` |
 | `bench/harness/` | Harness comparison (Prism vs aider, mini-swe-agent, opencode): `run.sh`, `entry.py`, `proxy.py`, `summarize.py`, `tasks/`; see its `README.md` |
 
 ## Run modes
