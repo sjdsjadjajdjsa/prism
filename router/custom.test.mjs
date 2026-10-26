@@ -104,7 +104,7 @@ test('preset list is sane', () => {
     assert.equal(error, undefined, `${preset.id}: ${error}`)
     assert.match(preset.baseURL, /^https?:\/\//)
   }
-  for (const id of ['openai', 'anthropic', 'deepseek', 'xai', 'together', 'fireworks', 'cerebras', 'sambanova', 'openrouter-paid', 'huggingface', 'ollama-local', 'lmstudio']) assert.ok(ids.has(id), id)
+  for (const id of ['openai', 'anthropic', 'deepseek', 'xai', 'together', 'fireworks', 'cerebras', 'sambanova', 'openrouter-paid', 'huggingface', 'venice', 'ollama-local', 'lmstudio']) assert.ok(ids.has(id), id)
   assert.equal(PRESETS.find(p => p.id === 'ollama-local').keyless, true)
   assert.equal(PRESETS.find(p => p.id === 'openai').paid, true)
 })
@@ -286,5 +286,30 @@ test('probeModels lists chat models and drops the rest', async () => {
   assert.deepEqual(seen, ['Bearer sk-test-123456'])
   const anthropic = await probeModels({ id: 'a', baseURL: base, keyVar: 'A_KEY', probeKeyHeader: 'x-api-key' }, 'sk-test-123456')
   assert.equal(anthropic.error, undefined)
+  srv.close()
+})
+
+test('probeModels drops models that cannot call tools and reports a refused key', async () => {
+  const srv = await new Promise(resolve => {
+    const s = http.createServer((req, res) => {
+      const ok = req.headers.authorization === 'Bearer good-key-123456'
+      if (req.url === '/check') {
+        res.writeHead(ok ? 200 : 401)
+        return res.end('{}')
+      }
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ data: [
+        { id: 'tools-ok', model_spec: { capabilities: { supportsFunctionCalling: true } } },
+        { id: 'no-tools', model_spec: { capabilities: { supportsFunctionCalling: false } } },
+        { id: 'gone', model_spec: { offline: true } },
+        { id: 'or-no-tools', supported_parameters: ['temperature'] },
+        { id: 'or-tools', supported_parameters: ['tools', 'temperature'] },
+      ] }))
+    }).listen(0, '127.0.0.1', () => resolve(s))
+  })
+  const preset = { id: 'v', baseURL: `http://127.0.0.1:${srv.address().port}`, keyVar: 'V_API_KEY', keyCheck: '/check' }
+  assert.deepEqual((await probeModels(preset, 'good-key-123456')).models, ['tools-ok', 'or-tools'])
+  const bad = await probeModels(preset, 'bad-key-123456')
+  assert.equal(bad.rejected, true)
   srv.close()
 })

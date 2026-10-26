@@ -488,6 +488,8 @@ const keysRoute = async (req, res) => {
   if (!preset && !freeVar) return send(res, 404, { error: { message: `no provider called "${id || keyVar}"`, type: 'not_found' } })
   if (preset?.keyless) return send(res, 400, { error: { message: `${preset.id} needs no key`, type: 'invalid_request' } })
   const name = preset ? preset.keyVar : freeVar
+  const probed = preset && value ? await probeModels(preset, value) : null
+  if (probed?.rejected) return send(res, 400, { error: { message: `${preset.name} rejected this key, so it was not saved. Check it and try again.`, type: 'key_rejected' } })
   setKeyVar(keysPath(), name, value)
   if (!value) return send(res, 200, { ok: true, removed: true })
   let models = null
@@ -498,7 +500,6 @@ const keysRoute = async (req, res) => {
       const parsed = JSON.parse(readFileSync(customFilePath(), 'utf8'))
       existing = parsed.find?.(entry => entry?.id === preset.id)?.models ?? []
     } catch {}
-    const probed = await probeModels(preset, value)
     const list = probed.models?.length ? probed.models : [...(existing || []), ...preset.models]
     if (list.length) {
       const saved = upsertPresetEntry(customFilePath(), preset, list)

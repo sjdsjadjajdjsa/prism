@@ -57,7 +57,7 @@ Prism works with ChatGPT, Claude, Grok, Gemini and Copilot plans. Type `/login`,
 
 If the sign-in page shows a code instead of sending you back, paste the code (or the whole link) into Prism and press Enter. `/login` shows who you're signed in to; `/login rm <name>` signs out. Sign-ins are saved on your computer only (`subscriptions.json`, readable only by you) and renew themselves.
 
-Pay per use instead? `/key <name> <secret>` adds a key for 22 services (OpenAI, Anthropic, DeepSeek, xAI, Mistral, Gemini, OpenRouter and more), and `prism keys add` connects any OpenAI-compatible service. Paid keys also only answer when you pick them. `/models` shows three groups: free models, your plans and your own keys. Each answer's line and the status bar say whether it came from free, plan or yours.
+Pay per use instead? `/key <name> <secret>` adds a key for 23 services (OpenAI, Anthropic, DeepSeek, xAI, Mistral, Gemini, OpenRouter, Venice and more), and `prism keys add` connects any OpenAI-compatible service. Paid keys also only answer when you pick them. `/models` shows three groups: free models, your plans and your own keys. Each answer's line and the status bar say whether it came from free, plan or yours.
 
 > These sign-ins use the same app IDs as each company's own tools, so a company can change or block them at any time, and using them may go against its terms.
 

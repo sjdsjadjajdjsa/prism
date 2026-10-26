@@ -116,10 +116,14 @@ func routeTag(r routeRow) string {
 }
 
 // answeredBy is what an answer's line, the status bar and /usage say about
-// who answered: "free", "plan" or "yours". A pinned subscription model counts as "plan" before its first answer.
+// who answered: "free", "plan" or "yours". A pinned plan or own-key model counts as such before its first answer.
 func answeredBy(source, pinned string) string {
-	if source == "" && slices.Contains(subscriptionIDs, provider(pinned)) {
+	switch {
+	case source != "":
+	case slices.Contains(subscriptionIDs, provider(pinned)):
 		source = "subscription"
+	case ownKey(pinned):
+		source = "yours"
 	}
 	if tag := routeTag(routeRow{Source: source}); tag != "" {
 		return tag

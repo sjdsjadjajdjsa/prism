@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -743,6 +744,15 @@ func (m *model) reopen(id string) {
 	m.tokens, m.scroll = m.agent.tokens, 0
 }
 
+// keyProviders are the providers whose routes come from a key you added
+// (/key), learned from the router's route list.
+var keyProviders sync.Map
+
+func ownKey(route string) bool {
+	_, ok := keyProviders.Load(provider(route))
+	return ok
+}
+
 func fetchRoutes(api string) ([]routeRow, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -758,6 +768,11 @@ func fetchRoutes(api string) ([]routeRow, error) {
 	var rows []routeRow
 	if err := json.NewDecoder(res.Body).Decode(&rows); err != nil {
 		return nil, err
+	}
+	for _, r := range rows {
+		if r.Source == "yours" {
+			keyProviders.Store(provider(r.Route), true)
+		}
 	}
 	return rows, nil
 }
@@ -783,6 +798,19 @@ func friendly(err error) (string, string) {
 			case f.Status == 401 || f.Status == 403:
 				return plan + " refused this request. Sign in again: /login " + plan, modelName(f.Route) + " said: " + failureText(f.Message)
 			}
+		}
+		said := modelName(f.Route) + " said: " + failureText(f.Message)
+		if f.Status == 400 && strings.Contains(strings.ToLower(f.Message), "tools") && strings.Contains(strings.ToLower(f.Message), "not support") {
+			return modelName(f.Route) + " can't use tools, so Prism can't work with it. Pick another model with /model.", said
+		}
+		if key := provider(f.Route); ownKey(f.Route) {
+			switch {
+			case f.Status == 401 || f.Status == 403:
+				return key + " rejected your key. Replace it: /key " + key + " <new key>", said
+			case f.Status == 402:
+				return key + " says your credit has run out. Top it up, or pick another model with /model.", said
+			}
+			return modelName(f.Route) + " could not answer this time. Try again, or pick another model with /model.", said
 		}
 	}
 	busy, rejected := 0, 0

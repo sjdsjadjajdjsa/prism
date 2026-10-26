@@ -65,7 +65,7 @@ Tabs
 
 Prism works with no keys: a built-in router picks among free models. `prism setup` (in a normal terminal, not in chat) adds free keys for more speed. `prism status` shows which are ready, `prism update` upgrades.
 
-Paid or own models: `/key <name> <secret>` with a preset name: openai, anthropic, deepseek, xai, mistral-paid, gemini-paid, together, fireworks, cerebras, sambanova, openrouter-paid, huggingface, perplexity, cohere, moonshot, dashscope, zhipu, deepinfra, novita, lambda. Local ones need no key: ollama-local, lmstudio. `/key` shows the full list and which are set. Important: paid models from your own keys answer only when you pick them by name (`/model` picker or `/model <name>`). Auto mode never spends them, so adding a paid key costs nothing until you choose it. Models that are free to you (local ones like ollama-local and lmstudio) can also answer for auto.
+Paid or own models: `/key <name> <secret>` with a preset name: openai, anthropic, deepseek, xai, mistral-paid, gemini-paid, together, fireworks, cerebras, sambanova, openrouter-paid, huggingface, perplexity, cohere, moonshot, dashscope, zhipu, deepinfra, novita, lambda, venice. Local ones need no key: ollama-local, lmstudio. `/key` shows the full list and which are set. Important: paid models from your own keys answer only when you pick them by name (`/model` picker or `/model <name>`). Auto mode never spends them, so adding a paid key costs nothing until you choose it. Models that are free to you (local ones like ollama-local and lmstudio) can also answer for auto.
 
 ## Logins (plans you already pay for)
 

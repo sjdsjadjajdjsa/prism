@@ -435,6 +435,33 @@ func TestFriendlyPlanLimit(t *testing.T) {
 	}
 }
 
+func TestFriendlyOwnKey(t *testing.T) {
+	keyProviders.Store("venice", true)
+	t.Cleanup(func() { keyProviders.Delete("venice") })
+	cases := []struct {
+		status int
+		msg    string
+		want   string
+	}{
+		{400, `venice/e2ee-x failed (400): {"error":"tools is not supported by this model"}`, "can't use tools"},
+		{401, "venice/m failed (401): Authentication failed", "venice rejected your key. Replace it: /key venice"},
+		{402, "venice/m failed (402): no balance", "credit has run out"},
+		{500, "venice/m failed (500): oops", "could not answer this time"},
+	}
+	for _, c := range cases {
+		head, _ := friendly(&routerError{failures: []routeFailure{{Route: "venice/m", Status: c.status, Message: c.msg}}})
+		if !strings.Contains(head, c.want) || strings.Contains(head, "free") {
+			t.Errorf("%d: got %q", c.status, head)
+		}
+	}
+	if got := answeredBy("", "venice/m"); got != "yours" {
+		t.Errorf("pinned own-key model = %q, want yours", got)
+	}
+	if got := answeredBy("", "nvidia/m"); got != "free" {
+		t.Errorf("free model = %q", got)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // the suggestion list: ranking, keys, mouse, layout (web/commands.js mirrors it)
 // ---------------------------------------------------------------------------

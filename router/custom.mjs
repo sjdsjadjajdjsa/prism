@@ -29,6 +29,7 @@ export const PRESETS = [
   { id: 'deepinfra', name: 'DeepInfra', baseURL: 'https://api.deepinfra.com/v1/openai', keyVar: 'DEEPINFRA_API_KEY', paid: true, keyUrl: 'https://deepinfra.com/dash/api_keys', models: [] },
   { id: 'novita', name: 'Novita', baseURL: 'https://api.novita.ai/v3/openai', keyVar: 'NOVITA_API_KEY', paid: true, keyUrl: 'https://novita.ai/dashboard/keys', models: [] },
   { id: 'lambda', name: 'Lambda', baseURL: 'https://api.lambdalabs.com/v1', keyVar: 'LAMBDA_API_KEY', paid: true, keyUrl: 'https://cloud.lambdalabs.com/api-keys', models: [] },
+  { id: 'venice', name: 'Venice (private AI)', baseURL: 'https://api.venice.ai/api/v1', keyVar: 'VENICE_API_KEY', paid: true, keyUrl: 'https://venice.ai/settings/api', models: [], keyCheck: '/api_keys/rate_limits' },
   { id: 'ollama-local', name: 'Ollama on this computer (no key)', baseURL: 'http://host.docker.internal:11434/v1', keyless: true, paid: false, keyUrl: 'https://ollama.com', models: [] },
   { id: 'lmstudio', name: 'LM Studio on this computer (no key)', baseURL: 'http://host.docker.internal:1234/v1', keyless: true, paid: false, keyUrl: 'https://lmstudio.ai', models: [] },
 ]
@@ -262,8 +263,16 @@ export const upsertPresetEntry = (file, preset, models) => {
   return { models }
 }
 
-// probeModels asks the provider which models the key can use. Best effort: a
-// failed probe never blocks saving the key; the preset's fallback models are used.
+// Prism always sends tools, so models a service marks as unable to call them, or offline, are left out.
+const usable = m => {
+  const spec = m?.model_spec
+  if (spec?.offline === true || spec?.capabilities?.supportsFunctionCalling === false) return false
+  return !Array.isArray(m?.supported_parameters) || m.supported_parameters.includes('tools')
+}
+
+// probeModels asks the provider which models the key can use. A key the service
+// refuses comes back as rejected; any other failed probe never blocks saving the
+// key, and the preset's fallback models are used.
 export const probeModels = async (preset, key) => {
   const headers = {}
   if (preset.probeKeyHeader === 'x-api-key') {
@@ -275,10 +284,15 @@ export const probeModels = async (preset, key) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), Number(process.env.PRISM_PROBE_MS) || 10_000)
   try {
+    if (preset.keyCheck) {
+      const check = await fetch(`${preset.baseURL}${preset.keyCheck}`, { headers, signal: controller.signal })
+      if (check.status === 401 || check.status === 403) return { rejected: true, error: 'the service rejected this key' }
+    }
     const res = await fetch(`${preset.baseURL}/models`, { headers, signal: controller.signal })
+    if (res.status === 401 || res.status === 403) return { rejected: true, error: 'the service rejected this key' }
     if (!res.ok) return { error: `the service answered ${res.status}` }
     const data = await res.json()
-    const ids = [...(data.data ?? data.models ?? [])].map(m => String(m?.id ?? m?.name ?? '')).filter(Boolean)
+    const ids = [...(data.data ?? data.models ?? [])].filter(usable).map(m => String(m?.id ?? m?.name ?? '')).filter(Boolean)
     const chat = ids.filter(id => !/embed|whisper|tts|transcri|rerank|moderat|dall-e|image|voice|guard/i.test(id))
     return chat.length ? { models: chat.slice(0, 300) } : { error: 'the service listed no chat models' }
   } catch {

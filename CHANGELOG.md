@@ -4,6 +4,13 @@
 
 ### New
 
+- Venice is a new `/key` provider: `/key venice <secret>` adds it, and Prism asks Venice which models it has.
+
+### Fixed
+
+- `/key` checks the key with the service before saving it, so a wrong key is refused at once instead of failing later.
+- Models that can't use tools (some Venice and OpenRouter ones) are left out of the list, since Prism always needs tools. Before, picking one failed with "No free AI model could answer".
+- A chat pinned to your own key shows as **yours** right away, not **free**, and its errors name the service and say what to do (`/key venice <new key>` for a refused key, top up for no credit).
 - The map opens with an intro: a beam of light splits into the rainbow and every file flies out into its galaxy, with comet tails and folder names at the end. A short one plays each time the map opens (**auto** turns it off, a click or Esc skips it) and **✦ intro** plays the long one.
 
 ## 0.4.0 (2026-10-25)
