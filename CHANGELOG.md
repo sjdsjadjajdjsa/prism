@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### New
+
+- The map opens with an intro: a beam of light splits into the rainbow and every file flies out into its galaxy, with comet tails and folder names at the end. A short one plays each time the map opens (**auto** turns it off, a click or Esc skips it) and **✦ intro** plays the long one.
+
 ## 0.4.0 (2026-10-25)
 
 ### New

@@ -5,10 +5,10 @@
 <p align="center">A coding assistant for your terminal and browser that runs on free AI models,<br>or on the ChatGPT, Claude, Grok, Gemini or Copilot plan you already pay for.</p>
 
 <p align="center">
-  <a href="https://github.com/sjdsjadjajdjsa/prism/releases/latest"><img src="https://img.shields.io/github/v/release/sjdsjadjajdjsa/prism?style=flat-square&color=c69bff&label=release" alt="Latest release"></a>
-  <a href="https://github.com/sjdsjadjajdjsa/prism/actions/workflows/check.yml"><img src="https://img.shields.io/github/actions/workflow/status/sjdsjadjajdjsa/prism/check.yml?branch=main&style=flat-square&label=checks" alt="Checks"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/sjdsjadjajdjsa/prism?style=flat-square&color=7ee2a8" alt="MIT license"></a>
-  <img src="https://img.shields.io/badge/runs%20on-Linux%20%C2%B7%20macOS%20%C2%B7%20Windows%20(WSL)-6fd3ff?style=flat-square" alt="Runs on Linux, macOS and Windows (WSL)">
+  <a href="https://github.com/sjdsjadjajdjsa/prism/releases/latest"><img src="https://img.shields.io/github/v/release/sjdsjadjajdjsa/prism?style=flat&color=c69bff&label=release" alt="Latest release"></a>
+  <a href="https://github.com/sjdsjadjajdjsa/prism/actions/workflows/check.yml"><img src="https://img.shields.io/github/actions/workflow/status/sjdsjadjajdjsa/prism/check.yml?branch=main&style=flat&logo=github&label=ci" alt="Checks"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/sjdsjadjajdjsa/prism?style=flat&color=7ee2a8" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/runs%20on-Linux%20%C2%B7%20macOS%20%C2%B7%20Windows%20(WSL)-6fd3ff?style=flat" alt="Runs on Linux, macOS and Windows (WSL)">
 </p>
 
 <p align="center">

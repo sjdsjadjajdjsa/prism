@@ -112,6 +112,7 @@
     scopeBtn.hidden = !mapCenter
     scopeBtn.setAttribute('aria-pressed', String(!!mapCenter))
     if (mapCenter) scopeBtn.textContent = 'around ' + mapCenter.slice(mapCenter.lastIndexOf('/') + 1)
+    map.open()
   }
 
   async function change(op, path, to) {

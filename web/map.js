@@ -52,6 +52,12 @@
     const testsBtn = button('tests', 'Show or hide test files', () => { hideTests = !hideTests; testsBtn.setAttribute('aria-pressed', String(!hideTests)); reload() })
     testsBtn.setAttribute('aria-pressed', 'true')
     const playBtn = button('▶ time-lapse', 'Replay how the project grew, from its git history', () => (timelapse ? stopTimelapse() : startTimelapse()))
+    const introBtn = button('✦ intro', 'Play the intro: the project assembles itself', () => startIntro(true))
+    const autoBtn = button('auto', 'Play a short intro every time the map opens', () => {
+      try { localStorage.setItem('prism-map-intro', autoIntro() ? 'off' : 'on') } catch { /* private window */ }
+      autoBtn.setAttribute('aria-pressed', String(autoIntro()))
+    })
+    autoBtn.setAttribute('aria-pressed', String(autoIntro()))
     tools.append(el('span', 'spacer'))
     const wideBtn = button('⤢', 'Bigger map', () => { const p = section.closest('.files-panel'); if (p) { p.classList.toggle('map-wide'); wideBtn.setAttribute('aria-pressed', String(p.classList.contains('map-wide'))); fitted = false; setTimeout(() => { fit(); kick() }, 60) } })
     const hint = section.querySelector('.file-msg')
@@ -63,6 +69,7 @@
     let palette = [], fitted = false, last = data, linkedOnly = false, center = null, hideTests = false, hidden = new Set()
     let showTrail = false, trail = [], seen = new Set(), born = new Map(), first = true
     let timelapse = null, history = null
+    let intro = null, labelsUntil = 0, galaxies = [], pendingData = null
     let stars = [], sprites = new Map(), pal = {}
 
     function colors() {
@@ -96,6 +103,7 @@
     }
 
     function load(d) {
+      if (intro) endIntro()
       last = d
       colors()
       if (!stars.length) backdrop()
@@ -228,7 +236,143 @@
     function ctrl(x1, y1, x2, y2) { return [(x1 + x2) / 2 - (y2 - y1) * 0.12, (y1 + y2) / 2 + (x2 - x1) * 0.12] }
     function along(x1, y1, cx, cy, x2, y2, t) { const u = 1 - t; return [u * u * x1 + 2 * u * t * cx + t * t * x2, u * u * y1 + 2 * u * t * cy + t * t * y2] }
 
+    function autoIntro() { try { return localStorage.getItem('prism-map-intro') !== 'off' } catch { return true } }
+    const clamp01 = v => Math.max(0, Math.min(1, v))
+    const ease = v => 1 - Math.pow(1 - clamp01(v), 3)
+    function hash01(text, salt) {
+      let h = (2166136261 ^ salt) >>> 0
+      for (const ch of text) h = Math.imul(h ^ ch.charCodeAt(0), 16777619)
+      return ((h >>> 0) % 10000) / 10000
+    }
+    // Where a star is while it flies out of the centre: it swings round in a spiral as it goes.
+    function flight(n, t) {
+      const e = ease(t), a = (1 - e) * 1.8 * n.spin, c = Math.cos(a), s = Math.sin(a)
+      return [e * (n.fx * c - n.fy * s), e * (n.fx * s + n.fy * c)]
+    }
+
+    // Intro: a beam of light crosses the map, splits into the rainbow, and every file
+    // flies out of the centre into its galaxy. The short one plays when the map opens.
+    function startIntro(full) {
+      if (timelapse) stopTimelapse()
+      if (!nodes.length) return
+      for (let i = 0; i < 500 && heat > 0.03; i++) step()
+      heat = 0; fitted = true; goal = null; hover = null; chosen = null; drag = null; pan = null
+      fit(false)
+      if (reduced()) { kick(); return }
+      const target = { ...view }
+      const names = [...anchors.keys()], total = Math.max(1, names.length)
+      const sums = new Map()
+      for (const n of nodes) {
+        n.fx = n.x; n.fy = n.y
+        n.spin = hash01(n.path, 1) < 0.5 ? 1 : -1
+        n.t0 = 0.14 + (Math.max(0, names.indexOf(n.group)) / total) * 0.28 + hash01(n.path, 2) * 0.14
+        n.t1 = n.t0 + 0.3
+        n.ip = 0
+        const g = sums.get(n.group) || { name: n.group, x: 0, y: 0, c: 0, land: 0, color: n.color }
+        g.x += n.fx; g.y += n.fy; g.c++; g.land = Math.max(g.land, n.t1)
+        sums.set(n.group, g)
+      }
+      galaxies = [...sums.values()].map(g => ({ ...g, x: g.x / g.c, y: g.y / g.c, r: 40 + Math.sqrt(g.c) * 24 }))
+      intro = { start: performance.now(), dur: full ? 9000 : 4200, target, p: 0 }
+      introBtn.setAttribute('aria-pressed', 'true')
+      kick()
+    }
+    function endIntro(now) {
+      if (!intro) return
+      view = { ...intro.target }
+      intro = null
+      labelsUntil = (now || performance.now()) + 1400
+      introBtn.setAttribute('aria-pressed', 'false')
+      // A tree update that arrived while the intro played is applied now, so it isn't cut short by one.
+      if (pendingData) { const d = pendingData; pendingData = null; queueMicrotask(() => load(d)) }
+      kick()
+    }
+    function stepIntro(now) {
+      intro.p = (now - intro.start) / intro.dur
+      if (intro.p >= 1) { endIntro(now); return }
+      const ce = ease(intro.p * 1.05)
+      view = { x: intro.target.x * ce, y: intro.target.y * ce, k: intro.target.k * (1.7 - 0.7 * ce) }
+      for (const n of nodes) {
+        const t = (intro.p - n.t0) / 0.3
+        n.ip = clamp01(t)
+        if (t >= 1) { n.x = n.fx; n.y = n.fy } else [n.x, n.y] = flight(n, t)
+      }
+    }
+    function restoreIntro() { for (const n of nodes) { n.x = n.fx; n.y = n.fy } }
+
+    function drawIntroEdges(s) {
+      ctx.lineWidth = 1
+      for (const [a, b] of edges) {
+        const r = clamp01((intro.p - Math.max(a.t1, b.t1)) / 0.1)
+        if (r <= 0) continue
+        const [x1, y1] = toScreen(a, s), [x2, y2] = toScreen(b, s), [cx, cy] = ctrl(x1, y1, x2, y2)
+        ctx.strokeStyle = rgba(pal.muted, 0.22 * r)
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.quadraticCurveTo(cx, cy, x2, y2); ctx.stroke()
+      }
+    }
+
+    function drawIntroFx(s) {
+      const p = intro.p, [ox, oy] = toScreen({ x: 0, y: 0 }, s)
+      ctx.globalCompositeOperation = 'lighter'
+      // The beam arrives from the left and meets the centre.
+      const head = ox - (1 - ease(p / 0.12)) * (ox + 40), beam = 1 - clamp01((p - 0.12) / 0.06)
+      if (beam > 0) {
+        const g = ctx.createLinearGradient(head - 340, 0, head, 0)
+        g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(255,255,255,' + beam + ')')
+        ctx.fillStyle = g; ctx.fillRect(head - 340, oy - 2, 340, 4)
+      }
+      // A flash, then the beam splits into the rainbow.
+      const flash = clamp01((p - 0.1) / 0.04) * (1 - clamp01((p - 0.13) / 0.22))
+      if (flash > 0) {
+        const r = 40 + 190 * ease((p - 0.1) / 0.2)
+        ctx.globalAlpha = flash * 0.8; ctx.drawImage(sprite('#ffffff'), ox - r, oy - r, r * 2, r * 2); ctx.globalAlpha = 1
+      }
+      const fan = clamp01((p - 0.12) / 0.16) * (1 - clamp01((p - 0.3) / 0.2))
+      if (fan > 0) palette.forEach((col, i) => {
+        const ang = (i - (palette.length - 1) / 2) * 0.16, len = 460 * ease((p - 0.12) / 0.2)
+        const x2 = ox + Math.cos(ang) * len, y2 = oy + Math.sin(ang) * len
+        const g = ctx.createLinearGradient(ox, oy, x2, y2)
+        g.addColorStop(0, rgba(col, 0.9 * fan)); g.addColorStop(1, rgba(col, 0))
+        ctx.strokeStyle = g; ctx.lineWidth = 2.4
+        ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(x2, y2); ctx.stroke()
+      })
+      // Comet tails behind the stars in flight.
+      for (const n of nodes) {
+        const t = (p - n.t0) / 0.3
+        if (t <= 0 || t >= 1) continue
+        const [x1, y1] = toScreen({ x: n.x, y: n.y }, s), [px, py] = flight(n, t - 0.07)
+        const [x0, y0] = toScreen({ x: px, y: py }, s)
+        const g = ctx.createLinearGradient(x0, y0, x1, y1)
+        g.addColorStop(0, rgba(n.color, 0)); g.addColorStop(1, rgba(n.color, 0.55 * (1 - t * 0.5)))
+        ctx.strokeStyle = g; ctx.lineWidth = 1.6
+        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke()
+      }
+      // A soft ring as each galaxy settles.
+      for (const g of galaxies) {
+        const age = (p - g.land) / 0.14
+        if (age <= 0 || age >= 1) continue
+        const [x, y] = toScreen({ x: g.x, y: g.y }, s)
+        ctx.strokeStyle = rgba(g.color, 0.5 * (1 - age)); ctx.lineWidth = 2
+        ctx.beginPath(); ctx.arc(x, y, g.r * view.k * (0.4 + age * 1.1), 0, 7); ctx.stroke()
+      }
+      ctx.globalCompositeOperation = 'source-over'
+    }
+
+    // Folder names fade in as the galaxies settle and linger a moment after the intro.
+    function drawGalaxyNames(s, now) {
+      const a = intro ? clamp01((intro.p - 0.78) / 0.14) : clamp01((labelsUntil - now) / 1400)
+      if (a <= 0) return
+      ctx.textAlign = 'center'; ctx.font = '600 15px ' + pal.mono
+      for (const g of galaxies) {
+        const [x, y] = toScreen({ x: g.x, y: g.y }, s)
+        const label = g.name ? g.name + '/' : 'top level', w = ctx.measureText(label).width
+        ctx.fillStyle = rgba(pal.bg, 0.6 * a); ctx.fillRect(x - w / 2 - 6, y + g.r * view.k - 2, w + 12, 22)
+        ctx.fillStyle = rgba(g.color, a); ctx.fillText(label, x, y + g.r * view.k + 14)
+      }
+    }
+
     function visible(n) {
+      if (intro) return Math.min(1, n.ip * 5)
       if (!timelapse) return 1
       const t = timelapse.added.get(n.path)
       if (t == null) return timelapse.at >= timelapse.end ? 1 : 0
@@ -270,12 +414,14 @@
       ctx.beginPath()
       for (const [a, b] of edges) {
         if (focus && (a === focus || b === focus)) continue
+        if (intro) continue
         const va = visible(a), vb = visible(b)
         if (va < 1 || vb < 1) continue
         const [x1, y1] = toScreen(a, s), [x2, y2] = toScreen(b, s), [cx, cy] = ctrl(x1, y1, x2, y2)
         ctx.moveTo(x1, y1); ctx.quadraticCurveTo(cx, cy, x2, y2)
       }
       ctx.stroke()
+      if (intro) drawIntroEdges(s)
       if (focus) {
         ctx.globalCompositeOperation = 'lighter'
         for (const [a, b] of edges) {
@@ -318,6 +464,7 @@
         const [x, y] = toScreen(n, s)
         if (x < -40 || y < -40 || x > s.w + 40 || y > s.h + 40) continue
         let r = n.r * scale
+        if (intro) r *= 0.4 + 0.6 * ease(n.ip)
         const bornAt = born.get(n.path)
         if (bornAt && !still) { const age = (now - bornAt) / 900; if (age < 1) r *= 1 + (1 - age) * 1.5 }
         let a = near && !near.has(n) ? 0.28 : 1
@@ -344,7 +491,7 @@
       ctx.textAlign = 'center'
       for (const n of nodes) {
         if (!visible(n)) continue
-        const show = n === focus || (near && near.has(n)) || (!near && (nodes.length <= 50 || view.k > 1.5 || (n.inn >= 4 && view.k > 0.5) || n.inn >= 10))
+        const show = !intro && (n === focus || (near && near.has(n)) || (!near && (nodes.length <= 50 || view.k > 1.5 || (n.inn >= 4 && view.k > 0.5) || n.inn >= 10)))
         if (!show) continue
         const [x, y] = toScreen(n, s)
         if (x < -120 || y < -30 || x > s.w + 120 || y > s.h + 30) continue
@@ -355,6 +502,8 @@
         ctx.fillStyle = n === focus ? pal.fg : near ? rgba(pal.fg, 0.85) : rgba(pal.fg, 0.6)
         ctx.fillText(label, x, y + n.r * scale + 17)
       }
+      if (intro) drawIntroFx(s)
+      drawGalaxyNames(s, now)
       if (!nodes.length) { ctx.fillStyle = pal.muted; ctx.font = '13px ' + pal.mono; ctx.fillText(hidden.size || hideTests ? 'every star here is hidden' : 'no files yet', s.w / 2, s.h / 2) }
       placeCard(s)
     }
@@ -383,16 +532,18 @@
       if (!alive) return
       for (const [p, at] of born) if (now - at > 900 || reduced()) born.delete(p)
       if (timelapse) tickTimelapse(now)
-      for (let i = 0; i < 2 && heat > 0.002; i++) step()
+      if (intro) stepIntro(now)
+      else for (let i = 0; i < 2 && heat > 0.002; i++) step()
       if (!fitted && heat < 0.12) { fitted = true; fit(true) }
-      if (goal) {
+      if (goal && !intro) {
         const k = reduced() ? 1 : 0.14
         view.x += (goal.x - view.x) * k; view.y += (goal.y - view.y) * k; view.k += (goal.k - view.k) * k
         if (Math.abs(goal.x - view.x) + Math.abs(goal.y - view.y) < 0.5 && Math.abs(goal.k - view.k) < 0.005) { view = { ...goal }; goal = null }
       }
       draw(now)
+      if (intro) restoreIntro()
       const busy = nodes.some(n => n.agent && n.agent !== 'read')
-      if (heat > 0.002 || goal || ((hover || chosen || busy || showTrail) && !reduced()) || timelapse || born.size) frame = requestAnimationFrame(loop)
+      if (heat > 0.002 || goal || intro || labelsUntil > now || ((hover || chosen || busy || showTrail) && !reduced()) || timelapse || born.size) frame = requestAnimationFrame(loop)
       else if (!reduced() && document.visibilityState === 'visible') twinkle = setTimeout(kick, 120)
     }
     // When nothing moves, the background stars still twinkle, at a few frames a second.
@@ -424,6 +575,7 @@
     }
 
     canvas.addEventListener('pointerdown', e => {
+      if (intro) { endIntro(); return }
       canvas.setPointerCapture(e.pointerId)
       moved = false
       const n = hit(e)
@@ -431,6 +583,7 @@
       goal = null
     })
     canvas.addEventListener('pointermove', e => {
+      if (intro) return
       if (drag) {
         const s = size(), b = canvas.getBoundingClientRect()
         const [wx, wy] = toWorld(e.clientX - b.left, e.clientY - b.top, s)
@@ -462,6 +615,7 @@
     canvas.addEventListener('pointerleave', () => { if (hover) { hover = null; kick() } })
     canvas.addEventListener('wheel', e => {
       e.preventDefault()
+      if (intro) endIntro()
       goal = null
       const s = size(), b = canvas.getBoundingClientRect()
       const [wx, wy] = toWorld(e.clientX - b.left, e.clientY - b.top, s)
@@ -470,6 +624,10 @@
       view.x += nx - wx; view.y += ny - wy
       kick()
     }, { passive: false })
+    // Esc skips the intro before anything else sees it.
+    document.addEventListener('keydown', e => {
+      if (intro && e.key === 'Escape') { e.stopImmediatePropagation(); endIntro() }
+    }, true)
     canvas.tabIndex = 0
     canvas.setAttribute('aria-label', 'Map of how the files link. Press / to find a file.')
     canvas.addEventListener('keydown', e => {
@@ -495,6 +653,7 @@
 
     // Time-lapse: stars appear in the order git first saw them.
     async function startTimelapse() {
+      if (intro) endIntro()
       if (!history) {
         try { const r = await fetch('/api/births', { cache: 'no-store' }); if (!r.ok) throw new Error(r.status); history = await r.json() } catch { history = null }
       }
@@ -520,13 +679,15 @@
 
     load(data)
     return {
-      update: d => load(d),
+      update: d => { if (intro) pendingData = d; else load(d) },
       fit: () => fit(true),
       around: p => { center = p && (last.nodes || []).some(n => n.path === p && (n.imports || []).length + (n.importedBy || []).length) ? p : null; fitted = false; heat = 1; hover = null; chosen = null; load(last); if (center) { const c = byPath.get(center); if (c) { c.x = 0; c.y = 0; chosen = c } } return !!center },
       linkedOnly: on => { linkedOnly = on; reload() },
       focus: p => flyTo(byPath.get(p)),
       redraw: () => { colors(); kick() },
-      stop: () => { alive = false; cancelAnimationFrame(frame); frame = 0; clearTimeout(twinkle); if (timelapse) stopTimelapse(); card.hidden = true },
+      stop: () => { alive = false; cancelAnimationFrame(frame); frame = 0; clearTimeout(twinkle); if (timelapse) stopTimelapse(); if (intro) endIntro(); card.hidden = true },
+      intro: full => startIntro(full),
+      open: () => { if (autoIntro()) startIntro(false) },
       start: () => { alive = true; wideBtn.setAttribute('aria-pressed', String(!!section.closest('.files-panel')?.classList.contains('map-wide'))); if (playBtn.disabled) { playBtn.disabled = false; playBtn.textContent = '▶ time-lapse' } kick() },
     }
   }
