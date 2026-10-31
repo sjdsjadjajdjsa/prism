@@ -2,7 +2,7 @@
 
 This guide gets you from a fresh Windows PC to a working Prism. You do not need Docker experience. Follow the steps in order; each one says what you should see.
 
-**Prefer to watch?** The [demo video](prism-demo.mp4) (51 seconds, no sound) shows Prism on Linux; on Windows it looks the same inside the Ubuntu app.
+**Prefer to watch?** The [demo video](prism-demo.mp4) (41 seconds, no sound) shows Prism on Linux; on Windows it looks the same inside the Ubuntu app.
 
 You will need Windows 10 (version 2004 or newer) or Windows 11, and about 4 GB of free disk space.
 

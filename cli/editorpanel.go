@@ -246,7 +246,7 @@ func drawLayout(cv *canvas, t theme, m model) *tea.Cursor {
 	cx, cw := m.chatX(), m.chatW()
 	chat := m
 	chat.w = cw
-	chat.es.shown, chat.side.shown = false, false
+	chat.es.shown, chat.side.shown, chat.noBuddy = false, false, true
 	sub := newCanvas(cw, m.h, t.bg, t.fg)
 	drawChat(sub, t, chat)
 	for y := 0; y < m.h; y++ {

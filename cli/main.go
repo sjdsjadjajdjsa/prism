@@ -89,6 +89,7 @@ type model struct {
 	playing        *videoPlayer // the video the viewer is playing
 	kittyShown     string       // the real picture on screen, as path|x,y,w,h
 	side           sidebarState // the file tree on the left
+	noBuddy        bool         // drawn beside the tree or editor: Shard stays hidden, like the browser with a panel open
 }
 
 // idleAfter is how long the screen keeps animating after the last key, event or resize.

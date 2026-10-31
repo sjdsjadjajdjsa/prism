@@ -113,6 +113,9 @@ func buddyGap(w, colW int) int {
 // text or an open overlay there.
 func (m model) buddySpot(cv *canvas, t theme, cx, colW, boxY int) (x, y int, ok bool) {
 	sw, sh := shardSize()
+	if m.noBuddy {
+		return 0, 0, false
+	}
 	if m.buddyWide(cv.w) {
 		return cx + colW + buddyGap(cv.w, colW), cv.h - 4 - sh, true
 	}

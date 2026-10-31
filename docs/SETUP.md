@@ -2,7 +2,7 @@
 
 New to Docker? This guide gets you from nothing to a working Prism. Pick your system and follow the steps in order. Each step says what you should see, so you know it worked.
 
-**Prefer to watch?** The [demo video](prism-demo.mp4) (51 seconds, no sound) shows Prism on Linux, from typing `prism` to a working app.
+**Prefer to watch?** The [demo video](prism-demo.mp4) (41 seconds, no sound) shows Prism on Linux, from typing `prism` to a working app.
 
 You'll copy commands into a **terminal**: the window where you type commands.
 
