@@ -113,9 +113,6 @@ func (m model) transcript(t theme, width int) []line {
 			out = append(out, line{})
 		}
 	}
-	panel := t.panel
-	red, green := mix(t.panel, t.red, 0.18), mix(t.panel, t.green, 0.15)
-	edge := mix(t.panel, t.muted, 0.35)
 	lastUser := -1
 	for i, e := range m.entries {
 		if e.kind == "user" {
@@ -170,46 +167,7 @@ func (m model) transcript(t theme, width int) []line {
 			if i == 0 || m.entries[i-1].kind != "tool" {
 				gap()
 			}
-			hue := toolHue[e.tool]
-			glyph, gc := "◆ ", t.at(hue)
-			if !e.done {
-				glyph, gc = "◇ ", mix(t.muted, t.at(hue), 0.5+0.5*math.Sin(n/120))
-			} else if !e.res.ok {
-				gc = t.red
-			}
-			var tail []seg
-			used := 0
-			if e.done {
-				tail = summary(t, e.res, max(26, width/3))
-				for _, s := range tail {
-					used += len([]rune(s.text))
-				}
-			}
-			name := padBytes(e.tool+" ", 6)
-			segs := append([]seg{{text: glyph, fg: gc}, {text: name, fg: t.muted}, {text: clipWidth(e.arg, max(8, width-4-len([]rune(name))-used)), fg: t.fg}}, tail...)
-			out = append(out, line{segs: segs, indent: 2})
-			if e.done && e.res.ok && len(e.res.diff) > 0 {
-				shown := e.res.diff[:min(len(e.res.diff), 12)]
-				for _, d := range shown {
-					fill, fg := &panel, t.fg
-					switch d.kind {
-					case '-':
-						fill, fg = &red, t.red
-					case '+':
-						fill, fg = &green, t.green
-					}
-					segs := []seg{{text: fmt.Sprintf("%4d %c  ", d.num, d.kind), fg: mix(fg, t.muted, 0.4)}}
-					if d.kind == ' ' {
-						segs = append(segs, highlight(t, clipWidth(d.text, width-18), t.fg)...)
-					} else {
-						segs = append(segs, tinted(highlight(t, clipWidth(d.text, width-18), fg), fg, 0.45)...)
-					}
-					out = append(out, line{fill: fill, bar: &edge, indent: 4, segs: segs})
-				}
-				if extra := len(e.res.diff) - len(shown); extra > 0 {
-					out = append(out, line{fill: &panel, bar: &edge, indent: 4, segs: []seg{{text: fmt.Sprintf("       … %d more lines", extra), fg: t.muted}}})
-				}
-			}
+			out = append(out, toolLines(t, e, width, n)...)
 		case "crew":
 			gap()
 			out = append(out, crewLines(t, e.crew, width, n)...)
@@ -263,25 +221,8 @@ func (m model) transcript(t theme, width int) []line {
 				}
 			}
 		case "login":
-			// A sign-in in progress: e.arg is the link, e.tool the device code.
 			gap()
-			out = append(out, line{indent: 2, segs: []seg{{text: e.text, fg: t.fg, bold: true}}})
-			for _, l := range e.lines {
-				switch {
-				case l == "":
-					out = append(out, line{})
-				case l == e.arg:
-					for _, row := range wrap(l, width-10) {
-						out = append(out, line{indent: 6, segs: []seg{{text: row, fg: t.at(0.6), url: e.arg}}})
-					}
-				case e.tool != "" && l == e.tool:
-					out = append(out, line{indent: 6, segs: []seg{{text: l, fg: t.at(0.3), bold: true}, {text: "   copied to your clipboard if your terminal allows it", fg: t.muted}}})
-				default:
-					for _, row := range wrap(l, width-8) {
-						out = append(out, line{indent: 4, segs: []seg{{text: row, fg: t.fg}}})
-					}
-				}
-			}
+			out = append(out, signInLines(t, e, width)...)
 		case "cmd":
 			gap()
 			if e.view != nil {
@@ -302,76 +243,165 @@ func (m model) transcript(t theme, width int) []line {
 	}
 	if m.pending != nil {
 		gap()
-		verb := map[string]string{"bash": "run this command", "write": "write this file", "edit": "apply this edit"}[m.pending.tool]
-		if verb == "" {
-			verb = "use " + m.pending.tool
-		}
-		ask := slot(t, 0)
-		warn := mix(t.panel, ask, 0.1)
-		who, arg := approvalWorker(m.pending.arg)
-		out = append(out, line{fill: &warn, bar: &ask, indent: 2})
-		head := []seg{{text: " ? ", fg: t.at(0.1), bold: true}}
-		if who != "" {
-			head = append(head, seg{text: "worker " + who, grad: true, phase: m.workerHue(who), bold: true}, seg{text: " wants to " + verb + ":", fg: t.fg, bold: true})
-		} else {
-			head = append(head, seg{text: "prism wants to " + verb + ":", fg: t.fg, bold: true})
-		}
-		out = append(out, line{fill: &warn, bar: &ask, indent: 2, segs: head})
-		for _, row := range wrapAll(arg, width-12) {
-			out = append(out, line{fill: &warn, bar: &ask, indent: 2, segs: []seg{{text: "     " + row, fg: slot(t, 3)}}})
-		}
-		for _, row := range wrapAll(m.pending.why, width-12) {
-			out = append(out, line{fill: &warn, bar: &ask, indent: 2, segs: []seg{{text: "     " + row, fg: t.muted}}})
-		}
-		out = append(out, line{fill: &warn, bar: &ask, indent: 2})
-		keys := []seg{{text: "   "}, {text: "y", fg: t.green, bold: true, act: "key:y"}, {text: " yes, once", fg: t.muted, act: "key:y"}, {text: "   "}}
-		if len(m.pending.risks) > 0 {
-			keys = append(keys, seg{text: "a", fg: t.green, bold: true, act: "key:a"}, seg{text: " yes for this chat", fg: t.muted, act: "key:a"}, seg{text: "   "})
-		}
-		keys = append(keys, seg{text: "n", fg: t.red, bold: true, act: "key:n"}, seg{text: " no", fg: t.muted, act: "key:n"})
-		if len(m.queued) > 0 {
-			keys = append(keys, seg{text: fmt.Sprintf("   +%d waiting", len(m.queued)), fg: t.at(0.1)})
-		}
-		out = append(out, line{fill: &warn, bar: &ask, indent: 2, segs: keys})
-		out = append(out, line{fill: &warn, bar: &ask, indent: 2})
+		out = append(out, m.approvalLines(t, width)...)
 	}
 	if m.busy && m.draft != nil {
 		gap()
-		d := m.draft
-		verb := map[string]string{"write": "writing", "edit": "editing", "bash": "preparing", "read": "opening"}[d.name]
-		if verb == "" {
-			verb = "preparing " + d.name
-		}
-		dots := strings.Repeat(".", int(n/300)%4)
-		out = append(out, line{indent: 2, segs: []seg{
-			{text: "◇ ", fg: mix(t.muted, t.at(toolHue[d.name]), 0.5+0.5*math.Sin(n/120))},
-			{text: verb + " ", grad: true, phase: n / 900},
-			{text: clipWidth(d.arg, width-40), fg: t.fg},
-			{text: padBytes(dots, 4), fg: t.muted},
-			{text: short(d.chars) + " chars", fg: t.muted},
-		}})
+		out = append(out, m.draftLines(t, width, n)...)
 	}
 	if m.busy && m.thinking {
 		gap()
-		label, labelCol, elapsed, hint := "thinking", t.fg, (m.now - m.thinkSince).Seconds(), ""
+		out = append(out, m.thinkingLines(t, width, n)...)
+	}
+	return out
+}
+
+func toolLines(t theme, e *entry, width int, n float64) []line {
+	var out []line
+	panel := t.panel
+	red, green := mix(t.panel, t.red, 0.18), mix(t.panel, t.green, 0.15)
+	edge := mix(t.panel, t.muted, 0.35)
+	hue := toolHue[e.tool]
+	glyph, gc := "◆ ", t.at(hue)
+	if !e.done {
+		glyph, gc = "◇ ", mix(t.muted, t.at(hue), 0.5+0.5*math.Sin(n/120))
+	} else if !e.res.ok {
+		gc = t.red
+	}
+	var tail []seg
+	used := 0
+	if e.done {
+		tail = summary(t, e.res, max(26, width/3))
+		for _, s := range tail {
+			used += len([]rune(s.text))
+		}
+	}
+	name := padBytes(e.tool+" ", 6)
+	segs := append([]seg{{text: glyph, fg: gc}, {text: name, fg: t.muted}, {text: clipWidth(e.arg, max(8, width-4-len([]rune(name))-used)), fg: t.fg}}, tail...)
+	out = append(out, line{segs: segs, indent: 2})
+	if e.done && e.res.ok && len(e.res.diff) > 0 {
+		shown := e.res.diff[:min(len(e.res.diff), 12)]
+		for _, d := range shown {
+			fill, fg := &panel, t.fg
+			switch d.kind {
+			case '-':
+				fill, fg = &red, t.red
+			case '+':
+				fill, fg = &green, t.green
+			}
+			segs := []seg{{text: fmt.Sprintf("%4d %c  ", d.num, d.kind), fg: mix(fg, t.muted, 0.4)}}
+			if d.kind == ' ' {
+				segs = append(segs, highlight(t, clipWidth(d.text, width-18), t.fg)...)
+			} else {
+				segs = append(segs, tinted(highlight(t, clipWidth(d.text, width-18), fg), fg, 0.45)...)
+			}
+			out = append(out, line{fill: fill, bar: &edge, indent: 4, segs: segs})
+		}
+		if extra := len(e.res.diff) - len(shown); extra > 0 {
+			out = append(out, line{fill: &panel, bar: &edge, indent: 4, segs: []seg{{text: fmt.Sprintf("       … %d more lines", extra), fg: t.muted}}})
+		}
+	}
+	return out
+}
+
+// signInLines draws a sign-in in progress: e.arg is the link, e.tool the device code.
+func signInLines(t theme, e *entry, width int) []line {
+	var out []line
+	out = append(out, line{indent: 2, segs: []seg{{text: e.text, fg: t.fg, bold: true}}})
+	for _, l := range e.lines {
 		switch {
-		case m.reasoning == "" && !m.answering && elapsed > 4:
-			label, labelCol = "waiting for a free model", slot(t, 1)
-		case m.reasoning == "" && m.answering && elapsed > 6:
-			label = "writing"
-			if elapsed > 12 {
-				hint = "  ·  big files show up when they're finished"
+		case l == "":
+			out = append(out, line{})
+		case l == e.arg:
+			for _, row := range wrap(l, width-10) {
+				out = append(out, line{indent: 6, segs: []seg{{text: row, fg: t.at(0.6), url: e.arg}}})
+			}
+		case e.tool != "" && l == e.tool:
+			out = append(out, line{indent: 6, segs: []seg{{text: l, fg: t.at(0.3), bold: true}, {text: "   copied to your clipboard if your terminal allows it", fg: t.muted}}})
+		default:
+			for _, row := range wrap(l, width-8) {
+				out = append(out, line{indent: 4, segs: []seg{{text: row, fg: t.fg}}})
 			}
 		}
-		spin := string([]rune("◐◓◑◒")[int(n/160)%4])
-		out = append(out, line{indent: 2, segs: []seg{{text: spin + " ", fg: t.at(n / 3000)}, {text: label, fg: labelCol}, {text: fmt.Sprintf(" %.0fs", elapsed), fg: t.muted}, {text: hint, fg: t.muted}}})
-		if m.reasoning != "" {
-			rows := wrapAll(strings.Join(strings.Fields(m.reasoning), " "), width-8)
-			rows = rows[max(0, len(rows)-3):]
-			for k, row := range rows {
-				fade := 0.75 - 0.2*float64(k)
-				out = append(out, line{indent: 4, segs: []seg{{text: row, fg: mix(t.bg, t.muted, fade)}}})
-			}
+	}
+	return out
+}
+
+func (m model) approvalLines(t theme, width int) []line {
+	var out []line
+	verb := map[string]string{"bash": "run this command", "write": "write this file", "edit": "apply this edit"}[m.pending.tool]
+	if verb == "" {
+		verb = "use " + m.pending.tool
+	}
+	ask := slot(t, 0)
+	warn := mix(t.panel, ask, 0.1)
+	who, arg := approvalWorker(m.pending.arg)
+	out = append(out, line{fill: &warn, bar: &ask, indent: 2})
+	head := []seg{{text: " ? ", fg: t.at(0.1), bold: true}}
+	if who != "" {
+		head = append(head, seg{text: "worker " + who, grad: true, phase: m.workerHue(who), bold: true}, seg{text: " wants to " + verb + ":", fg: t.fg, bold: true})
+	} else {
+		head = append(head, seg{text: "prism wants to " + verb + ":", fg: t.fg, bold: true})
+	}
+	out = append(out, line{fill: &warn, bar: &ask, indent: 2, segs: head})
+	for _, row := range wrapAll(arg, width-12) {
+		out = append(out, line{fill: &warn, bar: &ask, indent: 2, segs: []seg{{text: "     " + row, fg: slot(t, 3)}}})
+	}
+	for _, row := range wrapAll(m.pending.why, width-12) {
+		out = append(out, line{fill: &warn, bar: &ask, indent: 2, segs: []seg{{text: "     " + row, fg: t.muted}}})
+	}
+	out = append(out, line{fill: &warn, bar: &ask, indent: 2})
+	keys := []seg{{text: "   "}, {text: "y", fg: t.green, bold: true, act: "key:y"}, {text: " yes, once", fg: t.muted, act: "key:y"}, {text: "   "}}
+	if len(m.pending.risks) > 0 {
+		keys = append(keys, seg{text: "a", fg: t.green, bold: true, act: "key:a"}, seg{text: " yes for this chat", fg: t.muted, act: "key:a"}, seg{text: "   "})
+	}
+	keys = append(keys, seg{text: "n", fg: t.red, bold: true, act: "key:n"}, seg{text: " no", fg: t.muted, act: "key:n"})
+	if len(m.queued) > 0 {
+		keys = append(keys, seg{text: fmt.Sprintf("   +%d waiting", len(m.queued)), fg: t.at(0.1)})
+	}
+	out = append(out, line{fill: &warn, bar: &ask, indent: 2, segs: keys})
+	out = append(out, line{fill: &warn, bar: &ask, indent: 2})
+	return out
+}
+
+func (m model) draftLines(t theme, width int, n float64) []line {
+	var out []line
+	d := m.draft
+	verb := map[string]string{"write": "writing", "edit": "editing", "bash": "preparing", "read": "opening"}[d.name]
+	if verb == "" {
+		verb = "preparing " + d.name
+	}
+	dots := strings.Repeat(".", int(n/300)%4)
+	out = append(out, line{indent: 2, segs: []seg{
+		{text: "◇ ", fg: mix(t.muted, t.at(toolHue[d.name]), 0.5+0.5*math.Sin(n/120))},
+		{text: verb + " ", grad: true, phase: n / 900},
+		{text: clipWidth(d.arg, width-40), fg: t.fg},
+		{text: padBytes(dots, 4), fg: t.muted},
+		{text: short(d.chars) + " chars", fg: t.muted},
+	}})
+	return out
+}
+
+func (m model) thinkingLines(t theme, width int, n float64) []line {
+	var out []line
+	label, labelCol, elapsed, hint := "thinking", t.fg, (m.now - m.thinkSince).Seconds(), ""
+	switch {
+	case m.reasoning == "" && !m.answering && elapsed > 4:
+		label, labelCol = "waiting for a free model", slot(t, 1)
+	case m.reasoning == "" && m.answering && elapsed > 6:
+		label = "writing"
+		if elapsed > 12 {
+			hint = "  ·  big files show up when they're finished"
+		}
+	}
+	spin := string([]rune("◐◓◑◒")[int(n/160)%4])
+	out = append(out, line{indent: 2, segs: []seg{{text: spin + " ", fg: t.at(n / 3000)}, {text: label, fg: labelCol}, {text: fmt.Sprintf(" %.0fs", elapsed), fg: t.muted}, {text: hint, fg: t.muted}}})
+	if m.reasoning != "" {
+		rows := wrapAll(strings.Join(strings.Fields(m.reasoning), " "), width-8)
+		rows = rows[max(0, len(rows)-3):]
+		for k, row := range rows {
+			fade := 0.75 - 0.2*float64(k)
+			out = append(out, line{indent: 4, segs: []seg{{text: row, fg: mix(t.bg, t.muted, fade)}}})
 		}
 	}
 	return out

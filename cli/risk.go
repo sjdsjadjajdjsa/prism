@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -874,38 +875,83 @@ func riskGitHubAPIWrite(args []string) bool {
 	return payload
 }
 
+type riskArgs []string
+
+func (a riskArgs) has(s string) bool { return slices.Contains(a, s) }
+
+func (a riskArgs) first(s string) bool { return len(a) > 0 && a[0] == s }
+
 func riskKinds(c riskCommand) []risk {
+	if len(c.words) == 0 {
+		return nil
+	}
 	var out []risk
-	add := func(key string) {
+	add := func(key string, why ...string) {
 		for _, r := range out {
 			if r.key == key {
 				return
 			}
 		}
-		out = append(out, risk{key, riskReasons[key]})
-	}
-	if len(c.words) == 0 {
-		return nil
-	}
-	prog, args := riskProgram(c.words[0]), c.words[1:]
-	if prog == "git" {
-		args = riskGitArgs(args)
-	}
-	has := func(s string) bool {
-		for _, a := range args {
-			if a == s {
-				return true
-			}
+		r := risk{key, riskReasons[key]}
+		if len(why) > 0 {
+			r.why = why[0]
 		}
-		return false
+		out = append(out, r)
 	}
-	first := func(s string) bool { return len(args) > 0 && args[0] == s }
+	prog, args := riskProgram(c.words[0]), riskArgs(c.words[1:])
 	if c.internet {
 		add("run a script from the internet")
 	}
 	if c.system {
 		add("system")
 	}
+	if riskDeletes(prog, args) {
+		add("delete folders")
+	}
+	if prog == "git" {
+		riskGit(riskGitArgs(args), add)
+	}
+	if riskPublishes(prog, args) {
+		add("publish")
+	}
+	if riskRemote(prog, args) {
+		add("remote computer")
+	}
+	if riskSystem(prog, args) {
+		add("system")
+	}
+	if c.database || riskDatabaseDelete(prog, args) {
+		add("database delete")
+	}
+	return out
+}
+
+func riskGit(args riskArgs, add func(key string, why ...string)) {
+	if args.first("clean") && riskFlag(args[1:], "--force", "f") {
+		add("delete folders")
+	}
+	if (args.first("reset") && args.has("--hard")) || (args.first("checkout") && (args.has("--") || args.has("."))) || (args.first("restore") && (!args.has("--staged") && !riskFlag(args[1:], "--staged", "S") || riskFlag(args[1:], "--worktree", "W"))) || (args.first("stash") && len(args) > 1 && (args[1] == "drop" || args[1] == "clear")) || (args.first("branch") && riskFlag(args[1:], "--delete-force", "D")) {
+		add("throw away changes")
+	}
+	if args.first("push") {
+		force := riskFlag(args[1:], "--force", "f") || riskFlag(args[1:], "--force-with-lease", "") || riskFlag(args[1:], "--mirror", "")
+		deleting := riskFlag(args[1:], "--delete", "d")
+		for _, arg := range args[1:] {
+			force = force || strings.HasPrefix(arg, "+")
+			deleting = deleting || (strings.HasPrefix(arg, ":") && len(arg) > 1)
+		}
+		key, why := "git push", []string{}
+		if force {
+			key = "force push"
+		}
+		if deleting {
+			why = append(why, "deletes a branch on the server")
+		}
+		add(key, why...)
+	}
+}
+
+func riskDeletes(prog string, args riskArgs) bool {
 	switch prog {
 	case "rm":
 		if riskFlag(args, "--recursive", "rR") {
@@ -924,137 +970,135 @@ func riskKinds(c riskCommand) []risk {
 				safe = safe && riskSafeRemove(a)
 			}
 			if targets == 0 || !safe {
-				add("delete folders")
+				return true
 			}
 		}
 	case "find":
-		if has("-delete") {
-			add("delete folders")
+		if args.has("-delete") {
+			return true
 		}
 		for i, a := range args {
 			if (a == "-exec" || a == "-execdir") && i+1 < len(args) && riskProgram(args[i+1]) == "rm" {
-				add("delete folders")
+				return true
 			}
 		}
 	case "shred":
-		add("delete folders")
-	case "git":
-		if first("clean") && riskFlag(args[1:], "--force", "f") {
-			add("delete folders")
-		}
-		if (first("reset") && has("--hard")) || (first("checkout") && (has("--") || has("."))) || (first("restore") && (!has("--staged") && !riskFlag(args[1:], "--staged", "S") || riskFlag(args[1:], "--worktree", "W"))) || (first("stash") && len(args) > 1 && (args[1] == "drop" || args[1] == "clear")) || (first("branch") && riskFlag(args[1:], "--delete-force", "D")) {
-			add("throw away changes")
-		}
-		if first("push") {
-			force := riskFlag(args[1:], "--force", "f") || riskFlag(args[1:], "--force-with-lease", "") || riskFlag(args[1:], "--mirror", "")
-			deleting := riskFlag(args[1:], "--delete", "d")
-			for _, arg := range args[1:] {
-				force = force || strings.HasPrefix(arg, "+")
-				deleting = deleting || (strings.HasPrefix(arg, ":") && len(arg) > 1)
-			}
-			if force {
-				add("force push")
-			} else {
-				add("git push")
-			}
-			if deleting {
-				out[len(out)-1].why = "deletes a branch on the server"
-			}
-		}
+		return true
+	}
+	return false
+}
+
+func riskPublishes(prog string, args riskArgs) bool {
+	switch prog {
 	case "npm", "yarn", "pnpm", "bun", "cargo":
-		if first("publish") {
-			add("publish")
+		if args.first("publish") {
+			return true
 		}
 	case "twine":
-		if first("upload") {
-			add("publish")
+		if args.first("upload") {
+			return true
 		}
 	case "gem", "docker":
-		if first("push") {
-			add("publish")
+		if args.first("push") {
+			return true
 		}
 	case "gh":
-		if first("api") && riskGitHubAPIWrite(args[1:]) {
-			add("publish")
+		if args.first("api") && riskGitHubAPIWrite(args[1:]) {
+			return true
 		}
 		if len(args) > 1 {
 			allowed := map[string]string{"pr": " create merge close comment review ", "issue": " create close comment edit ", "release": " create delete ", "repo": " create delete edit ", "workflow": " run "}
 			if strings.Contains(allowed[args[0]], " "+args[1]+" ") {
-				add("publish")
+				return true
 			}
 		}
 	case "vercel":
-		if first("deploy") || has("--prod") || len(args) == 0 {
-			add("publish")
+		if args.first("deploy") || args.has("--prod") || len(args) == 0 {
+			return true
 		}
 	case "netlify", "fly", "firebase":
-		if first("deploy") {
-			add("publish")
+		if args.first("deploy") {
+			return true
 		}
 	case "kubectl":
 		if len(args) > 0 && strings.Contains(" apply delete create replace patch ", " "+args[0]+" ") {
-			add("publish")
+			return true
 		}
 	case "terraform":
-		if first("apply") || first("destroy") {
-			add("publish")
+		if args.first("apply") || args.first("destroy") {
+			return true
 		}
 	case "helm":
-		if first("install") || first("upgrade") || first("uninstall") {
-			add("publish")
+		if args.first("install") || args.first("upgrade") || args.first("uninstall") {
+			return true
 		}
+	}
+	return false
+}
+
+func riskRemote(prog string, args riskArgs) bool {
+	switch prog {
 	case "ssh", "scp", "sftp":
-		add("remote computer")
+		return true
 	case "rsync":
 		for _, a := range args {
 			if !strings.HasPrefix(a, "-") && strings.Contains(a, ":") && !strings.HasPrefix(a, "/") && !strings.HasPrefix(a, "./") && !strings.HasPrefix(a, "../") {
-				add("remote computer")
+				return true
 			}
 		}
+	}
+	return false
+}
+
+func riskDatabaseDelete(prog string, args riskArgs) bool {
+	switch prog {
 	case "dropdb":
-		add("database delete")
+		return true
 	case "redis-cli":
 		for _, a := range args {
 			if strings.EqualFold(a, "flushall") || strings.EqualFold(a, "flushdb") {
-				add("database delete")
+				return true
 			}
 		}
 	case "prisma":
-		if first("migrate") && len(args) > 1 && args[1] == "reset" {
-			add("database delete")
+		if args.first("migrate") && len(args) > 1 && args[1] == "reset" {
+			return true
 		}
 	case "rails":
-		if has("db:drop") || has("db:reset") {
-			add("database delete")
+		if args.has("db:drop") || args.has("db:reset") {
+			return true
 		}
+	}
+	return false
+}
+
+func riskSystem(prog string, args riskArgs) bool {
+	if strings.HasPrefix(prog, "mkfs") {
+		return true
+	}
+	switch prog {
 	case "dd":
 		for _, a := range args {
 			if strings.HasPrefix(a, "of=") {
-				add("system")
+				return true
 			}
 		}
 	case "shutdown", "reboot", "halt", "poweroff", "killall":
-		add("system")
+		return true
 	case "kill":
-		if has("-9") && has("-1") {
-			add("system")
+		if args.has("-9") && args.has("-1") {
+			return true
 		}
 	case "chmod", "chown":
 		if riskFlag(args, "--recursive", "R") {
 			for _, a := range args {
 				if strings.HasPrefix(a, "/") || strings.HasPrefix(a, "~") {
-					add("system")
+					return true
 				}
 			}
 		}
 	}
-	if strings.HasPrefix(prog, "mkfs") {
-		add("system")
-	}
-	if c.database {
-		add("database delete")
-	}
-	return out
+	return false
 }
 
 func commandRisks(command string) []risk { return (ruleSet{}).check(command).risks }
