@@ -97,19 +97,51 @@ func (m *model) finish(ok bool, busy bool) {
 
 func (m model) buddyWide(w int) bool { return (w-m.column())/2 >= 17 }
 
+// shardSize is Shard's size in cells: two pixel rows per cell.
+func shardSize() (w, h int) { return len(shardBody[0]), (len(shardBody) + 1) / 2 }
+
+// buddyGap is the room between the chat column and Shard beside it. The
+// browser keeps about 9 columns; a tight terminal gives up to 2.
+func buddyGap(w, colW int) int {
+	sw, _ := shardSize()
+	return clamp((w-colW)/2-sw-6, 2, 9)
+}
+
+// buddySpot is where Shard sits, the same place as in the browser: in the
+// right margin with its feet on the input line, or on a narrow screen just
+// above the input box's right end. ok is false when Shard would cover chat
+// text or an open overlay there.
+func (m model) buddySpot(cv *canvas, t theme, cx, colW, boxY int) (x, y int, ok bool) {
+	sw, sh := shardSize()
+	if m.buddyWide(cv.w) {
+		return cx + colW + buddyGap(cv.w, colW), cv.h - 4 - sh, true
+	}
+	if m.menu.open || m.fb.open || len(m.suggesting().rows) > 0 {
+		return 0, 0, false
+	}
+	x, y = cx+colW-1-sw, boxY-sh
+	for row := y - 3; row < y+sh; row++ {
+		for col := x; col < cx+colW; col++ {
+			if c := cv.get(col, row); c == nil || c.ch != ' ' || c.bg != t.bg {
+				return 0, 0, false
+			}
+		}
+	}
+	return x, y, true
+}
+
 func drawBuddy(cv *canvas, t theme, m model, cx, colW, boxY int) {
 	n := ms(m.now)
-	wide := m.buddyWide(cv.w)
-	sx, sy := cx+colW+2, boxY-1
+	sx, sy, shown := m.buddySpot(cv, t, cx, colW, boxY)
 	bx, by := cx+colW-1, boxY+1
-	if wide {
+	if shown {
 		bx, by = sx-1, sy+2
 	}
 	beaming := m.beamOn && m.beamAt > 0 && m.now-m.beamAt < beamFor
 	if beaming {
 		drawBeam(cv, t, bx, by, -1, ms(m.now-m.beamAt))
 	}
-	if wide {
+	if shown {
 		pose := m.pose()
 		if beaming {
 			pose.md = moodWorking

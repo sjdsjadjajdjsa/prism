@@ -353,18 +353,18 @@ func (m model) transcript(t theme, width int) []line {
 	}
 	if m.busy && m.thinking {
 		gap()
-		dots := strings.Repeat(".", int(n/300)%4)
-		label, elapsed, hint := "thinking", (m.now - m.thinkSince).Seconds(), ""
+		label, labelCol, elapsed, hint := "thinking", t.fg, (m.now - m.thinkSince).Seconds(), ""
 		switch {
 		case m.reasoning == "" && !m.answering && elapsed > 4:
-			label = "waiting for a free model"
+			label, labelCol = "waiting for a free model", slot(t, 1)
 		case m.reasoning == "" && m.answering && elapsed > 6:
 			label = "writing"
 			if elapsed > 12 {
 				hint = "  ·  big files show up when they're finished"
 			}
 		}
-		out = append(out, line{indent: 2, segs: []seg{{text: label, grad: true, phase: n / 900}, {text: padBytes(dots, 4), fg: t.muted}, {text: fmt.Sprintf("%.0fs", elapsed), fg: t.muted}, {text: hint, fg: t.muted}}})
+		spin := string([]rune("◐◓◑◒")[int(n/160)%4])
+		out = append(out, line{indent: 2, segs: []seg{{text: spin + " ", fg: t.at(n / 3000)}, {text: label, fg: labelCol}, {text: fmt.Sprintf(" %.0fs", elapsed), fg: t.muted}, {text: hint, fg: t.muted}}})
 		if m.reasoning != "" {
 			rows := wrapAll(strings.Join(strings.Fields(m.reasoning), " "), width-8)
 			rows = rows[max(0, len(rows)-3):]
@@ -515,8 +515,8 @@ func drawChat(cv *canvas, t theme, m model) {
 	boxH := m.boxHeight()
 	boxY := cv.h - 3 - boxH
 	lines, start, end, top, height := m.visible(t)
-	if len(lines) == 0 {
-		hello := []string{"what are we building today?", "", "try:  fix a bug  ·  make a website  ·  /help"}
+	if len(lines) == 0 && !m.menu.open && !m.fb.open && len(m.suggesting().rows) == 0 {
+		hello := []string{"what are we building today?", "try: fix a bug · make a website · /help"}
 		if m.offline || m.ready == 0 {
 			hello = append(hello, "", "the free AI router isn't ready · run: prism status")
 		}
@@ -528,7 +528,7 @@ func drawChat(cv *canvas, t theme, m model) {
 			if i == len(hello)-1 && (m.offline || m.ready == 0) {
 				col = t.red
 			}
-			cv.text((cv.w-len([]rune(s)))/2, top+height/2-2+i, s, mix(t.bg, col, enter), i == 0)
+			cv.text(cx, top+min(3, max(0, height-len(hello)-1))+i, s, mix(t.bg, col, enter), i == 0)
 		}
 	}
 	for i, l := range lines[start:end] {
@@ -622,7 +622,7 @@ func drawInput(cv *canvas, t theme, m model, x, y, w, h int, n, enter float64) {
 		return
 	}
 	if len(m.input) == 0 {
-		hint, col := "ask anything…", mix(t.bg, t.muted, enter)
+		hint, col := "ask anything…  / for commands", mix(t.bg, t.muted, enter)
 		if m.agent != nil && m.agent.plan.Load() {
 			hint = "plan mode · ask for a plan…"
 		}
@@ -690,6 +690,9 @@ func drawStatus(cv *canvas, t theme, m model, x, y, w int, enter float64) {
 	used := float64(m.tokens) / float64(max(1, m.window))
 	meterW := 12
 	pct := fmt.Sprintf("%d%%", int(math.Round(used*100)))
+	if m.ready > 0 && !m.busy {
+		pct += fmt.Sprintf("   %d model%s ready", m.ready, map[bool]string{true: "", false: "s"}[m.ready == 1])
+	}
 	meterShown := true
 
 	key := func(k, what string) []seg { return []seg{{text: k, fg: t.fg}, {text: " " + what + "   ", fg: t.muted}} }
