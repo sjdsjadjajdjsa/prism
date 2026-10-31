@@ -17,6 +17,7 @@ type seg struct {
 	phase float64
 	url   string // drawn as an OSC 8 hyperlink
 	act   string // a click on it does this (clickAct)
+	bg    *rgb   // a background chip behind the text, like inline code
 }
 
 type line struct {
@@ -24,6 +25,7 @@ type line struct {
 	fill   *rgb
 	indent int
 	ref    *entry
+	bar    *rgb // a thin bar on the left edge of a filled line
 }
 
 func wrap(s string, width int) []string {
@@ -113,6 +115,7 @@ func (m model) transcript(t theme, width int) []line {
 	}
 	panel := t.panel
 	red, green := mix(t.panel, t.red, 0.18), mix(t.panel, t.green, 0.15)
+	edge := mix(t.panel, t.muted, 0.35)
 	lastUser := -1
 	for i, e := range m.entries {
 		if e.kind == "user" {
@@ -142,7 +145,7 @@ func (m model) transcript(t theme, width int) []line {
 			}
 			if len(group) >= 2 && i < lastUser {
 				gap()
-				out = append(out, line{indent: 2, ref: head, segs: []seg{{text: "▾ ", fg: t.muted}, {text: fmt.Sprintf("%d steps", len(group)), fg: t.muted}, {text: "  click to fold", fg: t.muted}}})
+				out = append(out, line{indent: 2, ref: head, segs: []seg{{text: "▾ ", fg: t.muted}, {text: fmt.Sprintf("%d steps", len(group)), fg: t.muted}, {text: "  click to fold", fg: mix(t.bg, t.muted, 0.6)}}})
 			}
 		}
 		switch e.kind {
@@ -159,7 +162,9 @@ func (m model) transcript(t theme, width int) []line {
 				out = append(out, line{segs: []seg{prefix, {text: row, fg: t.fg, bold: true}}})
 			}
 		case "text":
-			gap()
+			if prev := len(out) - 1; i == 0 || m.entries[i-1].kind != "tool" || (prev >= 0 && out[prev].fill != nil) {
+				gap()
+			}
 			out = append(out, markdown(t, e.text, width)...)
 		case "tool":
 			if i == 0 || m.entries[i-1].kind != "tool" {
@@ -184,7 +189,6 @@ func (m model) transcript(t theme, width int) []line {
 			segs := append([]seg{{text: glyph, fg: gc}, {text: name, fg: t.muted}, {text: clipWidth(e.arg, max(8, width-4-len([]rune(name))-used)), fg: t.fg}}, tail...)
 			out = append(out, line{segs: segs, indent: 2})
 			if e.done && e.res.ok && len(e.res.diff) > 0 {
-				out = append(out, line{fill: &panel, indent: 4})
 				shown := e.res.diff[:min(len(e.res.diff), 12)]
 				for _, d := range shown {
 					fill, fg := &panel, t.fg
@@ -200,12 +204,11 @@ func (m model) transcript(t theme, width int) []line {
 					} else {
 						segs = append(segs, tinted(highlight(t, clipWidth(d.text, width-18), fg), fg, 0.45)...)
 					}
-					out = append(out, line{fill: fill, indent: 4, segs: segs})
+					out = append(out, line{fill: fill, bar: &edge, indent: 4, segs: segs})
 				}
 				if extra := len(e.res.diff) - len(shown); extra > 0 {
-					out = append(out, line{fill: &panel, indent: 4, segs: []seg{{text: fmt.Sprintf("       … %d more lines", extra), fg: t.muted}}})
+					out = append(out, line{fill: &panel, bar: &edge, indent: 4, segs: []seg{{text: fmt.Sprintf("       … %d more lines", extra), fg: t.muted}}})
 				}
-				out = append(out, line{fill: &panel, indent: 4})
 			}
 		case "crew":
 			gap()
@@ -217,7 +220,7 @@ func (m model) transcript(t theme, width int) []line {
 				if j == 0 {
 					mark = "· "
 				}
-				out = append(out, line{indent: 2, segs: []seg{{text: mark, fg: t.muted}, {text: row, fg: t.fg}}})
+				out = append(out, line{indent: 2, segs: []seg{{text: mark, fg: t.muted}, {text: row, fg: mix(t.muted, t.fg, 0.35)}}})
 			}
 		case "error":
 			gap()
@@ -303,23 +306,24 @@ func (m model) transcript(t theme, width int) []line {
 		if verb == "" {
 			verb = "use " + m.pending.tool
 		}
-		warn := mix(t.panel, t.at(0.1), 0.12)
+		ask := slot(t, 0)
+		warn := mix(t.panel, ask, 0.1)
 		who, arg := approvalWorker(m.pending.arg)
-		out = append(out, line{fill: &warn, indent: 2})
+		out = append(out, line{fill: &warn, bar: &ask, indent: 2})
 		head := []seg{{text: " ? ", fg: t.at(0.1), bold: true}}
 		if who != "" {
 			head = append(head, seg{text: "worker " + who, grad: true, phase: m.workerHue(who), bold: true}, seg{text: " wants to " + verb + ":", fg: t.fg, bold: true})
 		} else {
 			head = append(head, seg{text: "prism wants to " + verb + ":", fg: t.fg, bold: true})
 		}
-		out = append(out, line{fill: &warn, indent: 2, segs: head})
+		out = append(out, line{fill: &warn, bar: &ask, indent: 2, segs: head})
 		for _, row := range wrapAll(arg, width-12) {
-			out = append(out, line{fill: &warn, indent: 2, segs: []seg{{text: "     " + row, fg: t.at(0.6)}}})
+			out = append(out, line{fill: &warn, bar: &ask, indent: 2, segs: []seg{{text: "     " + row, fg: slot(t, 3)}}})
 		}
 		for _, row := range wrapAll(m.pending.why, width-12) {
-			out = append(out, line{fill: &warn, indent: 2, segs: []seg{{text: "     " + row, fg: t.muted}}})
+			out = append(out, line{fill: &warn, bar: &ask, indent: 2, segs: []seg{{text: "     " + row, fg: t.muted}}})
 		}
-		out = append(out, line{fill: &warn, indent: 2})
+		out = append(out, line{fill: &warn, bar: &ask, indent: 2})
 		keys := []seg{{text: "   "}, {text: "y", fg: t.green, bold: true, act: "key:y"}, {text: " yes, once", fg: t.muted, act: "key:y"}, {text: "   "}}
 		if len(m.pending.risks) > 0 {
 			keys = append(keys, seg{text: "a", fg: t.green, bold: true, act: "key:a"}, seg{text: " yes for this chat", fg: t.muted, act: "key:a"}, seg{text: "   "})
@@ -328,8 +332,8 @@ func (m model) transcript(t theme, width int) []line {
 		if len(m.queued) > 0 {
 			keys = append(keys, seg{text: fmt.Sprintf("   +%d waiting", len(m.queued)), fg: t.at(0.1)})
 		}
-		out = append(out, line{fill: &warn, indent: 2, segs: keys})
-		out = append(out, line{fill: &warn, indent: 2})
+		out = append(out, line{fill: &warn, bar: &ask, indent: 2, segs: keys})
+		out = append(out, line{fill: &warn, bar: &ask, indent: 2})
 	}
 	if m.busy && m.draft != nil {
 		gap()
@@ -394,20 +398,66 @@ func wrapAll(s string, width int) []string {
 	return out
 }
 
+func slot(t theme, i int) rgb { return t.spectrum[i%len(t.spectrum)] }
+
+const (
+	mdCode = '\x01'
+	mdBold = '\x02'
+)
+
+type mdStyle struct{ code, bold bool }
+
+func inline(t theme, row string, fg rgb, bold bool, st *mdStyle) []seg {
+	panel := t.panel
+	var out []seg
+	var cur []rune
+	flush := func() {
+		if len(cur) == 0 {
+			return
+		}
+		s := seg{text: string(cur), fg: fg, bold: bold || st.bold}
+		if st.code {
+			s.fg, s.bg = slot(t, 2), &panel
+		}
+		out, cur = append(out, s), nil
+	}
+	for _, r := range row {
+		switch r {
+		case mdCode:
+			flush()
+			st.code = !st.code
+		case mdBold:
+			flush()
+			if !st.code {
+				st.bold = !st.bold
+			}
+		default:
+			cur = append(cur, r)
+		}
+	}
+	flush()
+	return out
+}
+
 func markdown(t theme, text string, width int) []line {
 	var out []line
-	panel := t.panel
+	panel, edge := t.panel, mix(t.panel, t.muted, 0.35)
 	code := false
 	blank := true
 	for _, raw := range strings.Split(strings.Trim(text, "\n"), "\n") {
 		trimmed := strings.TrimSpace(raw)
 		if strings.HasPrefix(trimmed, "```") {
 			code = !code
-			out = append(out, line{fill: &panel, indent: 2})
+			l := line{fill: &panel, bar: &edge, indent: 2}
+			if lang := strings.TrimSpace(strings.TrimPrefix(trimmed, "```")); code && lang != "" {
+				l.segs = []seg{{text: " " + lang, fg: t.muted}}
+			}
+			out = append(out, l)
+			blank = !code
 			continue
 		}
 		if code {
-			out = append(out, line{fill: &panel, indent: 2, segs: append([]seg{{text: " "}}, highlight(t, clipWidth(raw, width-8), t.fg)...)})
+			out = append(out, line{fill: &panel, bar: &edge, indent: 2, segs: append([]seg{{text: " "}}, highlight(t, clipWidth(raw, width-8), t.fg)...)})
 			continue
 		}
 		if trimmed == "" {
@@ -421,17 +471,19 @@ func markdown(t theme, text string, width int) []line {
 		s, fg, bold, lead := trimmed, t.fg, false, ""
 		switch {
 		case strings.HasPrefix(s, "#"):
-			s, bold = strings.TrimSpace(strings.TrimLeft(s, "#")), true
+			level := len(s) - len(strings.TrimLeft(s, "#"))
+			s, bold, fg = strings.TrimSpace(s[level:]), true, slot(t, min(level, 3)+1)
 		case strings.HasPrefix(s, "- "), strings.HasPrefix(s, "* "):
 			s, lead = s[2:], "• "
 		}
-		s = strings.NewReplacer("**", "", "`", "").Replace(s)
+		s = strings.NewReplacer("**", string(mdBold), "`", string(mdCode)).Replace(s)
+		var st mdStyle
 		for j, row := range wrap(s, width-6) {
 			prefix := lead
 			if j > 0 && lead != "" {
 				prefix = "  "
 			}
-			out = append(out, line{indent: 2, segs: []seg{{text: prefix, fg: t.at(0.6)}, {text: row, fg: fg, bold: bold}}})
+			out = append(out, line{indent: 2, segs: append([]seg{{text: prefix, fg: slot(t, 4)}}, inline(t, row, fg, bold, &st)...)})
 		}
 	}
 	return out
@@ -445,12 +497,12 @@ func drawChat(cv *canvas, t theme, m model) {
 
 	x := cv.grad(cx, 1, "◆ prism", t, n/6000, 14, true)
 	cv.text(x, 1, "   "+clipWidth(m.project, colW-30), mix(t.bg, t.muted, enter), false)
-	right := t.name
+	right := ""
 	if text, _ := m.speaking(); text != "" && !m.buddyWide(cv.w) {
 		right = "◭ " + text
 	}
 	if m.scroll > 0 {
-		right = "↑ scrolled · end to jump back   " + right
+		right = strings.TrimSpace("↑ scrolled · end to jump back   " + right)
 	}
 	cv.text(cx+colW-len([]rune(right)), 1, right, mix(t.bg, t.muted, enter), false)
 	for i := 0; i < colW; i++ {
@@ -473,7 +525,7 @@ func drawChat(cv *canvas, t theme, m model) {
 			if i == 0 {
 				col = t.fg
 			}
-			if i == len(hello)-1 {
+			if i == len(hello)-1 && (m.offline || m.ready == 0) {
 				col = t.red
 			}
 			cv.text((cv.w-len([]rune(s)))/2, top+height/2-2+i, s, mix(t.bg, col, enter), i == 0)
@@ -484,6 +536,9 @@ func drawChat(cv *canvas, t theme, m model) {
 		lx := cx + l.indent
 		if l.fill != nil {
 			cv.fill(lx, y, colW-l.indent-2, 1, *l.fill)
+			if l.bar != nil {
+				cv.set(lx, y, '▎', *l.bar, false)
+			}
 			lx++
 		}
 		for _, s := range l.segs {
@@ -498,6 +553,9 @@ func drawChat(cv *canvas, t theme, m model) {
 			}
 			start := lx
 			lx = cv.text(lx, y, s.text, s.fg, s.bold)
+			if s.bg != nil {
+				cv.fill(start, y, lx-start, 1, *s.bg)
+			}
 			if s.act != "" {
 				cv.tag(start, y, lx-start, s.act)
 			}
@@ -536,12 +594,15 @@ func drawChat(cv *canvas, t theme, m model) {
 }
 
 func drawInput(cv *canvas, t theme, m model, x, y, w, h int, n, enter float64) {
-	speed := 9000.0
+	speed, glow := 9000.0, 0.55
+	if len(m.input) > 0 {
+		glow = 0.8
+	}
 	if m.busy {
-		speed = 1400
+		speed, glow = 1400, 0.9
 	}
 	phase := n / speed
-	edge := func(i int) rgb { return mix(t.bg, t.at(phase+float64(i)/float64(w)), enter*0.9) }
+	edge := func(i int) rgb { return mix(t.bg, t.at(phase+float64(i)/float64(w)), enter*glow) }
 	for i := 1; i < w-1; i++ {
 		cv.set(x+i, y, '─', edge(i), false)
 		cv.set(x+i, y+h-1, '─', edge(w-i), false)
@@ -642,19 +703,19 @@ func drawStatus(cv *canvas, t theme, m model, x, y, w int, enter float64) {
 	case m.side.focus:
 		keys = append(key("esc", "back to chat"), key("ctrl+b", "hide files")...)
 	default:
-		first := key("ctrl+t", "new tab")
+		keys = key("/", "commands")
 		if m.busy {
-			first = key("esc", "stop")
+			keys = key("esc", "stop")
 		}
-		files, edit := "files", "editor"
 		if m.sideOn() {
-			files = "hide files"
+			keys = append(keys, key("ctrl+b", "hide files")...)
 		}
 		if m.editorOn() {
-			edit = "close editor"
+			keys = append(keys, key("ctrl+e", "close editor")...)
 		}
-		keys = append(append(first, key("ctrl+b", files)...), key("ctrl+e", edit)...)
-		keys = append(keys, key("ctrl+c", "quit")...)
+		if !m.busy {
+			keys = append(keys, key("ctrl+c", "quit")...)
+		}
 	}
 	keys[len(keys)-1].text = strings.TrimRight(keys[len(keys)-1].text, " ")
 	keysShown := true
@@ -1145,7 +1206,7 @@ func collapsed(t theme, group []*entry) line {
 	if failed > 0 {
 		segs = append(segs, seg{text: fmt.Sprintf("  %d failed", failed), fg: t.red})
 	}
-	segs = append(segs, seg{text: "  click to open", fg: t.muted})
+	segs = append(segs, seg{text: "  click to open", fg: mix(t.bg, t.muted, 0.6)})
 	return line{indent: 2, ref: group[0], segs: segs}
 }
 
