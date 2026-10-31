@@ -1072,7 +1072,7 @@ async function stop() {
   // Allow pending prompts to arrive, but release a stalled stream after 3s.
   const ac = state.abort;
   if (ac) setTimeout(() => { if (state.abort === ac) ac.abort(); }, 3000);
-  try { await api('/api/stop', {}); } catch { /* ignore */ }
+  try { await api('/api/stop' + (state.sendTab > 1 ? '?tab=' + state.sendTab : ''), {}); } catch { /* ignore */ }
 }
 
 // Offline and ?demo fallback for /help. The server answers /help with a grouped view.

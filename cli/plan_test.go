@@ -238,7 +238,7 @@ func TestPlanWebCommand(t *testing.T) {
 		t.Errorf("/plan run = %v", res)
 	}
 	s.mu.Lock()
-	s.busy = true
+	s.startTurn(s.agent, func() {})
 	s.mu.Unlock()
 	if res := post("/plan"); res["kind"] != "error" || s.agent.plan.Load() {
 		t.Errorf("/plan while busy must wait, got %v", res)

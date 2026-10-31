@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -537,7 +538,7 @@ func TestCommandModelPin(t *testing.T) {
 		t.Fatalf("auto: %v / %q", res, s.agent.model)
 	}
 	s.mu.Lock()
-	s.busy = true
+	s.startTurn(s.agent, func() {})
 	s.mu.Unlock()
 	if res = post("/model model-a"); res["kind"] != "error" || s.agent.model != "" {
 		t.Fatalf("pin while busy: %v", res)
@@ -563,13 +564,13 @@ func TestCommandUndo(t *testing.T) {
 	s.agent.undoStack.recordAfter(turn, path)
 
 	s.mu.Lock()
-	s.busy = true
+	s.startTurn(s.agent, func() {})
 	s.mu.Unlock()
 	if res := post("/undo"); res["kind"] != "error" {
 		t.Fatalf("/undo while busy: %v", res)
 	}
 	s.mu.Lock()
-	s.busy = false
+	s.endTurn(s.agent)
 	s.mu.Unlock()
 
 	res := post("/undo")
@@ -845,7 +846,7 @@ func TestCommandBusyRefusals(t *testing.T) {
 	host := "127.0.0.1:" + port
 	origin := "http://" + host
 	s.mu.Lock()
-	s.busy = true
+	s.startTurn(s.agent, func() {})
 	s.mu.Unlock()
 	for _, text := range []string{"/init", "/resume", "/continue", "/memory", "/forget", "/skills new demo"} {
 		body, _ := json.Marshal(map[string]string{"text": text})
@@ -1151,12 +1152,7 @@ func TestHistoryRaceNonDefaultTab(t *testing.T) {
 
 	// Simulate a run in progress on a2 (non-default agent).
 	s.mu.Lock()
-	s.busy = true
-	s.busyAgent = a2
-	if s.agentSnap == nil {
-		s.agentSnap = make(map[*Agent][]wireEntry)
-	}
-	s.agentSnap[a2] = []wireEntry{{Kind: "user", Text: "hello"}}
+	s.turns = map[*Agent]*webTurn{a2: {cancel: func() {}, snap: []wireEntry{{Kind: "user", Text: "hello"}}}}
 	s.mu.Unlock()
 
 	// GET /api/history?tab=<id2> must return the snapshot, not live messages.
@@ -1182,6 +1178,48 @@ func TestHistoryRaceNonDefaultTab(t *testing.T) {
 	entry, _ := entries[0].(map[string]any)
 	if entry["kind"] != "user" || entry["text"] != "hello" {
 		t.Fatalf("unexpected snapshot entry: %v", entry)
+	}
+}
+
+func TestTwoTabsChatAtOnce(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(entered)
+		<-release
+	}))
+	defer slow.Close()
+	unblock := sync.OnceFunc(func() { close(release) })
+	defer unblock()
+	fast := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(sseText(delta(`{"content":"two done"}`), sseDone)(w)))
+	}))
+	defer fast.Close()
+	hub := newTabHub()
+	id1, id2 := hub.add("main"), hub.add("other")
+	a1, a2 := newTestAgent(t, slow.URL, t.TempDir()), newTestAgent(t, fast.URL, t.TempDir())
+	agents := map[int]*Agent{id1: a1, id2: a2}
+	s := newServerWithHub(a1, hub, func(i int) *Agent { return agents[i] }, t.TempDir(), "prism")
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		s.chat(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/chat", strings.NewReader(`{"message":"one"}`)))
+	}()
+	<-entered
+	tab2 := "?tab=" + strconv.Itoa(id2)
+	out := httptest.NewRecorder()
+	s.chat(out, httptest.NewRequest("POST", "/api/chat"+tab2, strings.NewReader(`{"message":"two"}`)))
+	if out.Code != http.StatusOK || !strings.Contains(out.Body.String(), "two done") {
+		t.Fatalf("second tab waited for the first: %d %s", out.Code, out.Body.String())
+	}
+	s.stop(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/stop"+tab2, nil))
+	if _, busy := s.state(); !busy {
+		t.Fatal("stopping tab 2 stopped tab 1")
+	}
+	s.stop(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/stop", nil))
+	unblock()
+	<-finished
+	if _, busy := s.state(); busy {
+		t.Fatal("tab 1 still running after stop")
 	}
 }
 

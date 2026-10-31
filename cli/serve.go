@@ -17,18 +17,14 @@ import (
 )
 
 type server struct {
-	agent     *Agent
-	agentFor  func(id int) *Agent // nil in single-agent mode
-	hub       *tabHub
-	webDir    string
-	theme     string
-	mu        sync.Mutex
-	cancel    context.CancelFunc
-	busy      bool
-	busyAgent *Agent                 // set under mu
-	snap      []wireEntry            // history snapshot served while a chat is running
-	agentSnap map[*Agent][]wireEntry // per-agent snapshots for non-default running agents
-	memWG     sync.WaitGroup         // outstanding background memory job
+	agent    *Agent
+	agentFor func(id int) *Agent // nil in single-agent mode
+	hub      *tabHub
+	webDir   string
+	theme    string
+	mu       sync.Mutex
+	turns    map[*Agent]*webTurn // running chats and /compact, one per tab; set under mu
+	memWG    sync.WaitGroup      // outstanding background memory job
 
 	asks   map[int]chan answer // questions a running turn is waiting on
 	askSeq int
@@ -139,15 +135,29 @@ func (s *server) seen(next http.Handler) http.Handler {
 func (s *server) state() (time.Time, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.lastSeen, s.busy
+	return s.lastSeen, len(s.turns) > 0
 }
 
-// stopRun cancels a running chat and waits up to a few seconds for it to end.
+// webTurn is a tab's running chat: how to stop it, and the history taken
+// before it started, served while agent.Run changes the messages.
+type webTurn struct {
+	cancel context.CancelFunc
+	snap   []wireEntry
+}
+
+// cancelTurns stops a's turn, or every turn when a is nil; the caller holds s.mu.
+func (s *server) cancelTurns(a *Agent) {
+	for ta, t := range s.turns {
+		if a == nil || ta == a {
+			t.cancel()
+		}
+	}
+}
+
+// stopRun cancels every running chat and waits up to a few seconds for them to end.
 func (s *server) stopRun() {
 	s.mu.Lock()
-	if s.cancel != nil {
-		s.cancel()
-	}
+	s.cancelTurns(nil)
 	s.mu.Unlock()
 	for i := 0; i < 50; i++ {
 		if _, busy := s.state(); !busy {
@@ -346,14 +356,8 @@ func (s *server) history(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	var out []wireEntry
-	if s.busy && a == s.busyAgent {
-		// agent.Run is mutating messages outside the lock; serve the copy
-		// taken before the run started instead of reading live state.
-		if a == s.agent {
-			out = s.snap
-		} else if s.agentSnap != nil {
-			out = s.agentSnap[a]
-		}
+	if t := s.turns[a]; t != nil {
+		out = t.snap
 	} else {
 		out = s.snapshotAgent(a)
 	}
@@ -482,10 +486,16 @@ func (s *server) tabs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) stop(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	if s.cancel != nil {
-		s.cancel()
+	var a *Agent
+	if r.URL.Query().Has("tab") {
+		var err error
+		if a, err = s.agentTab(r); err != nil {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 	}
+	s.mu.Lock()
+	s.cancelTurns(a)
 	s.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -493,10 +503,6 @@ func (s *server) stop(w http.ResponseWriter, r *http.Request) {
 func (s *server) reset(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.busy {
-		http.Error(w, "busy", http.StatusConflict)
-		return
-	}
 	a, err := s.agentTab(r)
 	if err != nil {
 		if he, ok := err.(*httpError); ok {
@@ -506,14 +512,11 @@ func (s *server) reset(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	if s.tabsWorking(r, a, false) {
+	if s.turns[a] != nil || s.tabsWorking(r, a, false) {
 		http.Error(w, "busy", http.StatusConflict)
 		return
 	}
 	a.reset()
-	if a == s.agent {
-		s.snap = nil
-	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -536,7 +539,7 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mu.Lock()
-	if s.busy && s.busyAgent == a && a.steeringIsOpen() {
+	if s.turns[a] != nil && a.steeringIsOpen() {
 		var accepted bool
 		if body.Mode == "queue" {
 			accepted = a.Queue(body.Message)
@@ -551,32 +554,20 @@ func (s *server) chat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": true})
 		return
 	}
-	if s.busy || s.tabsWorking(r, a, false) {
+	if s.turns[a] != nil || s.tabsWorking(r, a, false) {
 		s.mu.Unlock()
 		http.Error(w, "prism is already working on something", http.StatusConflict)
 		return
 	}
 	ctx, cancel := context.WithCancel(r.Context())
 	a.openSteering()
-	s.busy, s.cancel, s.busyAgent = true, cancel, a
-	if a == s.agent {
-		s.snap = s.snapshot()
-	} else {
-		if s.agentSnap == nil {
-			s.agentSnap = make(map[*Agent][]wireEntry)
-		}
-		s.agentSnap[a] = s.snapshotAgent(a)
-	}
+	s.startTurn(a, cancel)
 	s.mu.Unlock()
 	defer func() {
 		cancel()
 		s.mu.Lock()
-		if a == s.agent {
-			s.snap = s.snapshot()
-		} else if s.agentSnap != nil {
-			delete(s.agentSnap, a)
-		}
-		s.busy, s.cancel, s.busyAgent, s.lastSeen = false, nil, nil, time.Now()
+		s.endTurn(a)
+		s.lastSeen = time.Now()
 		s.mu.Unlock()
 	}()
 	// A memory job from the previous chat may still be running; never let it
@@ -910,12 +901,22 @@ func loginCode(api, id, code string) map[string]any {
 	return map[string]any{"ok": true, "models": n, "note": out.Note, "text": "signed in · " + countModels(n)}
 }
 
+// startTurn marks a's tab busy until endTurn; the caller holds s.mu.
+func (s *server) startTurn(a *Agent, cancel context.CancelFunc) {
+	if s.turns == nil {
+		s.turns = map[*Agent]*webTurn{}
+	}
+	s.turns[a] = &webTurn{cancel: cancel, snap: s.snapshotAgent(a)}
+}
+
+func (s *server) endTurn(a *Agent) { delete(s.turns, a) }
+
 // compact is /compact [focus] for the web. It runs outside s.mu (the summary
 // is a model request) but marks the server busy so no chat starts meanwhile,
 // and /api/stop cancels it.
 func (s *server) compact(w http.ResponseWriter, r *http.Request, a *Agent, focus string) {
 	s.mu.Lock()
-	if s.busy || s.tabsWorking(r, a, false) {
+	if s.turns[a] != nil || s.tabsWorking(r, a, false) {
 		s.mu.Unlock()
 		writeJSON(w, map[string]any{"kind": "error", "text": "wait until prism finishes, then run /compact"})
 		return
@@ -927,25 +928,12 @@ func (s *server) compact(w http.ResponseWriter, r *http.Request, a *Agent, focus
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
 	defer cancel()
-	s.busy, s.cancel, s.busyAgent = true, cancel, a
-	if a == s.agent {
-		s.snap = s.snapshot()
-	} else {
-		if s.agentSnap == nil {
-			s.agentSnap = make(map[*Agent][]wireEntry)
-		}
-		s.agentSnap[a] = s.snapshotAgent(a)
-	}
+	s.startTurn(a, cancel)
 	s.mu.Unlock()
 	s.memWG.Wait()
 	lines, err := compactChat(ctx, a, focus)
 	s.mu.Lock()
-	if a == s.agent {
-		s.snap = s.snapshot()
-	} else if s.agentSnap != nil {
-		delete(s.agentSnap, a)
-	}
-	s.busy, s.cancel, s.busyAgent = false, nil, nil
+	s.endTurn(a)
 	s.mu.Unlock()
 	if err != nil {
 		writeJSON(w, map[string]any{"kind": "error", "headline": "compact", "text": err.Error()})
@@ -977,288 +965,16 @@ func (s *server) command(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	busy := s.busy
-	info := func(title string, lines []string) {
-		writeJSON(w, map[string]any{"kind": "info", "title": title, "lines": lines})
+	c := &webCmd{s: s, w: w, r: r, a: a, fields: fields, text: body.Text, busy: s.turns[a] != nil}
+	if msg, ok := terminalOnly[fields[0]]; ok {
+		c.note(msg)
+		return
 	}
-	note := func(text string) {
-		writeJSON(w, map[string]any{"kind": "note", "text": text})
+	if run, ok := webCommands[fields[0]]; ok {
+		run(c)
+		return
 	}
-	fail := func(text string) {
-		writeJSON(w, map[string]any{"kind": "error", "text": text})
-	}
-	switch fields[0] {
-	case "/models", "/status":
-		rows, err := fetchRoutes(a.api)
-		if err != nil {
-			fail(err.Error())
-			return
-		}
-		filter := strings.Join(fields[1:], " ")
-		kept, more := filterRoutes(rows, filter)
-		writeJSON(w, modelsTable(kept, more, filter))
-	case "/model":
-		if len(fields) == 1 {
-			rows, err := fetchRoutes(a.api)
-			p := menuState{kind: "model", title: "model", hint: "↑↓ move · enter pin · esc close", filterable: true, noun: "model"}
-			if err != nil {
-				p.err = err.Error()
-			}
-			if err == nil || len(rows) > 0 {
-				p.items = modelMenu(rows, a.model)
-			}
-			writeJSON(w, pickWire(p, func(it menuItem) string { return "/model " + it.match }))
-			return
-		}
-		if busy {
-			fail("wait until prism finishes, then pin a model")
-			return
-		}
-		text := pinModel(a, fields[1])
-		writeJSON(w, map[string]any{"kind": "model", "model": a.model, "source": answeredBy("", a.model), "text": text})
-	case "/key", "/keys":
-		if len(fields) == 1 {
-			list, err := fetchKeys(a.api)
-			if err != nil {
-				fail(err.Error())
-				return
-			}
-			info("keys", keyLines(list))
-			return
-		}
-		var id, value string
-		if fields[1] == "rm" || fields[1] == "remove" {
-			if len(fields) != 3 {
-				fail("usage: /key rm <name>")
-				return
-			}
-			id = fields[2]
-		} else if len(fields) == 3 {
-			id, value = fields[1], fields[2]
-		} else {
-			fail("usage: /key <name> <secret>")
-			return
-		}
-		msg, err := postKey(a.api, id, value)
-		if err != nil {
-			fail(err.Error())
-			return
-		}
-		if msg.masked == "" {
-			info("removed the "+id+" key", []string{})
-			return
-		}
-		lines := []string{"saved · " + msg.masked}
-		if msg.models > 0 {
-			lines = append(lines, countModels(msg.models)+" ready · pick one with /model")
-		}
-		if msg.note != "" {
-			lines = append(lines, msg.note)
-		}
-		info(id+" key", lines)
-	case "/login", "/logins":
-		s.login(w, a, fields)
-	case "/skills":
-		if len(fields) > 1 && fields[1] == "new" {
-			if busy {
-				fail("wait until prism finishes")
-				return
-			}
-			if len(fields) == 2 {
-				note("usage: /skills new <name>")
-				return
-			}
-			note(newSkill(a, fields[2]))
-			return
-		}
-		if len(fields) > 1 {
-			sk, ok := findSkill(a.skills, fields[1])
-			if !ok {
-				note("no skill called " + fields[1] + " · /skills lists them")
-				return
-			}
-			writeJSON(w, skillView(sk).wire())
-			return
-		}
-		writeJSON(w, skillsView(a.skills).wire())
-	case "/commands":
-		if len(fields) > 1 && fields[1] == "new" {
-			if len(fields) == 2 {
-				note("usage: /commands new <name>")
-				return
-			}
-			note(newUserCommand(a.dir, fields[2]))
-			return
-		}
-		writeJSON(w, commandsView(loadUserCommands(a.dir, 0)).wire())
-	case "/help":
-		writeJSON(w, helpViewFor(true).wire())
-	case "/mcp":
-		if len(fields) == 2 && strings.ToLower(fields[1]) == "add" {
-			// The catalog text stays in lines (older pages print it); the web
-			// opens the picker from "pick".
-			cat := mcpCatalogReply(a.dir)
-			writeJSON(w, map[string]any{"kind": "info", "title": cat.title, "lines": cat.lines,
-				"pick": pickWire(mcpMenu(a.dir), func(it menuItem) string { return "/mcp add " + it.label })})
-			return
-		}
-		res, follow := mcpCommand(a, fields)
-		if follow != nil {
-			late, _ := follow(15 * time.Second)
-			res.lines = append(res.lines, late.lines...)
-		}
-		if res.failed {
-			writeJSON(w, map[string]any{"kind": "error", "headline": res.title, "text": strings.Join(res.lines, "\n")})
-			return
-		}
-		info(res.title, res.lines)
-	case "/tree":
-		title, lines := treeCommand(a, strings.Join(fields[1:], " "))
-		info(title, lines)
-	case "/beam", "/quiet", "/notify":
-		key := strings.TrimPrefix(fields[0], "/")
-		on := loadSetting(key) == "on" || ((key == "beam" || key == "notify") && loadSetting(key) != "off")
-		on = !on
-		if len(fields) > 1 {
-			on = fields[1] != "off"
-		}
-		state := map[bool]string{true: "on", false: "off"}[on]
-		saveSetting(key, state)
-		writeJSON(w, map[string]any{"kind": "setting", "name": key, "on": on})
-	case "/usage":
-		u := todayUsage()
-		info("AI usage", []string{
-			fmt.Sprintf("today: %d requests, %s tokens sent", u.Requests, short(u.Tokens)),
-			fmt.Sprintf("this chat: %d requests, %s tokens sent, %s cached", s.requests, short(s.sent), short(s.agent.cached)),
-			usageFooter(u),
-		})
-	case "/memory", "/forget":
-		if busy {
-			fail("wait until prism finishes")
-			return
-		}
-		title, lines, changed, err := a.store.memoryCommand(fields)
-		if err != nil {
-			writeJSON(w, map[string]any{"kind": "error", "headline": "memory", "text": err.Error()})
-			return
-		}
-		if changed {
-			a.messages[0].Content = a.systemPrompt()
-		}
-		info(title, lines)
-	case "/undo":
-		if busy {
-			fail("wait until prism finishes, then run /undo")
-			return
-		}
-		title, lines, msg := undoLast(a)
-		if msg != "" {
-			note(msg)
-			return
-		}
-		info(title, lines)
-	case "/clear":
-		if busy {
-			fail("wait until prism finishes, or press esc to stop it first")
-			return
-		}
-		a.saveSession()
-		a.reset()
-		if a == s.agent {
-			s.snap = nil
-		}
-		writeJSON(w, map[string]any{"kind": "clear"})
-	case "/resume", "/continue":
-		if busy {
-			fail("wait until prism finishes")
-			return
-		}
-		var others []session
-		for _, sess := range a.store.sessions() {
-			if sess.ID != a.session {
-				others = append(others, sess)
-			}
-		}
-		if len(others) > resumeShown {
-			others = others[:resumeShown]
-		}
-		if len(fields) > 1 {
-			k, err := strconv.Atoi(fields[1])
-			if err != nil || k < 1 || k > len(others) {
-				fail("no chat with that number, try /resume")
-				return
-			}
-			full, err := a.store.loadSession(others[k-1].ID)
-			if err != nil {
-				fail(err.Error())
-				return
-			}
-			a.resume(full)
-			s.snap = nil
-			writeJSON(w, map[string]any{"kind": "reload", "model": a.model, "source": answeredBy("", a.model)})
-			return
-		}
-		if len(others) == 0 {
-			info("no earlier chats in this folder yet", []string{})
-			return
-		}
-		writeJSON(w, pickWire(resumeMenu(others), func(it menuItem) string { return "/resume " + it.dot }))
-	case "/init":
-		if busy {
-			fail("wait until prism finishes, then run /init")
-			return
-		}
-		writeJSON(w, map[string]any{"kind": "send", "message": initPrompt})
-	case "/rules":
-		if (busy || s.tabsWorking(r, a, true)) && len(fields) > 1 {
-			fail("wait until prism finishes, then " + strings.Join(fields, " "))
-			return
-		}
-		title, lines, footer := rulesView(a.dir, fields[1:])
-		if footer != "" {
-			lines = append(lines, footer)
-		}
-		info(title, lines)
-	case "/hooks":
-		if (busy || s.tabsWorking(r, a, true)) && len(fields) > 1 {
-			fail("wait until prism finishes, then " + strings.Join(fields, " "))
-			return
-		}
-		title, lines, footer := hooksView(a.dir, fields[1:])
-		if footer != "" {
-			lines = append(lines, footer)
-		}
-		info(title, lines)
-	case "/plan":
-		if busy || s.tabsWorking(r, a, false) {
-			fail("wait until prism finishes, then /plan")
-			return
-		}
-		on, text, message := planSwitch(a, commandArg(body.Text, fields[0]))
-		writeJSON(w, map[string]any{"kind": "plan", "plan": on, "text": text, "message": message})
-	case "/editor":
-		note("/editor works in the terminal · here, click a file in Files, then Edit")
-	case "/rename":
-		note("/rename works in the terminal · the tab names it sets show here")
-	case "/ask":
-		note("/ask works in the terminal · here, /tabs switches to another chat")
-	case "/quit", "/exit":
-		note("nothing to quit here · close this browser tab to leave")
-	default:
-		if msg, ok := savedMessage(a.dir, body.Text); ok {
-			if busy {
-				fail("wait until prism finishes, then run " + fields[0])
-				return
-			}
-			if msg == "" || strings.HasPrefix(msg, "/") {
-				note(fields[0] + " has nothing to send · /commands shows where its file is")
-				return
-			}
-			writeJSON(w, map[string]any{"kind": "send", "message": msg})
-			return
-		}
-		writeJSON(w, map[string]any{"kind": "error", "headline": "unknown command", "text": fields[0] + " isn't a command. /help lists them"})
-	}
+	c.saved()
 }
 
 // login is /login for the web: the account picker, sign-out, or starting a

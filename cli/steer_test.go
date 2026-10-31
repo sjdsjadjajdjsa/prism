@@ -290,7 +290,7 @@ func TestSteerEnterDuringCompactDoesNotSteerIdleAgent(t *testing.T) {
 	defer tick.Stop()
 	for {
 		s.mu.Lock()
-		busy := s.busy
+		busy := len(s.turns) > 0
 		s.mu.Unlock()
 		if busy {
 			break

@@ -129,6 +129,7 @@ Providers that cache prompts reuse work only for a byte-identical prefix, so eac
 | `cli/editorpanel.go` | Editor panel layout, keys, mouse, focus and the divider you drag to resize |
 | `cli/nvim/init.lua` | Built-in Neovim settings Prism starts the editor with |
 | `cli/serve.go` | HTTP server for the web front end: JSON API, SSE chat stream, `localOnly` host/origin checks, `webDir` |
+| `cli/webcmd.go` | Slash commands typed in the browser: one small handler per command, looked up in `webCommands` |
 | `cli/handoff.go` | `/web` from the TUI: `startWeb`, `checkWeb`, `endWeb`, handoff screen |
 | `cli/chat.go` | TUI chat rendering: transcript, markdown, tool groups, input, status bar, highlight |
 | `cli/canvas.go` | Low-level terminal canvas: cells, text, links, gradients |

@@ -269,7 +269,7 @@ func TestServeSavedCommands(t *testing.T) {
 		t.Fatalf("/commands new: %v", res)
 	}
 	s.mu.Lock()
-	s.busy = true
+	s.startTurn(s.agent, func() {})
 	s.mu.Unlock()
 	if res := post("/review x"); res["kind"] != "error" {
 		t.Fatalf("busy: %v", res)
