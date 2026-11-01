@@ -97,6 +97,44 @@ cd prism
   </tr>
 </table>
 
+## Models
+
+### Free, no key
+
+| Service | Models |
+| --- | --- |
+| Kilo Gateway | Nemotron 3 Ultra, Nemotron 3.5 Lightning |
+| BlockRun | Nemotron 3 Ultra, Nemotron 3.5 Lightning |
+| LLM7 | Codestral |
+
+### Free, with a free key
+
+`prism setup` asks for these. None need a card.
+
+| Service | Models |
+| --- | --- |
+| NVIDIA | Nemotron 3 Ultra, Nemotron 3.5 Lightning, GLM-5.3 Flash |
+| Groq | GPT-OSS 120B |
+| Google AI Studio | Gemini Flash (latest) |
+| Mistral | Codestral (latest) |
+| OpenRouter | Gemma 4 31B, OpenRouter's free pick (50 requests a day) |
+| Z.ai | GLM-4.7 Flash |
+| Ollama | any model on your own computer |
+
+### Sign in with a plan
+
+`/login` signs in through your browser. Plan models only answer when you pick them with `/model`.
+
+| Plan | Models |
+| --- | --- |
+| ChatGPT (Plus, Pro) | GPT-6.1 Sol, GPT-6 Luna and your plan's other models |
+| Claude (Pro, Max) | Claude Sonnet 5.5, Opus 5.5, Haiku 5.5 |
+| Grok (SuperGrok) | Grok 4.7, 4.7 Build Fast, 4.6, 4.5, 3 Mini and more |
+| Google Antigravity | Gemini 3.8 Flash, Gemini 4 Argon, Claude on paid plans |
+| GitHub Copilot | the models your Copilot plan includes |
+
+Pay per use instead? `/key` adds a key for 23 services, including OpenAI, Anthropic, DeepSeek, xAI, Mistral, Gemini, OpenRouter, Cerebras, SambaNova, Moonshot (Kimi), Alibaba (Qwen), Together, Fireworks, DeepInfra, Venice and LM Studio. [More →](docs/GUIDE.md#use-the-plan-you-already-pay-for)
+
 ## Benchmarks
 
 Four coding agents ran the same five tasks on the same free models, and a task only counts if a script confirms the result works. Prism, opencode and mini-swe-agent passed all 15 runs; Aider passed 14. Free models are shared, so times vary from day to day.
