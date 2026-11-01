@@ -9,8 +9,8 @@ const rows = []
 for (const p of providers) {
   if (p.requires && !process.env[p.requires]) continue
   if (p.name === 'ollama') continue
-  for (const name of p.models) {
-    const model = expand(name)
+  for (const entry of p.models) {
+    const model = expand(typeof entry === 'string' ? entry : entry.name)
     const started = Date.now()
     let status = 0
     try {
