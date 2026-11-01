@@ -24,3 +24,4 @@ HANDOFF.md
 .vscode/
 .idea/
 node_modules/
+__pycache__/
