@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8">
+<title>How Prism works</title>
+<style>
+* { box-sizing: border-box; margin: 0; }
+html { background: transparent; }
+body { position: relative; width: 1280px; height: 448px; overflow: hidden; border-radius: 28px; border: 2px solid rgba(236,233,246,.10);
+  background: radial-gradient(900px 420px at 50% 0%, #1b1833, #0b0b10 75%); color: #ece9f6;
+  font: 500 24px/1.2 'JetBrains Mono', 'JetBrainsMono Nerd Font', 'JetBrainsMono NF', ui-monospace, monospace; }
+.px { display: grid; gap: 2px; position: absolute; }
+.px i { display: block; }
+.muted { color: #b4b0c8; }
+
+body { padding: 44px; }
+.tile { border-radius: 20px; border: 2px solid rgba(236,233,246,.10); background: rgba(236,233,246,.05); }
+.ico { width: 52px; height: 52px; border-radius: 14px; display: flex; align-items: center; justify-content: center; flex: none; }
+.title { font-size: 24px; font-weight: 800; letter-spacing: -.01em; color: #ece9f6; }
+.text { font-size: 18px; line-height: 25px; color: #b4b0c8; }
+.beam { position: absolute; left: 44px; right: 44px; bottom: 0; height: 4px; border-radius: 2px 2px 0 0;
+  background: linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff); opacity: 0.7; }
+
+.you { position: absolute; left: 44px; width: 250px; height: 112px; padding: 20px 22px; display: flex; gap: 16px; align-items: center; }
+.mid { position: absolute; left: 380px; top: 44px; width: 360px; height: 332px; padding: 22px; border-style: dashed; }
+.mid .label { font-size: 16px; color: #b4b0c8; letter-spacing: .04em; }
+.inner { position: absolute; left: 22px; right: 22px; height: 116px; padding: 18px 20px; display: flex; gap: 16px; align-items: center; }
+.out { position: absolute; left: 900px; width: 336px; height: 112px; padding: 20px 22px; display: flex; gap: 18px; align-items: center; }
+.out i { width: 14px; height: 60px; border-radius: 7px; flex: none; }
+svg.lines { position: absolute; left: 0; top: 0; }
+#shard { position: relative; flex: none; }
+</style>
+<body>
+<svg class="lines" width="1280" height="448">
+<path d="M294 156 C 340 156, 340 224, 404 224 M294 292 C 340 292, 340 224, 404 224" stroke="#ffffff" stroke-width="5" fill="none" stroke-linecap="round" opacity=".8"/>
+<path d="M786 224 C 840 224, 846 104, 900 104" stroke="#ff5f6d" stroke-width="5" fill="none" stroke-linecap="round"/><path d="M786 224 C 840 224, 846 228, 900 228" stroke="#7ee2a8" stroke-width="5" fill="none" stroke-linecap="round"/><path d="M786 224 C 840 224, 846 352, 900 352" stroke="#c69bff" stroke-width="5" fill="none" stroke-linecap="round"/></svg>
+<div class="tile you" style="top:100px"><div class="ico" style="background:rgba(236,233,246,.05)"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#ece9f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6M12 19h8"/></svg></div><div><div class="title">Terminal</div><div class="text">prism</div></div></div><div class="tile you" style="top:236px"><div class="ico" style="background:rgba(236,233,246,.05)"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#ece9f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div><div><div class="title">Browser</div><div class="text">/web</div></div></div>
+<div class="tile mid"><div class="label">DOCKER · ONLY YOUR FOLDER</div>
+<div class="tile inner" style="top:56px"><div id="shard" class="px" style="grid-template-columns:repeat(13,6px);grid-auto-rows:6px"><i></i><i></i><i></i><i></i><i></i><i></i><i style="background:#bef0d4"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i style="background:#d8eec0"></i><i style="background:#b5eecd"></i><i style="background:#b0eae6"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i style="background:#fbecaa"></i><i style="background:#d3ecb8"></i><i style="background:#abecc6"></i><i style="background:#a6e7e3"></i><i style="background:#a1e2ff"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i style="background:#fdd396"></i><i style="background:#fbeaa1"></i><i style="background:#ceeab0"></i><i style="background:#a1eac0"></i><i style="background:#9ce4e0"></i><i style="background:#97dfff"></i><i style="background:#a0cbff"></i><i></i><i></i><i></i><i></i><i></i><i style="background:#ffb57f"></i><i style="background:#fdce8b"></i><i style="background:#fae897"></i><i style="background:#c9e8a8"></i><i style="background:#98e8b9"></i><i style="background:#91e1dd"></i><i style="background:#8cdcff"></i><i style="background:#96c5ff"></i><i style="background:#a1afff"></i><i></i><i></i><i></i><i style="background:#ff9079"></i><i style="background:#ffae73"></i><i style="background:#fcca80"></i><i style="background:#fae68d"></i><i style="background:#c4e6a0"></i><i style="background:#8ee6b3"></i><i style="background:#87dfd9"></i><i style="background:#81d8ff"></i><i style="background:#8cc0ff"></i><i style="background:#99a8ff"></i><i style="background:#b3a8ff"></i><i></i><i style="background:#ff6774"></i><i style="background:#ff866e"></i><i style="background:#ffa767"></i><i style="background:#fcc575"></i><i style="background:#f9e384"></i><i style="background:#bfe397"></i><i style="background:#84e3ac"></i><i style="background:#7ddcd6"></i><i style="background:#76d5ff"></i><i style="background:#83bbff"></i><i style="background:#90a0ff"></i><i style="background:#aca0ff"></i><i style="background:#c9a0ff"></i></div><div><div class="title">Prism</div><div class="text">edits, runs, checks</div></div></div>
+<div class="tile inner" style="top:188px"><div class="ico" style="background:rgba(236,233,246,.05)"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#ece9f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></div><div><div class="title">Router</div><div class="text">races free models</div></div></div>
+</div>
+<div class="tile out" style="top:44px"><i style="background:#ff5f6d"></i><div><div class="title">Free models</div><div class="text">skips busy ones</div></div></div><div class="tile out" style="top:168px"><i style="background:#7ee2a8"></i><div><div class="title">Your plan</div><div class="text">only when you pick it</div></div></div><div class="tile out" style="top:292px"><i style="background:#c69bff"></i><div><div class="title">Your keys</div><div class="text">added with /key</div></div></div>
+<div class="beam"></div>
+</body></html>

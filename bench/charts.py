@@ -392,8 +392,9 @@ def build():
         add(file, doc)
     file, doc, height = social()
     add(file, doc, height)
+    import cards
     for theme in THEMES:
-        for make in (hero, summary):
+        for make in (hero, summary, *cards.MAKERS):
             file, doc, height = make(theme)
             add(file, doc, height)
     for file, (doc, _) in pages.items():

@@ -1,17 +1,17 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: light)" srcset="docs/hero-light.png">
-    <img src="docs/hero-dark.png" alt="Prism: free AI that codes, beautifully" width="820">
+    <img src="docs/hero-dark.png" alt="Prism: free AI that codes, beautifully" width="100%">
   </picture>
 </p>
 
 <p align="center">A coding assistant for your terminal and browser that runs on free AI models,<br>or on the ChatGPT, Claude, Grok, Gemini or Copilot plan you already pay for.</p>
 
 <p align="center">
-  <a href="https://github.com/sjdsjadjajdjsa/prism/releases/latest"><img src="https://img.shields.io/github/v/release/sjdsjadjajdjsa/prism?style=flat&color=c69bff&label=release" alt="Latest release"></a>
-  <a href="https://github.com/sjdsjadjajdjsa/prism/actions/workflows/check.yml"><img src="https://img.shields.io/github/actions/workflow/status/sjdsjadjajdjsa/prism/check.yml?branch=main&style=flat&logo=github&label=ci" alt="Checks"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/sjdsjadjajdjsa/prism?style=flat&color=7ee2a8" alt="MIT license"></a>
-  <img src="https://img.shields.io/badge/runs%20on-Linux%20%C2%B7%20macOS%20%C2%B7%20Windows%20(WSL)-6fd3ff?style=flat" alt="Runs on Linux, macOS and Windows (WSL)">
+  <a href="https://github.com/sjdsjadjajdjsa/prism/releases/latest"><img src="https://img.shields.io/github/v/release/sjdsjadjajdjsa/prism?style=flat-square&labelColor=0b0b10&color=c69bff&label=release" alt="Latest release"></a>
+  <a href="https://github.com/sjdsjadjajdjsa/prism/actions/workflows/check.yml"><img src="https://img.shields.io/github/actions/workflow/status/sjdsjadjajdjsa/prism/check.yml?branch=main&style=flat-square&labelColor=0b0b10&color=7ee2a8&label=ci" alt="Checks"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/sjdsjadjajdjsa/prism?style=flat-square&labelColor=0b0b10&color=6fd3ff" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/runs%20on-Linux%20%C2%B7%20macOS%20%C2%B7%20Windows%20(WSL)-ffa25f?style=flat-square&labelColor=0b0b10" alt="Runs on Linux, macOS and Windows (WSL)">
 </p>
 
 <p align="center">
@@ -19,6 +19,7 @@
   <a href="#features">Features</a> ·
   <a href="#models">Models</a> ·
   <a href="#benchmarks">Benchmarks</a> ·
+  <a href="#how-it-works">How it works</a> ·
   <a href="docs/GUIDE.md">Guide</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
@@ -47,12 +48,12 @@ prism
 
 The first start builds Prism, which takes a few minutes. After that it opens in seconds. Ask for anything: *make a snake game I can play in the browser*, *fix the bug in app.py*, *explain this code*.
 
-| Platform | Status |
-| --- | --- |
-| Linux (Ubuntu, Mint, Debian) | tested |
-| Linux (Arch, CachyOS, Omarchy) | tested |
-| Windows 11 (WSL with Docker Desktop) | tested · [beginner guide](docs/WINDOWS.md) |
-| macOS (Docker Desktop) | should work, not tested yet |
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/platforms-light.png">
+  <img src="docs/platforms-dark.png" alt="Tested on Linux (Ubuntu, Mint, Debian), Arch Linux (Arch, CachyOS, Omarchy) and Windows 11 (WSL with Docker Desktop). macOS with Docker Desktop is not tested yet." width="100%">
+</picture>
+
+On Windows, follow the [beginner guide](docs/WINDOWS.md).
 
 <details>
 <summary>Install from source</summary>
@@ -65,6 +66,14 @@ cd prism
 </details>
 
 ## Features
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/features-light.png">
+  <img src="docs/features-dark.png" alt="Free by default, or your own plan. Checks its own work, asks before risky commands, runs in Docker. Talk to it while it works, terminal or browser, files and editor, a constellation map, helpers, skills and tools, and it remembers your project." width="100%">
+</picture>
+
+<details>
+<summary>More about each feature</summary>
 
 **Free by default.** A small router picks a free model for every step, races them so you aren't stuck waiting, and skips the ones that are busy. No key needed to start; `prism setup` adds free keys for more speed. [Providers →](docs/GUIDE.md#free-ai-no-setup)
 
@@ -82,26 +91,22 @@ cd prism
 
 **Remembers your project.** `PRISM.md` rules, automatic memory between chats, and every chat saved to pick up later.
 
-<table>
-  <tr>
-    <td width="50%"><img src="docs/editor-and-tree.png" alt="The terminal: file tree, chat and editor side by side"></td>
-    <td width="50%"><img src="docs/map.png" alt="The constellation map of how files link"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Tree, chat and editor in the terminal</sub></td>
-    <td align="center"><sub>The constellation map</sub></td>
-  </tr>
-  <tr>
-    <td width="50%"><img src="docs/web.png" alt="Prism in the browser, fixing a bug"></td>
-    <td width="50%"><img src="docs/fix.png" alt="Prism asking before running a command"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>The same chat in your browser</sub></td>
-    <td align="center"><sub>It asks before risky commands</sub></td>
-  </tr>
-</table>
+</details>
+
+## Screenshots
+
+<img src="docs/editor-and-tree.png" alt="The terminal: file tree, chat and editor side by side" width="49%"> <img src="docs/map.png" alt="The constellation map of how files link" width="49%">
+<img src="docs/web.png" alt="Prism in the browser, fixing a bug" width="49%"> <img src="docs/fix.png" alt="Prism asking before running a command" width="49%">
 
 ## Models
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/models-light.png">
+  <img src="docs/models-dark.png" alt="Free with no key: Kilo Gateway, BlockRun, LLM7. Free with a free key: NVIDIA, Groq, Google AI Studio, Mistral, OpenRouter, Z.ai, Ollama. Your plan through /login: ChatGPT, Claude, Grok, Antigravity, Copilot. /key adds 23 pay-per-use services." width="100%">
+</picture>
+
+<details>
+<summary>Every model, and the pay-per-use services</summary>
 
 ### Free, no key
 
@@ -139,6 +144,8 @@ cd prism
 
 Pay per use instead? `/key` adds a key for 23 services, including OpenAI, Anthropic, DeepSeek, xAI, Mistral, Gemini, OpenRouter, Cerebras, SambaNova, Moonshot (Kimi), Alibaba (Qwen), Together, Fireworks, DeepInfra, Venice and LM Studio. [More →](docs/GUIDE.md#use-the-plan-you-already-pay-for)
 
+</details>
+
 ## Benchmarks
 
 <p align="center">
@@ -149,6 +156,26 @@ Pay per use instead? `/key` adds a key for 23 services, including OpenAI, Anthro
 </p>
 
 Four coding agents ran the same five tasks on the same free models, three times each. opencode and Aider finished most tasks sooner, because Prism also runs and checks its own work. Free models are shared, so times vary from day to day. Method, every run and per-task times: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+
+## How it works
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/how-light.png">
+  <img src="docs/how-dark.png" alt="You talk to Prism in the terminal or the browser. Prism and its router run in Docker and only see your folder. The router sends each step to free models, your plan or your own keys." width="100%">
+</picture>
+
+<details>
+<summary>The pieces</summary>
+
+- `prism`: the launcher. Starts the router with Docker Compose and runs the agent with only your project folder mounted.
+- `router/`: a small Node.js server that races up to 3 free models at once and streams back the first to answer.
+- `cli/`: the Go app. The chat, the agent loop, tools, memory, skills, helpers and the web server.
+- `web/`: the browser chat, plain HTML, CSS and JavaScript.
+- `bench/charts.py` and `bench/cards.py`: draw the images on this page (`python3 bench/charts.py`, needs Chromium).
+
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the details.
+
+</details>
 
 ## Documentation
 
