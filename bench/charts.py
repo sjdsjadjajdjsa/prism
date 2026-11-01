@@ -214,30 +214,31 @@ def spectrum_at(t):
 
 
 def social():
-    logo = ["####..####..#####..####.#...#", "#...#.#...#...#...#.....##.##", "####..####....#....###..#.#.#", "#.....#..#....#.......#.#...#", "#.....#...#.#####.####..#...#"]
-    body = ["......#......", ".....###.....", "....#####....", "...#######...", "..#########..", ".###########.", "#############"]
+    t = THEMES["dark"]
+    ink = t["ink"]
+    size, step = 20, 22
 
     def shard(x, y):
-        pale = max(0.0, 0.5 - y * 0.075)
-        return blend(spectrum_at(x / 12), "#ffffff", pale)
+        return blend(blend(spectrum_at(x / 12), "#ffffff", max(0.0, 0.5 - y * 0.075)), "#2a2140", ink)
 
-    shard_html = pixel_grid(body, 24, shard, "shard")
-    word_html = pixel_grid(logo, 24, lambda x, y: spectrum_at(x / 28), "word")
-    css = """
-* { box-sizing: border-box; margin: 0; }
-html, body { width: 1280px; height: 640px; overflow: hidden; background: #0b0b10; }
-body { position: relative; background: radial-gradient(900px 520px at 50% 38%, #1b1833, #0b0b10 72%);
-  font-family: 'JetBrains Mono', 'JetBrainsMono Nerd Font', 'JetBrainsMono NF', ui-monospace, monospace; color: #ece9f6; }
-.px { display: grid; gap: 2px; position: absolute; }
-.px i { display: block; }
-#shard { left: 64px; top: 146px; }
-#shard::before, #shard::after { content: ''; position: absolute; width: 24px; height: 24px; background: #0b0b10; top: 104px; }
-#shard::before { left: 104px; } #shard::after { left: 208px; }
-#word { left: 462px; top: 172px; filter: drop-shadow(0 0 14px rgba(198,155,255,.35)); }
-.beam { position: absolute; left: 0; top: 258px; width: 120px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, rgba(255,255,255,0), #fff); }
-.rule { position: absolute; left: 64px; top: 386px; width: 200px; height: 8px; border-radius: 4px; background: __RAINBOW__; }
-.tag { position: absolute; left: 64px; right: 64px; top: 426px; font-size: 58px; font-weight: 800; letter-spacing: -.02em; white-space: nowrap; }
-""".replace("__RAINBOW__", RAINBOW)
+    shard_left, top = 150, 130
+    word_left = shard_left + 13 * step + 56
+    shard_html = pixel_grid(SHARD, size, shard, "shard")
+    word_html = pixel_grid(LOGO, size, lambda x, y: blend(spectrum_at(x / 28), "#2a2140", ink), "word")
+    eye = 4 * step
+    chips = "".join(f"<span>{esc(c)}</span>" for c in ("free models", "no account", "terminal + browser", "runs in Docker"))
+    css = themed_css(t, 1280, 640) + f"""
+body {{ border: 0; border-radius: 0; }}
+#shard {{ left: {shard_left}px; top: {top}px; }}
+#shard::before, #shard::after {{ content: ''; position: absolute; width: {size}px; height: {size}px; background: {t["eye"]}; top: {eye}px; }}
+#shard::before {{ left: {eye}px; }} #shard::after {{ left: {2 * eye}px; }}
+#word {{ left: {word_left}px; top: {top + 2 * step}px; filter: drop-shadow(0 0 16px rgba(198,155,255,.35)); }}
+.beam {{ position: absolute; left: 0; top: {top + 4 * step + 9}px; width: {shard_left + 2 * step - 4}px; height: 8px; border-radius: 4px;
+  background: linear-gradient(90deg, rgba(255,255,255,0), #fff); }}
+.tag {{ position: absolute; left: 0; right: 0; top: 386px; text-align: center; font-size: 54px; font-weight: 800; letter-spacing: -.02em; }}
+.chips {{ position: absolute; left: 0; right: 0; top: 486px; display: flex; justify-content: center; gap: 16px; }}
+.chips span {{ padding: 10px 22px; border-radius: 999px; border: 2px solid {t["line"]}; background: {t["chip"]}; font-size: 24px; color: {t["muted"]}; }}
+"""
     doc = f"""<!doctype html>
 <html lang="en"><meta charset="utf-8">
 <title>Prism</title>
@@ -246,8 +247,8 @@ body { position: relative; background: radial-gradient(900px 520px at 50% 38%, #
 <div class="beam"></div>
 {shard_html}
 {word_html}
-<div class="rule"></div>
 <div class="tag">Free AI that codes, beautifully.</div>
+<div class="chips">{chips}</div>
 </body></html>
 """
     return "social.html", doc, 640
