@@ -44,7 +44,7 @@ PLATFORMS = [
     ("laptop", "Linux", "Ubuntu, Mint, Debian", "tested"),
     ("laptop", "Arch Linux", "Arch, CachyOS, Omarchy", "tested"),
     ("laptop", "Windows 11", "WSL with Docker Desktop", "tested"),
-    ("laptop", "macOS", "Docker Desktop", "untested"),
+    ("laptop", "macOS", "Docker Desktop", "tested"),
 ]
 
 MODELS = [

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- macOS with Docker Desktop is now tested and marked as working in the README and setup guide.
+
 ## 0.4.1 (2026-10-31)
 
 ### New

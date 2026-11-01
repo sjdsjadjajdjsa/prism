@@ -50,7 +50,7 @@ The first start builds Prism, which takes a few minutes. After that it opens in 
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/platforms-light.png">
-  <img src="docs/platforms-dark.png" alt="Tested on Linux (Ubuntu, Mint, Debian), Arch Linux (Arch, CachyOS, Omarchy) and Windows 11 (WSL with Docker Desktop). macOS with Docker Desktop is not tested yet." width="100%">
+  <img src="docs/platforms-dark.png" alt="Tested on Linux (Ubuntu, Mint, Debian), Arch Linux (Arch, CachyOS, Omarchy), Windows 11 (WSL with Docker Desktop) and macOS (Docker Desktop)." width="100%">
 </picture>
 
 On Windows, follow the [beginner guide](docs/WINDOWS.md).

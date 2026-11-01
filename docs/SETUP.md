@@ -87,8 +87,6 @@ curl -fsSL https://raw.githubusercontent.com/sjdsjadjajdjsa/prism/main/install.s
 
 Docker Desktop has to be running whenever you use Prism.
 
-> Mac support is new and hasn't been tested on a real Mac yet. If something breaks, please [open an issue](https://github.com/sjdsjadjajdjsa/prism/issues).
-
 ---
 
 ## Windows
