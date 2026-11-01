@@ -95,8 +95,8 @@
       "baseURL": "https://openrouter.ai/api/v1",
       "models": [
         {
-          "name": "minimax/minimax-m3.1-flash:free",
-          "family": "minimax"
+          "name": "google/gemma-4-31b-it:free",
+          "family": "gemma"
         },
         {
           "name": "openrouter/free",
@@ -122,13 +122,6 @@
       "requires": "NVIDIA_API_KEY",
       "baseURL": "https://integrate.api.nvidia.com/v1",
       "models": [
-        {
-          "name": "z-ai/glm-5.3",
-          "family": "glm",
-          "roles": [
-            "review"
-          ]
-        },
         {
           "name": "z-ai/glm-5.3-flash",
           "family": "glm",

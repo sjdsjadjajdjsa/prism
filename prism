@@ -351,11 +351,11 @@ setup() {
   echo "Prism already works without keys. Each key below adds more free models, so you wait less."
   echo "None of them ask for a card. Press Enter to skip any of them."
   echo "Note: free AI services may keep what you send them. Don't send passwords or private data."
-  ask_key NVIDIA_API_KEY "NVIDIA: fast Nemotron models, plus GLM-5.3 and GLM-5.3 Flash" "https://build.nvidia.com"
+  ask_key NVIDIA_API_KEY "NVIDIA: fast Nemotron models, plus GLM-5.3 Flash" "https://build.nvidia.com"
   ask_key GROQ_API_KEY "Groq: very fast GPT-OSS 120B" "https://console.groq.com/keys"
   ask_key GEMINI_API_KEY "Google: Gemini Flash" "https://aistudio.google.com/apikey"
   ask_key MISTRAL_API_KEY "Mistral: Codestral, made for code" "https://console.mistral.ai/api-keys"
-  ask_key OPENROUTER_API_KEY "OpenRouter: free MiniMax and other free models (50 requests a day)" "https://openrouter.ai/keys"
+  ask_key OPENROUTER_API_KEY "OpenRouter: free Gemma and other free models (50 requests a day)" "https://openrouter.ai/keys"
   ask_key ZAI_API_KEY "Z.ai: GLM-4.7 Flash" "https://z.ai/manage-apikey/apikey-list"
   compose up -d --force-recreate router >/dev/null 2>&1
   echo

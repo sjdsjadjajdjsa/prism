@@ -29,14 +29,14 @@ Want it faster and smarter? `prism setup` walks you through free keys from AI co
 
 | Provider | What you get | Key |
 | --- | --- | --- |
-| Kilo Gateway | Nemotron Ultra, Nemotron Lightning, Laguna | none |
+| Kilo Gateway | Nemotron Ultra, Nemotron Lightning | none |
 | BlockRun | Nemotron Ultra, Nemotron Lightning | none |
 | LLM7 | Codestral | none |
-| NVIDIA | Nemotron Ultra and Lightning (fastest), GLM-5.3, GLM-5.3 Flash | free |
+| NVIDIA | Nemotron Ultra and Lightning (fastest), GLM-5.3 Flash | free |
 | Groq | GPT-OSS 120B, very fast | free |
 | Google | Gemini Flash | free |
 | Mistral | Codestral | free |
-| OpenRouter | free MiniMax and others (50 requests a day) | free |
+| OpenRouter | free Gemma and others (50 requests a day) | free |
 | Z.ai | GLM-4.7 Flash | free |
 | Ollama | any model on your own computer | none |
 

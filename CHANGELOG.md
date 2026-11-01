@@ -12,6 +12,7 @@
 
 ### Fixed
 
+- Dropped two models their services removed: GLM-5.3 on NVIDIA (now gone) and free MiniMax M3.1 Flash on OpenRouter (now paid). OpenRouter uses free Gemma 4 31B instead.
 - Browser tabs opened from `/web` each run their own chat: one tab no longer waits for another, and stop only stops its own tab.
 - `/key` checks the key with the service before saving it, so a wrong key is refused at once instead of failing later.
 - Models that can't use tools (some Venice and OpenRouter ones) are left out of the list, since Prism always needs tools. Before, picking one failed with "No free AI model could answer".
