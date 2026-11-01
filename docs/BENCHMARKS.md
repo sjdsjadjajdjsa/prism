@@ -34,4 +34,4 @@ With one model pinned (no router), Prism and Aider:
 
 <p align="center"><img src="bench-pinned.png" alt="Prism and Aider on one pinned model: seconds and passes for each task" width="820"></p>
 
-Free models are shared, so the same run can be 30% faster or slower on another day. Compare rows loosely. The raw numbers are in [bench/history.json](../bench/history.json), `python3 bench/charts.py` rebuilds the charts (it needs Chromium for the PNGs), and `bench/run.sh` and `bench/chat.sh` measure your own setup.
+Free models are shared, so the same run can be 30% faster or slower on another day. Compare rows loosely. The raw numbers are in [bench/history.json](../bench/history.json), `python3 bench/charts.py` rebuilds the charts and the README header (it needs Chromium for the PNGs), `docs/graphics/demo.sh` rebuilds the README demo from [prism-demo.mp4](prism-demo.mp4) (it needs ffmpeg), and `bench/run.sh` and `bench/chat.sh` measure your own setup.

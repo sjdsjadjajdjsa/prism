@@ -253,6 +253,126 @@ body { position: relative; background: radial-gradient(900px 520px at 50% 38%, #
     return "social.html", doc, 640
 
 
+THEMES = {
+    "dark": {"bg": "#0b0b10", "glow": "#1b1833", "fg": "#ece9f6", "muted": "#b4b0c8", "line": "rgba(236,233,246,.10)", "chip": "rgba(236,233,246,.05)", "eye": "#0b0b10", "ink": 0.0},
+    "light": {"bg": "#fbfaff", "glow": "#ece6ff", "fg": "#1d1a2e", "muted": "#5d5875", "line": "rgba(29,26,46,.12)", "chip": "rgba(29,26,46,.04)", "eye": "#1d1a2e", "ink": 0.1},
+}
+LOGO = ["####..####..#####..####.#...#", "#...#.#...#...#...#.....##.##", "####..####....#....###..#.#.#", "#.....#..#....#.......#.#...#", "#.....#...#.#####.####..#...#"]
+SHARD = ["......#......", ".....###.....", "....#####....", "...#######...", "..#########..", ".###########.", "#############"]
+
+
+def themed_css(t, width, height):
+    return f"""
+* {{ box-sizing: border-box; margin: 0; }}
+html {{ background: transparent; }}
+body {{ position: relative; width: {width}px; height: {height}px; overflow: hidden; border-radius: 28px; border: 2px solid {t["line"]};
+  background: radial-gradient(900px 420px at 50% 0%, {t["glow"]}, {t["bg"]} 75%); color: {t["fg"]};
+  font: 500 24px/1.2 'JetBrains Mono', 'JetBrainsMono Nerd Font', 'JetBrainsMono NF', ui-monospace, monospace; }}
+.px {{ display: grid; gap: 2px; position: absolute; }}
+.px i {{ display: block; }}
+.muted {{ color: {t["muted"]}; }}
+"""
+
+
+def hero(theme):
+    t = THEMES[theme]
+    ink = t["ink"]
+    size, step = 20, 22
+
+    def shard(x, y):
+        return blend(blend(spectrum_at(x / 12), "#ffffff", max(0.0, 0.5 - y * 0.075)), "#2a2140", ink)
+
+    shard_left, word_left, top = 152, 152 + 13 * step + 56, 70
+    shard_html = pixel_grid(SHARD, size, shard, "shard")
+    word_html = pixel_grid(LOGO, size, lambda x, y: blend(spectrum_at(x / 28), "#2a2140", ink), "word")
+    eye = 4 * step
+    chips = "".join(f"<span>{esc(c)}</span>" for c in ("free models", "no account", "terminal + browser", "runs in Docker"))
+    css = themed_css(t, WIDTH, 420) + f"""
+#shard {{ left: {shard_left}px; top: {top}px; }}
+#shard::before, #shard::after {{ content: ''; position: absolute; width: {size}px; height: {size}px; background: {t["eye"]}; top: {eye}px; }}
+#shard::before {{ left: {eye}px; }} #shard::after {{ left: {2 * eye}px; }}
+#word {{ left: {word_left}px; top: {top + 2 * step}px; filter: drop-shadow(0 0 14px rgba(198,155,255,{.35 if theme == "dark" else .18})); }}
+.beam {{ position: absolute; left: 0; top: {top + 4 * step + 7}px; width: {shard_left + 2 * step - 4}px; height: 6px; border-radius: 3px;
+  background: linear-gradient(90deg, rgba(255,255,255,0), {"#fff" if theme == "dark" else "#8a7fb0"}); }}
+.tag {{ position: absolute; left: 0; right: 0; top: 262px; text-align: center; font-size: 40px; font-weight: 800; letter-spacing: -.02em; }}
+.chips {{ position: absolute; left: 0; right: 0; top: 334px; display: flex; justify-content: center; gap: 14px; }}
+.chips span {{ padding: 8px 18px; border-radius: 999px; border: 2px solid {t["line"]}; background: {t["chip"]}; font-size: 20px; color: {t["muted"]}; }}
+"""
+    doc = f"""<!doctype html>
+<html lang="en"><meta charset="utf-8">
+<title>Prism</title>
+<style>{css}</style>
+<body>
+<div class="beam"></div>
+{shard_html}
+{word_html}
+<div class="tag">Free AI that codes, beautifully.</div>
+<div class="chips">{chips}</div>
+</body></html>
+"""
+    return f"hero-{theme}.html", doc, 420
+
+
+def summary(theme):
+    t = THEMES[theme]
+    rows = DATA["harness"]["rows"]
+    agents = []
+    for h in ("prism", "opencode", "aider", "mini-swe-agent"):
+        mine = [r for r in rows if r["harness"] == h and r.get("pass") is not None]
+        passed = sum(r.get("passed", int(bool(r["pass"]))) for r in mine)
+        total = sum(r.get("runs", 1) for r in mine)
+        agents.append((h, passed, total))
+    left = []
+    for h, passed, total in agents:
+        color = TOOLS[h]
+        solid = blend(color, "#2a2140", t["ink"] * 3) if color.startswith("#") else t["fg"]
+        left.append(
+            f'<div class="agent"><b style="color:{solid}">{NAMES[h]}</b>'
+            f'<div class="track"><div style="width:{100 * passed / total:.1f}%;background:{color}"></div></div>'
+            f'<span>{passed}/{total}</span></div>'
+        )
+    light = {r["label"]: r for r in DATA["light"]["rows"]}
+    chat = {r["label"]: r for r in DATA["chat"]["rows"]}
+    site = [r["value"] for r in DATA["website"]["rows"]]
+    wins = (
+        ("open Prism", light["prism to first screen"]["before"], light["prism to first screen"]["after"]),
+        ("answer “hi”", chat["hi"]["before"], chat["hi"]["after"]),
+        ("build a website", round(sum(site[:2]) / 2), round(sum(site[2:]) / 2)),
+    )
+    right = []
+    for what, before, after in wins:
+        right.append(
+            f'<div class="win"><span class="muted">{esc(what)}</span>'
+            f'<div><s class="muted">{num(before)}s</s><b>{num(after)}s</b><em>{before / after:.0f}× faster</em></div></div>'
+        )
+    css = themed_css(t, WIDTH, 404) + f"""
+body {{ padding: 48px 64px; display: grid; grid-template-columns: 1fr 1fr; gap: 64px; }}
+h2 {{ font-size: 28px; font-weight: 800; }}
+p.muted {{ margin-top: 8px; font-size: 18px; line-height: 26px; }}
+.rule {{ margin: 18px 0 24px; width: 120px; height: 5px; border-radius: 3px; background: {RAINBOW}; }}
+.agent {{ display: grid; grid-template-columns: 200px 1fr 70px; align-items: center; gap: 16px; height: 46px; font-size: 21px; }}
+.agent span {{ text-align: right; font-weight: 700; }}
+.track {{ height: 14px; border-radius: 7px; background: {t["chip"]}; border: 1px solid {t["line"]}; overflow: hidden; }}
+.track div {{ height: 100%; border-radius: 7px; }}
+.win {{ display: flex; justify-content: space-between; align-items: baseline; height: 62px; border-bottom: 2px solid {t["line"]}; font-size: 21px; }}
+.win:last-child {{ border: 0; }}
+.win div {{ display: flex; align-items: baseline; gap: 14px; }}
+.win s {{ font-size: 19px; }}
+.win b {{ font-size: 30px; font-weight: 800; }}
+.win em {{ font-style: normal; font-size: 17px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: {RAINBOW}; color: #14121f; }}
+"""
+    doc = f"""<!doctype html>
+<html lang="en"><meta charset="utf-8">
+<title>Prism benchmarks</title>
+<style>{css}</style>
+<body>
+<section><h2>Passes like the best</h2><p class="muted">15 runs per agent on the same free models, each one checked by a script.</p><div class="rule"></div>{"".join(left)}</section>
+<section><h2>Faster than before</h2><p class="muted">Same jobs, same computer, before and after the speed work.</p><div class="rule"></div>{"".join(right)}</section>
+</body></html>
+"""
+    return f"bench-summary-{theme}.html", doc, 404
+
+
 def build():
     PAGES.mkdir(parents=True, exist_ok=True)
     pages = {}
@@ -271,6 +391,10 @@ def build():
         add(file, doc)
     file, doc, height = social()
     add(file, doc, height)
+    for theme in THEMES:
+        for make in (hero, summary):
+            file, doc, height = make(theme)
+            add(file, doc, height)
     for file, (doc, _) in pages.items():
         (PAGES / file).write_text(doc)
     return pages
@@ -288,7 +412,7 @@ def screenshot(file, height):
         sys.exit("no Chromium found: run with --html-only, or install chromium")
     png = DOCS / (pathlib.Path(file).stem + ".png")
     subprocess.run(
-        [browser, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--force-device-scale-factor=2",
+        [browser, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--force-device-scale-factor=2", "--default-background-color=00000000",
          f"--window-size={WIDTH},{height}", f"--screenshot={png}", (PAGES / file).as_uri()],
         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )

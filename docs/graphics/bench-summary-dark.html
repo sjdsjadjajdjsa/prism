@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8">
+<title>Prism benchmarks</title>
+<style>
+* { box-sizing: border-box; margin: 0; }
+html { background: transparent; }
+body { position: relative; width: 1280px; height: 404px; overflow: hidden; border-radius: 28px; border: 2px solid rgba(236,233,246,.10);
+  background: radial-gradient(900px 420px at 50% 0%, #1b1833, #0b0b10 75%); color: #ece9f6;
+  font: 500 24px/1.2 'JetBrains Mono', 'JetBrainsMono Nerd Font', 'JetBrainsMono NF', ui-monospace, monospace; }
+.px { display: grid; gap: 2px; position: absolute; }
+.px i { display: block; }
+.muted { color: #b4b0c8; }
+
+body { padding: 48px 64px; display: grid; grid-template-columns: 1fr 1fr; gap: 64px; }
+h2 { font-size: 28px; font-weight: 800; }
+p.muted { margin-top: 8px; font-size: 18px; line-height: 26px; }
+.rule { margin: 18px 0 24px; width: 120px; height: 5px; border-radius: 3px; background: linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff); }
+.agent { display: grid; grid-template-columns: 200px 1fr 70px; align-items: center; gap: 16px; height: 46px; font-size: 21px; }
+.agent span { text-align: right; font-weight: 700; }
+.track { height: 14px; border-radius: 7px; background: rgba(236,233,246,.05); border: 1px solid rgba(236,233,246,.10); overflow: hidden; }
+.track div { height: 100%; border-radius: 7px; }
+.win { display: flex; justify-content: space-between; align-items: baseline; height: 62px; border-bottom: 2px solid rgba(236,233,246,.10); font-size: 21px; }
+.win:last-child { border: 0; }
+.win div { display: flex; align-items: baseline; gap: 14px; }
+.win s { font-size: 19px; }
+.win b { font-size: 30px; font-weight: 800; }
+.win em { font-style: normal; font-size: 17px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff); color: #14121f; }
+</style>
+<body>
+<section><h2>Passes like the best</h2><p class="muted">15 runs per agent on the same free models, each one checked by a script.</p><div class="rule"></div><div class="agent"><b style="color:#ece9f6">Prism</b><div class="track"><div style="width:100.0%;background:linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff)"></div></div><span>15/15</span></div><div class="agent"><b style="color:#6fd3ff">opencode</b><div class="track"><div style="width:100.0%;background:#6fd3ff"></div></div><span>15/15</span></div><div class="agent"><b style="color:#8a9bff">Aider</b><div class="track"><div style="width:93.3%;background:#8a9bff"></div></div><span>14/15</span></div><div class="agent"><b style="color:#c69bff">mini-swe-agent</b><div class="track"><div style="width:100.0%;background:#c69bff"></div></div><span>15/15</span></div></section>
+<section><h2>Faster than before</h2><p class="muted">Same jobs, same computer, before and after the speed work.</p><div class="rule"></div><div class="win"><span class="muted">open Prism</span><div><s class="muted">11s</s><b>0.27s</b><em>41× faster</em></div></div><div class="win"><span class="muted">answer “hi”</span><div><s class="muted">10.7s</s><b>0.4s</b><em>27× faster</em></div></div><div class="win"><span class="muted">build a website</span><div><s class="muted">928s</s><b>34s</b><em>27× faster</em></div></div></section>
+</body></html>

@@ -1,6 +1,9 @@
-<p align="center"><img src="docs/splash.png" alt="Prism start screen" width="820"></p>
-
-<h3 align="center">Free AI that codes, beautifully.</h3>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/hero-light.png">
+    <img src="docs/hero-dark.png" alt="Prism: free AI that codes, beautifully" width="820">
+  </picture>
+</p>
 
 <p align="center">A coding assistant for your terminal and browser that runs on free AI models,<br>or on the ChatGPT, Claude, Grok, Gemini or Copilot plan you already pay for.</p>
 
@@ -14,8 +17,9 @@
 <p align="center">
   <a href="#get-started">Get started</a> ·
   <a href="#features">Features</a> ·
+  <a href="#models">Models</a> ·
+  <a href="#benchmarks">Benchmarks</a> ·
   <a href="docs/GUIDE.md">Guide</a> ·
-  <a href="docs/BENCHMARKS.md">Benchmarks</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
@@ -137,11 +141,14 @@ Pay per use instead? `/key` adds a key for 23 services, including OpenAI, Anthro
 
 ## Benchmarks
 
-Four coding agents ran the same five tasks on the same free models, and a task only counts if a script confirms the result works. Prism, opencode and mini-swe-agent passed all 15 runs; Aider passed 14. Free models are shared, so times vary from day to day.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/bench-summary-light.png">
+    <img src="docs/bench-summary-dark.png" alt="Prism, opencode and mini-swe-agent passed 15 of 15 runs, Aider 14. Prism opens in 0.27s instead of 11s, answers hi in 0.4s instead of 10.7s, and builds a website in 34s instead of 928s." width="820">
+  </picture>
+</p>
 
-<p align="center"><img src="docs/bench-harness.png" alt="Four coding agents on five tasks: median seconds and passes for each" width="820"></p>
-
-Method, every run and more charts: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+Four coding agents ran the same five tasks on the same free models, three times each. opencode and Aider finished most tasks sooner, because Prism also runs and checks its own work. Free models are shared, so times vary from day to day. Method, every run and per-task times: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
 ## Documentation
 
