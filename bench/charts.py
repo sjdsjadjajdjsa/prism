@@ -355,9 +355,9 @@ p.muted {{ margin-top: 8px; font-size: 18px; line-height: 26px; }}
 .agent span {{ text-align: right; font-weight: 700; }}
 .track {{ height: 14px; border-radius: 7px; background: {t["chip"]}; border: 1px solid {t["line"]}; overflow: hidden; }}
 .track div {{ height: 100%; border-radius: 7px; }}
-.win {{ display: flex; justify-content: space-between; align-items: baseline; height: 62px; border-bottom: 2px solid {t["line"]}; font-size: 21px; }}
+.win {{ display: flex; justify-content: space-between; align-items: baseline; height: 62px; white-space: nowrap; border-bottom: 2px solid {t["line"]}; font-size: 21px; }}
 .win:last-child {{ border: 0; }}
-.win div {{ display: flex; align-items: baseline; gap: 14px; }}
+.win div {{ display: grid; grid-template-columns: 84px 104px auto; justify-items: end; align-items: baseline; gap: 14px; }}
 .win s {{ font-size: 19px; }}
 .win b {{ font-size: 30px; font-weight: 800; }}
 .win em {{ font-style: normal; font-size: 17px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: {RAINBOW}; color: #14121f; }}

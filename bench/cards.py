@@ -93,7 +93,7 @@ body {{ padding: 44px; }}
 .ico {{ width: 52px; height: 52px; border-radius: 14px; display: flex; align-items: center; justify-content: center; flex: none; }}
 .title {{ font-size: 24px; font-weight: 800; letter-spacing: -.01em; color: {t["fg"]}; }}
 .text {{ font-size: 18px; line-height: 25px; color: {t["muted"]}; }}
-.beam {{ position: absolute; left: 44px; right: 44px; bottom: 0; height: 4px; border-radius: 2px 2px 0 0;
+.beam {{ position: absolute; left: 44px; right: 44px; bottom: 20px; height: 4px; border-radius: 2px;
   background: linear-gradient(90deg, #ff5f6d, #ffa25f, #f9e27d, #7ee2a8, #6fd3ff, #8a9bff, #c69bff); opacity: {.7 if t is THEMES["dark"] else .55}; }}
 """
 
@@ -113,7 +113,7 @@ def doc(title, css, body):
 def features(theme):
     t = THEMES[theme]
     cols, rows = 3, 4
-    height = 44 * 2 + rows * 184 + (rows - 1) * 16
+    height = 44 * 2 + rows * 208 + (rows - 1) * 16
     tiles = []
     for i, (name, title, text) in enumerate(FEATURES):
         r, c = divmod(i, cols)
@@ -122,15 +122,15 @@ def features(theme):
                      f'<div><div class="title">{esc(title)}</div><div class="text">{esc(text)}</div></div></div>')
     css = card_css(t, height) + """
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-.f { height: 184px; padding: 24px; display: flex; flex-direction: column; gap: 18px; }
-.f .title { margin-bottom: 6px; }
+.f { height: 208px; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+.f .title { margin-bottom: 4px; }
 """
     return f"features-{theme}.html", doc("Prism features", css, f'<div class="grid">{"".join(tiles)}</div>'), height
 
 
 def platforms(theme):
     t = THEMES[theme]
-    height = 44 * 2 + 200
+    height = 44 * 2 + 208
     tiles = []
     for i, (name, title, text, status) in enumerate(PLATFORMS):
         color = accent(t, i, len(PLATFORMS))
@@ -140,7 +140,7 @@ def platforms(theme):
                      f'<div><div class="title">{esc(title)}</div><div class="text">{esc(text)}</div></div></div>')
     css = card_css(t, height) + f"""
 .grid {{ display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }}
-.p {{ height: 200px; padding: 24px; display: flex; flex-direction: column; gap: 20px; }}
+.p {{ height: 208px; padding: 24px; display: flex; flex-direction: column; gap: 20px; }}
 .top {{ display: flex; justify-content: space-between; align-items: flex-start; }}
 .status {{ display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 700; padding: 6px 12px; border-radius: 999px; border: 2px solid {t["line"]}; background: {t["chip"]}; }}
 .status i {{ width: 10px; height: 10px; border-radius: 5px; }}
@@ -176,37 +176,68 @@ def how(theme):
     t = THEMES[theme]
     height = 44 * 2 + 360
     ink = t["ink"]
+    dark = theme == "dark"
 
     def shard(x, y):
         return blend(blend(spectrum_at(x / 12), "#ffffff", max(0.0, 0.5 - y * 0.075)), "#2a2140", ink)
 
-    grid = pixel_grid(SHARD, 6, shard, "shard")
-    outs = [(accent(t, 0, 7), "Free models", "skips busy ones"), (accent(t, 3, 7), "Your plan", "only when you pick it"), (accent(t, 6, 7), "Your keys", "added with /key")]
-    right = "".join(f'<div class="tile out" style="top:{44 + i * 124}px"><i style="background:{c}"></i><div><div class="title">{esc(a)}</div><div class="text">{esc(b)}</div></div></div>' for i, (c, a, b) in enumerate(outs))
-    beams = "".join(f'<path d="M786 224 C 840 224, 846 {104 + i * 124}, 900 {104 + i * 124}" stroke="{c}" stroke-width="5" fill="none" stroke-linecap="round"/>' for i, (c, _, _) in enumerate(outs))
-    white = "#ffffff" if theme == "dark" else "#8a7fb0"
-    css = card_css(t, height) + f"""
-.you {{ position: absolute; left: 44px; width: 250px; height: 112px; padding: 20px 22px; display: flex; gap: 16px; align-items: center; }}
-.mid {{ position: absolute; left: 380px; top: 44px; width: 360px; height: 332px; padding: 22px; border-style: dashed; }}
-.mid .label {{ font-size: 16px; color: {t["muted"]}; letter-spacing: .04em; }}
-.inner {{ position: absolute; left: 22px; right: 22px; height: 116px; padding: 18px 20px; display: flex; gap: 16px; align-items: center; }}
-.out {{ position: absolute; left: 900px; width: 336px; height: 112px; padding: 20px 22px; display: flex; gap: 18px; align-items: center; }}
-.out i {{ width: 14px; height: 60px; border-radius: 7px; flex: none; }}
-svg.lines {{ position: absolute; left: 0; top: 0; }}
-#shard {{ position: relative; flex: none; }}
-"""
-    you = "".join(f'<div class="tile you" style="top:{100 + i * 136}px"><div class="ico" style="background:{t["chip"]}">{icon(n, t["fg"])}</div><div><div class="title">{esc(a)}</div><div class="text">{esc(b)}</div></div></div>'
-                  for i, (n, a, b) in enumerate([("terminal", "Terminal", "prism"), ("globe", "Browser", "/web")]))
-    body = f"""<svg class="lines" width="{WIDTH}" height="{height}">
-<path d="M294 156 C 340 156, 340 224, 404 224 M294 292 C 340 292, 340 224, 404 224" stroke="{white}" stroke-width="5" fill="none" stroke-linecap="round" opacity=".8"/>
-{beams}</svg>
-{you}
-<div class="tile mid"><div class="label">DOCKER · ONLY YOUR FOLDER</div>
-<div class="tile inner" style="top:56px">{grid}<div><div class="title">Prism</div><div class="text">edits, runs, checks</div></div></div>
-<div class="tile inner" style="top:188px"><div class="ico" style="background:{t["chip"]}">{icon("zap", t["fg"])}</div><div><div class="title">Router</div><div class="text">races free models</div></div></div>
-</div>
-{right}"""
-    return f"how-{theme}.html", doc("How Prism works", css, body), height
+    left_x, left_w = 44, 248
+    mid_x, mid_w = 368, 432
+    out_x, out_w = 888, 348
+    card_h = 112
+    prism_top, router_top = 124, 268
+    prism_y, router_y = prism_top + card_h // 2, router_top + card_h // 2
+    in_tops = (44, 292)
+    out_ys = [44 + i * 124 + card_h // 2 for i in range(3)]
+    edge_in = mid_x + 2 + 22
+    edge_out = mid_x + mid_w - 2 - 22
+    left_edge = left_x + left_w
+    slot_x = edge_in + 2 + 20 + 40
+    light = "#ffffff" if dark else "#7d71a8"
+    soft = "rgba(255,255,255,.18)" if dark else "rgba(125,113,168,.2)"
 
+    grid = pixel_grid(SHARD, 4, shard, "shard")
+    outs = [(accent(t, 0, 7), "Free models", "skips busy ones"), (accent(t, 3, 7), "Your plan", "only when you pick it"), (accent(t, 6, 7), "Your keys", "added with /key")]
+    right = "".join(f'<div class="tile out" style="top:{y - card_h // 2}px"><i style="background:{c}"></i><div><div class="title">{esc(a)}</div><div class="text">{esc(b)}</div></div></div>' for y, (c, a, b) in zip(out_ys, outs))
+    you = "".join(f'<div class="tile you" style="top:{top}px"><div class="ico" style="background:{t["chip"]}">{icon(n, t["fg"])}</div><div><div class="title">{esc(a)}</div><div class="text">{esc(b)}</div></div></div>'
+                  for top, (n, a, b) in zip(in_tops, [("terminal", "Terminal", "prism"), ("globe", "Browser", "/web")]))
+
+    def curve(x1, y1, x2, y2):
+        k = (x2 - x1) * 0.55
+        return f"M{x1} {y1} C {x1 + k} {y1}, {x2 - k} {y2}, {x2} {y2}"
+
+    ins = [(in_tops[0] + card_h // 2, prism_y - 14), (in_tops[1] + card_h // 2, prism_y + 14)]
+    paths = []
+    for y1, y2 in ins:
+        paths.append(f'<path d="{curve(left_edge, y1, edge_in, y2)}" stroke="url(#light)" stroke-width="5" fill="none" stroke-linecap="round"/>')
+        paths.append(f'<circle cx="{edge_in}" cy="{y2}" r="5" fill="{light}"/>')
+    paths.append(f'<path d="M{slot_x} {prism_top + card_h + 6} L{slot_x} {router_top - 6}" stroke="{soft}" stroke-width="4" stroke-linecap="round"/>')
+    for y, (c, _, _) in zip(out_ys, outs):
+        glow = f' style="filter:drop-shadow(0 0 6px {c}88)"' if dark else ""
+        paths.append(f'<path d="{curve(edge_out, router_y, out_x, y)}" stroke="{c}" stroke-width="5" fill="none" stroke-linecap="round"{glow}/>')
+        paths.append(f'<circle cx="{out_x}" cy="{y}" r="5" fill="{c}"/>')
+    paths.append(f'<circle cx="{edge_out}" cy="{router_y}" r="6" fill="{t["fg"]}"/>')
+
+    css = card_css(t, height) + f"""
+.you {{ position: absolute; left: {left_x}px; width: {left_w}px; height: {card_h}px; padding: 20px 22px; display: flex; gap: 16px; align-items: center; }}
+.mid {{ position: absolute; left: {mid_x}px; top: 44px; width: {mid_w}px; height: 360px; border-style: dashed; }}
+.mid .label {{ position: absolute; left: 22px; top: 24px; display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 700; color: {t["muted"]}; letter-spacing: .08em; }}
+.inner {{ position: absolute; left: 22px; right: 22px; height: {card_h}px; padding: 0 20px; display: flex; gap: 18px; align-items: center; }}
+.slot {{ width: 80px; height: 64px; border-radius: 14px; display: flex; align-items: center; justify-content: center; flex: none; background: {t["chip"]}; }}
+.out {{ position: absolute; left: {out_x}px; width: {out_w}px; height: {card_h}px; padding: 20px 24px; display: flex; gap: 20px; align-items: center; }}
+.out i {{ width: 12px; height: 56px; border-radius: 6px; flex: none; }}
+.title + .text {{ margin-top: 4px; }}
+svg.lines {{ position: absolute; left: 0; top: 0; z-index: 2; }}
+#shard {{ position: relative; gap: 1px; }}
+"""
+    body = f"""{you}
+<div class="tile mid"><div class="label">{icon("box", t["muted"], 18)}DOCKER · ONLY YOUR FOLDER</div>
+<div class="tile inner" style="top:{prism_top - 46}px"><div class="slot">{grid}</div><div><div class="title">Prism</div><div class="text">edits, runs, checks</div></div></div>
+<div class="tile inner" style="top:{router_top - 46}px"><div class="slot">{icon("zap", t["fg"], 28)}</div><div><div class="title">Router</div><div class="text">races free models</div></div></div>
+</div>
+{right}
+<svg class="lines" width="{WIDTH}" height="{height}"><defs><linearGradient id="light" x1="0" x2="1"><stop offset="0" stop-color="{light}" stop-opacity=".35"/><stop offset="1" stop-color="{light}"/></linearGradient></defs>
+{"".join(paths)}</svg>"""
+    return f"how-{theme}.html", doc("How Prism works", css, body), height
 
 MAKERS = (features, platforms, models, how)
