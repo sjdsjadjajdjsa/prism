@@ -19,7 +19,7 @@ export const PRESETS = [
   { id: 'fireworks', name: 'Fireworks AI', baseURL: 'https://api.fireworks.ai/inference/v1', keyVar: 'FIREWORKS_API_KEY', paid: true, keyUrl: 'https://app.fireworks.ai/settings/users/api-keys', models: [] },
   { id: 'cerebras', name: 'Cerebras (has a free tier)', baseURL: 'https://api.cerebras.ai/v1', keyVar: 'CEREBRAS_API_KEY', paid: false, keyUrl: 'https://cloud.cerebras.ai', models: [] },
   { id: 'sambanova', name: 'SambaNova (has a free tier)', baseURL: 'https://api.sambanova.ai/v1', keyVar: 'SAMBANOVA_API_KEY', paid: false, keyUrl: 'https://cloud.sambanova.ai/apis', models: [] },
-  { id: 'openrouter-paid', name: 'OpenRouter (paid models)', baseURL: 'https://openrouter.ai/api/v1', keyVar: 'OPENROUTER_API_KEY', paid: true, keyUrl: 'https://openrouter.ai/keys', models: ['openai/gpt-4o-mini'] },
+  { id: 'openrouter-paid', name: 'OpenRouter (paid models)', baseURL: 'https://openrouter.ai/api/v1', keyVar: 'OPENROUTER_API_KEY', paid: true, keyUrl: 'https://openrouter.ai/keys', models: ['openai/gpt-4o-mini'], keyCheck: '/key' },
   { id: 'huggingface', name: 'Hugging Face router', baseURL: 'https://router.huggingface.co/v1', keyVar: 'HF_TOKEN', paid: true, keyUrl: 'https://huggingface.co/settings/tokens', models: [] },
   { id: 'perplexity', name: 'Perplexity', baseURL: 'https://api.perplexity.ai', keyVar: 'PERPLEXITY_API_KEY', paid: true, keyUrl: 'https://www.perplexity.ai/settings/api', models: [] },
   { id: 'cohere', name: 'Cohere', baseURL: 'https://api.cohere.com/compatibility/v1', keyVar: 'COHERE_API_KEY', paid: true, keyUrl: 'https://dashboard.cohere.com/api-keys', models: [] },

@@ -488,8 +488,9 @@ const keysRoute = async (req, res) => {
   if (!preset && !freeVar) return send(res, 404, { error: { message: `no provider called "${id || keyVar}"`, type: 'not_found' } })
   if (preset?.keyless) return send(res, 400, { error: { message: `${preset.id} needs no key`, type: 'invalid_request' } })
   const name = preset ? preset.keyVar : freeVar
-  const probed = preset && value ? await probeModels(preset, value) : null
-  if (probed?.rejected) return send(res, 400, { error: { message: `${preset.name} rejected this key, so it was not saved. Check it and try again.`, type: 'key_rejected' } })
+  const freeProvider = preset ? null : config.providers.find(p => p.requires === freeVar && p.auth !== false && !p.baseURL.includes('${'))
+  const probed = value && (preset || freeProvider) ? await probeModels(preset ?? { baseURL: freeProvider.baseURL, keyCheck: freeProvider.keyCheck }, value) : null
+  if (probed?.rejected) return send(res, 400, { error: { message: `${preset?.name ?? freeProvider.name} rejected this key, so it was not saved. Check it and try again.`, type: 'key_rejected' } })
   setKeyVar(keysPath(), name, value)
   if (!value) return send(res, 200, { ok: true, removed: true })
   let models = null

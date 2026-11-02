@@ -630,6 +630,21 @@ test('keys: list, set, remove a built-in free key', async () => {
   await chat2.text()
 })
 
+test('keys: a free key its service refuses is not saved', async () => {
+  const refusing = await upstream((req, res) => {
+    res.writeHead(req.url === '/models' ? 401 : 200)
+    res.end('{}')
+  })
+  const dir = mkdtempSync(join(tmpdir(), 'keys-'))
+  const keysFile = join(dir, 'keys.conf')
+  writeFileSync(keysFile, '')
+  const r = await startRouter([{ name: 'nv', requires: 'NV_API_KEY', baseURL: refusing, models: ['m'] }], { PRISM_KEYS_FILE: keysFile, PRISM_CUSTOM_FILE: join(dir, 'custom-providers.json') })
+  const res = await fetch(r.url + '/keys', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'nv', value: 'sk-wrong-123456' }) })
+  assert.equal(res.status, 400)
+  assert.equal((await res.json()).error.type, 'key_rejected')
+  assert.doesNotMatch(readFileSync(keysFile, 'utf8'), /NV_API_KEY/)
+})
+
 test('keys: a preset key saves its provider entry with fallback models', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'keys-'))
   const keysFile = join(dir, 'keys.conf')
