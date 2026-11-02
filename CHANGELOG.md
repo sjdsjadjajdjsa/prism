@@ -2,8 +2,13 @@
 
 ## Unreleased
 
+### New
+
+- BeatAPI is a new free key: `prism setup` or `/key beatapi <secret>` adds its free DeepSeek V4.1, GLM-5.3, Gemini 3.8 and MiniMax M3.1 Flash models. A new BeatAPI account allows 1 request a minute until its first top-up.
+
 ### Changed
 
+- `/key` now checks free keys with their service before saving them. A key that Groq, Mistral, OpenRouter, Z.ai or BeatAPI refuses is not saved, so a typo shows up at once. OpenRouter paid keys are checked too.
 - macOS with Docker Desktop is now tested and marked as working in the README and setup guide.
 
 ## 0.4.1 (2026-10-31)

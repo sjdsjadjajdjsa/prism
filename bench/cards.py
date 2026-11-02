@@ -60,6 +60,7 @@ MODELS = [
         ("Mistral", "Codestral"),
         ("OpenRouter", "Gemma 4 31B and its free pick"),
         ("Z.ai", "GLM-4.7 Flash"),
+        ("BeatAPI", "DeepSeek, GLM, Gemini, MiniMax"),
         ("Ollama", "any model on your computer"),
     ]),
     ("login", "Your plan", "/login in your browser", [
@@ -150,7 +151,7 @@ def platforms(theme):
 
 def models(theme):
     t = THEMES[theme]
-    height = 44 * 2 + 112 + 7 * 58 + 24 + 56
+    height = 44 * 2 + 112 + 8 * 58 + 24 + 56
     cols = []
     for i, (name, title, text, rows) in enumerate(MODELS):
         color = accent(t, i * 3, 7)
@@ -159,7 +160,7 @@ def models(theme):
                     f'<div><div class="title">{esc(title)}</div><div class="text">{esc(text)}</div></div></div>{items}</div>')
     css = card_css(t, height) + f"""
 .grid {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }}
-.col {{ padding: 24px 24px 12px; height: {112 + 7 * 58 + 24}px; }}
+.col {{ padding: 24px 24px 12px; height: {112 + 8 * 58 + 24}px; }}
 .head {{ display: flex; gap: 16px; align-items: center; height: 88px; border-bottom: 2px solid {t["line"]}; margin-bottom: 8px; }}
 .head .text {{ font-size: 16px; line-height: 22px; }}
 .m {{ height: 58px; display: flex; flex-direction: column; justify-content: center; }}

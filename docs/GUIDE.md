@@ -38,6 +38,7 @@ Want it faster and smarter? `prism setup` walks you through free keys from AI co
 | Mistral | Codestral | free |
 | OpenRouter | free Gemma and others (50 requests a day) | free |
 | Z.ai | GLM-4.7 Flash | free |
+| BeatAPI | DeepSeek, GLM, Gemini and MiniMax Flash (1 request a minute until you top up) | free |
 | Ollama | any model on your own computer | none |
 
 Local models on your own computer (Ollama, LM Studio) cost you nothing, so `auto` can use them too.

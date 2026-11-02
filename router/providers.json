@@ -93,6 +93,7 @@
       "name": "openrouter",
       "requires": "OPENROUTER_API_KEY",
       "baseURL": "https://openrouter.ai/api/v1",
+      "keyCheck": "/key",
       "models": [
         {
           "name": "google/gemma-4-31b-it:free",
@@ -143,6 +144,29 @@
           "roles": [
             "fast"
           ]
+        }
+      ]
+    },
+    {
+      "name": "beatapi",
+      "requires": "BEATAPI_API_KEY",
+      "baseURL": "https://direct.beatapi.io/v1",
+      "models": [
+        {
+          "name": "deepseek-v4.1-flash-free",
+          "family": "deepseek"
+        },
+        {
+          "name": "glm-5.3-flash-free",
+          "family": "glm"
+        },
+        {
+          "name": "gemini-3.8-flash-free",
+          "family": "gemini"
+        },
+        {
+          "name": "minimax-m3.1-flash-free",
+          "family": "minimax"
         }
       ]
     },

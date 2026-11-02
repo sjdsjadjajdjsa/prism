@@ -102,7 +102,7 @@ cd prism
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="docs/models-light.png">
-  <img src="docs/models-dark.png" alt="Free with no key: Kilo Gateway, BlockRun, LLM7. Free with a free key: NVIDIA, Groq, Google AI Studio, Mistral, OpenRouter, Z.ai, Ollama. Your plan through /login: ChatGPT, Claude, Grok, Antigravity, Copilot. /key adds 23 pay-per-use services." width="100%">
+  <img src="docs/models-dark.png" alt="Free with no key: Kilo Gateway, BlockRun, LLM7. Free with a free key: NVIDIA, Groq, Google AI Studio, Mistral, OpenRouter, Z.ai, BeatAPI, Ollama. Your plan through /login: ChatGPT, Claude, Grok, Antigravity, Copilot. /key adds 23 pay-per-use services." width="100%">
 </picture>
 
 <details>
@@ -128,6 +128,7 @@ cd prism
 | Mistral | Codestral (latest) |
 | OpenRouter | Gemma 4 31B, OpenRouter's free pick (50 requests a day) |
 | Z.ai | GLM-4.7 Flash |
+| BeatAPI | DeepSeek V4.1 Flash, GLM-5.3 Flash, Gemini 3.8 Flash, MiniMax M3.1 Flash (1 request a minute until you top up) |
 | Ollama | any model on your own computer |
 
 ### Sign in with a plan
@@ -200,7 +201,7 @@ Bug reports, platform reports and new free providers are welcome. See [CONTRIBUT
 
 Built with [Empryo](https://empryo.com). Ideas from [OpenCode](https://opencode.ai), [Crush](https://github.com/charmbracelet/crush), [jcode](https://jcode.sh), [Claude Code](https://www.anthropic.com/claude-code) and [Codex](https://github.com/openai/codex); measured against [Aider](https://aider.chat) and [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent). The look is built on [Charm](https://charm.land)'s [Bubble Tea](https://github.com/charmbracelet/bubbletea) and inspired by [Omarchy](https://omarchy.org).
 
-Free thanks to [NVIDIA](https://build.nvidia.com), [Groq](https://groq.com), [Mistral](https://mistral.ai), [Google Gemini](https://ai.google.dev), [OpenRouter](https://openrouter.ai), [Kilo](https://kilo.ai), [BlockRun](https://blockrun.ai), [LLM7](https://llm7.io), [Z.ai](https://z.ai) and [Ollama](https://ollama.com). The beam is named after the [Last Prism](https://terraria.wiki.gg/wiki/Last_Prism) from [Terraria](https://terraria.org); the art is original.
+Free thanks to [NVIDIA](https://build.nvidia.com), [Groq](https://groq.com), [Mistral](https://mistral.ai), [Google Gemini](https://ai.google.dev), [OpenRouter](https://openrouter.ai), [BeatAPI](https://beatapi.io), [Kilo](https://kilo.ai), [BlockRun](https://blockrun.ai), [LLM7](https://llm7.io), [Z.ai](https://z.ai) and [Ollama](https://ollama.com). The beam is named after the [Last Prism](https://terraria.wiki.gg/wiki/Last_Prism) from [Terraria](https://terraria.org); the art is original.
 
 ## License
 

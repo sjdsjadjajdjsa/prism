@@ -357,6 +357,7 @@ setup() {
   ask_key MISTRAL_API_KEY "Mistral: Codestral, made for code" "https://console.mistral.ai/api-keys"
   ask_key OPENROUTER_API_KEY "OpenRouter: free Gemma and other free models (50 requests a day)" "https://openrouter.ai/keys"
   ask_key ZAI_API_KEY "Z.ai: GLM-4.7 Flash" "https://z.ai/manage-apikey/apikey-list"
+  ask_key BEATAPI_API_KEY "BeatAPI: free DeepSeek, GLM, Gemini and MiniMax Flash (1 request a minute until you top up)" "https://beatapi.io/dashboard/apikeys"
   compose up -d --force-recreate router >/dev/null 2>&1
   echo
   echo "Saved. Run: $(prism_cmd) status"
@@ -366,7 +367,7 @@ setup() {
 # Your own models (prism keys, keys add, keys remove). The list lives in
 # custom-providers.json, one entry per line; the secret keys stay in keys.conf.
 CUSTOM="$HERE/custom-providers.json"
-FREE_KEYS="NVIDIA_API_KEY:NVIDIA GROQ_API_KEY:Groq GEMINI_API_KEY:Google MISTRAL_API_KEY:Mistral OPENROUTER_API_KEY:OpenRouter ZAI_API_KEY:Z.ai"
+FREE_KEYS="NVIDIA_API_KEY:NVIDIA GROQ_API_KEY:Groq GEMINI_API_KEY:Google MISTRAL_API_KEY:Mistral OPENROUTER_API_KEY:OpenRouter ZAI_API_KEY:Z.ai BEATAPI_API_KEY:BeatAPI"
 
 key_value() { grep -E "^$1=" "$KEYS" 2>/dev/null | cut -d= -f2- || true; }
 
